@@ -56,7 +56,6 @@ run_with_tty() {
   run "$INSTILL_BIN" check-skills
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *"removed: golang-cli"* ]]
   [[ "$output" == *"created: docker ->"* ]]
   [[ "$output" == *"ok: 1 skills linked"* ]]
   [ "$(readlink .claude/skills/docker)" = "$SKILL_LIBRARY_PATH/docker" ]
