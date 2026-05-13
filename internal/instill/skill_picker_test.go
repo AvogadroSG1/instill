@@ -93,6 +93,28 @@ func TestSkillPickerShowsTopLevelCategoriesAlphabetically(t *testing.T) {
 	}
 }
 
+func TestSkillPickerCategoryNavigationDoesNotFilterSkillsYet(t *testing.T) {
+	t.Parallel()
+
+	model := newSkillPickerModel(
+		[]string{"azure-blob-storage", "docker", "golang-cli"},
+		[]string{},
+		[]string{"cloud", "golang"},
+	)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(skillPickerModel)
+
+	if model.categoryCursor != 1 {
+		t.Fatalf("categoryCursor = %d, want 1", model.categoryCursor)
+	}
+	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage,docker,golang-cli" {
+		t.Fatalf("visible skills = %q, want category movement to preserve unfiltered skills", got)
+	}
+}
+
 func TestSkillPickerCategoriesForLibraryUsesRegistryTopLevels(t *testing.T) {
 	t.Parallel()
 
@@ -112,6 +134,18 @@ func TestSkillPickerCategoriesForLibraryFallsBackToAll(t *testing.T) {
 	t.Parallel()
 
 	library := createLibrary(t, "docker")
+
+	model := newSkillPickerModel([]string{"docker"}, []string{}, skillPickerCategoriesForLibrary(library))
+	if got := strings.Join(model.categories, ","); got != "All" {
+		t.Fatalf("categories = %q, want All fallback", got)
+	}
+}
+
+func TestSkillPickerCategoriesForLibraryEmptyRegistryFallsBackToAll(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "docker")
+	writeCategories(t, library, `{}`)
 
 	model := newSkillPickerModel([]string{"docker"}, []string{}, skillPickerCategoriesForLibrary(library))
 	if got := strings.Join(model.categories, ","); got != "All" {
