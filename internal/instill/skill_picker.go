@@ -76,6 +76,7 @@ type skillPickerModel struct {
 	selected       map[string]bool
 	categories     []string
 	categorySkills map[string][]string
+	categoryPath   []string
 	categoryCursor int
 	skillCursor    int
 	focusedPane    skillPickerPane
@@ -165,8 +166,22 @@ func (m skillPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.confirmed = true
 		return m, tea.Quit
 	case tea.KeyLeft:
+		if m.focusedPane == skillPickerCategoriesPane && len(m.categoryPath) > 0 {
+			m.categoryPath = m.categoryPath[:len(m.categoryPath)-1]
+			m.categories = m.categoriesForPath()
+			m.categoryCursor = 0
+			m.skillCursor = 0
+			break
+		}
 		m.focusedPane = skillPickerCategoriesPane
 	case tea.KeyRight:
+		if m.focusedPane == skillPickerCategoriesPane && m.selectedCategoryHasChildren() {
+			m.categoryPath = append(m.categoryPath, m.selectedCategory())
+			m.categories = m.categoriesForPath()
+			m.categoryCursor = 0
+			m.skillCursor = 0
+			break
+		}
 		m.focusedPane = skillPickerSkillsPane
 	case tea.KeyUp:
 		m.move(-1)
@@ -222,6 +237,9 @@ func (m skillPickerModel) View() string {
 	_, _ = fmt.Fprintf(&builder, "Select skills (%d selected)\n", len(m.selectedSkills()))
 	if m.filtering || m.filter != "" {
 		builder.WriteString("/" + m.filter + "\n")
+	}
+	if breadcrumb := m.categoryBreadcrumb(); breadcrumb != "" {
+		builder.WriteString(breadcrumb + "\n")
 	}
 
 	categoryLines := m.categoryPaneLines()
@@ -347,7 +365,7 @@ func (m skillPickerModel) visibleSkills() []string {
 }
 
 func (m skillPickerModel) visibleCategorySkills() []string {
-	category := m.selectedCategory()
+	category := m.selectedCategoryPath()
 	if category == "" || category == "All" || len(m.categorySkills) == 0 {
 		return append([]string{}, m.skills...)
 	}
@@ -366,6 +384,63 @@ func (m skillPickerModel) selectedCategory() string {
 		return ""
 	}
 	return m.categories[m.categoryCursor]
+}
+
+func (m skillPickerModel) selectedCategoryPath() string {
+	category := m.selectedCategory()
+	if category == "" || category == "All" {
+		return category
+	}
+	path := append([]string{}, m.categoryPath...)
+	path = append(path, category)
+	return strings.Join(path, "/")
+}
+
+func (m skillPickerModel) selectedCategoryHasChildren() bool {
+	categoryPath := m.selectedCategoryPath()
+	if categoryPath == "" || categoryPath == "All" {
+		return false
+	}
+	prefix := categoryPath + "/"
+	for category := range m.categorySkills {
+		remainder, ok := strings.CutPrefix(category, prefix)
+		if ok && remainder != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (m skillPickerModel) categoriesForPath() []string {
+	if len(m.categoryPath) == 0 {
+		return categoryPaneEntries(topLevelCategories(m.categorySkills))
+	}
+
+	prefix := strings.Join(m.categoryPath, "/") + "/"
+	children := map[string]struct{}{}
+	for category := range m.categorySkills {
+		remainder, ok := strings.CutPrefix(category, prefix)
+		if !ok || remainder == "" {
+			continue
+		}
+		child, _, _ := strings.Cut(remainder, "/")
+		if child != "" {
+			children[child] = struct{}{}
+		}
+	}
+	entries := make([]string, 0, len(children))
+	for child := range children {
+		entries = append(entries, child)
+	}
+	sort.Strings(entries)
+	return entries
+}
+
+func (m skillPickerModel) categoryBreadcrumb() string {
+	if len(m.categoryPath) == 0 {
+		return ""
+	}
+	return strings.Join(m.categoryPath, " > ")
 }
 
 func skillInSelectedCategory(categories map[string][]string, selectedCategory string, skillName string) bool {

@@ -156,6 +156,82 @@ func TestSkillPickerAllCategoryShowsAllSkillsBeforeFiltering(t *testing.T) {
 	}
 }
 
+func TestSkillPickerDrillsDownAndNavigatesBack(t *testing.T) {
+	t.Parallel()
+
+	model := newSkillPickerModel(
+		[]string{"azure-blob-storage", "azure-functions", "docker", "golang-cli"},
+		[]string{},
+		[]string{"cloud", "golang"},
+		map[string][]string{
+			"cloud/azure":  {"azure-blob-storage"},
+			"cloud/server": {"azure-functions"},
+			"cloud":        {"docker"},
+			"golang":       {"golang-cli"},
+		},
+	)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model = updated.(skillPickerModel)
+
+	if got := strings.Join(model.categoryPath, "/"); got != "cloud" {
+		t.Fatalf("categoryPath = %q, want cloud", got)
+	}
+	if got := strings.Join(model.categories, ","); got != "azure,server" {
+		t.Fatalf("categories = %q, want cloud children", got)
+	}
+	if got := model.categoryBreadcrumb(); got != "cloud" {
+		t.Fatalf("breadcrumb = %q, want cloud", got)
+	}
+	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage" {
+		t.Fatalf("visible skills = %q, want azure skills", got)
+	}
+	view := model.View()
+	if !strings.Contains(view, "cloud\n") {
+		t.Fatalf("view = %q, want cloud breadcrumb", view)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(skillPickerModel)
+	if got := strings.Join(model.categoryPath, "/"); got != "" {
+		t.Fatalf("categoryPath = %q, want top level", got)
+	}
+	if got := strings.Join(model.categories, ","); got != "All,cloud,golang" {
+		t.Fatalf("categories = %q, want top-level categories", got)
+	}
+	if model.categoryCursor != 0 || model.skillCursor != 0 {
+		t.Fatalf("categoryCursor = %d skillCursor = %d, want reset", model.categoryCursor, model.skillCursor)
+	}
+}
+
+func TestSkillPickerRightArrowOnLeafFocusesSkillsPane(t *testing.T) {
+	t.Parallel()
+
+	model := newSkillPickerModel(
+		[]string{"docker"},
+		[]string{},
+		[]string{"cloud"},
+		map[string][]string{"cloud": {"docker"}},
+	)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model = updated.(skillPickerModel)
+
+	if model.focusedPane != skillPickerSkillsPane {
+		t.Fatalf("focusedPane = %v, want skills pane", model.focusedPane)
+	}
+	if got := strings.Join(model.categoryPath, "/"); got != "" {
+		t.Fatalf("categoryPath = %q, want no drilldown on leaf", got)
+	}
+}
+
 func TestSkillPickerCategoriesForLibraryUsesRegistryTopLevels(t *testing.T) {
 	t.Parallel()
 
