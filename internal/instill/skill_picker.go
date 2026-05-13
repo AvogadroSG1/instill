@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -41,13 +42,14 @@ func RunPickSkillsTUI(opts PickSkillsTUIOptions) error {
 	if err != nil {
 		return err
 	}
+	categoryEntries := skillPickerCategoriesForLibrary(opts.LibraryPath)
 
 	output := opts.Stderr
 	if output == nil {
 		output = io.Discard
 	}
 	program := tea.NewProgram(
-		newSkillPickerModel(librarySkills, manifest.Skills),
+		newSkillPickerModel(librarySkills, manifest.Skills, categoryEntries),
 		tea.WithInput(opts.Stdin),
 		tea.WithOutput(output),
 	)
@@ -69,19 +71,19 @@ func RunPickSkillsTUI(opts PickSkillsTUIOptions) error {
 }
 
 type skillPickerModel struct {
-	skills           []string
-	selected         map[string]bool
-	categories       []string
-	categoryCursor   int
-	skillCursor      int
-	focusedPane      skillPickerPane
-	filter           string
-	filtering        bool
-	confirmed        bool
-	cancelled        bool
+	skills         []string
+	selected       map[string]bool
+	categories     []string
+	categoryCursor int
+	skillCursor    int
+	focusedPane    skillPickerPane
+	filter         string
+	filtering      bool
+	confirmed      bool
+	cancelled      bool
 }
 
-func newSkillPickerModel(skills []string, selected []string) skillPickerModel {
+func newSkillPickerModel(skills []string, selected []string, categories []string) skillPickerModel {
 	available := make(map[string]struct{}, len(skills))
 	for _, skill := range skills {
 		available[skill] = struct{}{}
@@ -95,9 +97,38 @@ func newSkillPickerModel(skills []string, selected []string) skillPickerModel {
 	return skillPickerModel{
 		skills:      append([]string{}, skills...),
 		selected:    selection,
-		categories:  []string{"(categories)"},
+		categories:  categoryPaneEntries(categories),
 		focusedPane: skillPickerSkillsPane,
 	}
+}
+
+func categoryPaneEntries(categories []string) []string {
+	if len(categories) == 0 {
+		return []string{"All"}
+	}
+	return append([]string{}, categories...)
+}
+
+func topLevelCategories(categories map[string][]string) []string {
+	topLevel := map[string]struct{}{}
+	for category := range categories {
+		top, _, _ := strings.Cut(strings.Trim(category, "/"), "/")
+		if top == "" {
+			continue
+		}
+		topLevel[top] = struct{}{}
+	}
+
+	entries := make([]string, 0, len(topLevel))
+	for category := range topLevel {
+		entries = append(entries, category)
+	}
+	sort.Strings(entries)
+	return entries
+}
+
+func skillPickerCategoriesForLibrary(libraryPath string) []string {
+	return topLevelCategories(LoadCategoriesWithWarnings(libraryPath, nil))
 }
 
 func (m skillPickerModel) Init() tea.Cmd {
