@@ -79,6 +79,57 @@ func TestCheckSkillsCreatesSymlink(t *testing.T) {
 	}
 }
 
+func TestCheckSkillsWarnsForUncategorizedSkillsWhenRegistryExists(t *testing.T) {
+	library := createLibrary(t, "docker", "golang-cli")
+	writeCategories(t, library, `{"golang": ["golang-cli"]}`)
+	root := createProject(t, []string{"golang-cli"})
+	t.Setenv("SKILL_LIBRARY_PATH", library)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"check-skills"},
+		cwd:    root,
+	})
+
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "uncategorized: docker\n") {
+		t.Fatalf("stdout = %q, want uncategorized docker warning", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "uncategorized: golang-cli") {
+		t.Fatalf("stdout = %q, want categorized skill omitted", stdout.String())
+	}
+}
+
+func TestCheckSkillsMissingCategoryRegistryIsSilent(t *testing.T) {
+	library := createLibrary(t, "docker")
+	root := createProject(t, []string{"docker"})
+	t.Setenv("SKILL_LIBRARY_PATH", library)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"check-skills"},
+		cwd:    root,
+	})
+
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "uncategorized:") {
+		t.Fatalf("stdout = %q, want no uncategorized warning", stdout.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want silence", stderr.String())
+	}
+}
+
 func TestCheckSkillsMissingConfigExitsTwo(t *testing.T) {
 	root := createProject(t, []string{"docker"})
 	t.Setenv("SKILL_LIBRARY_PATH", "")

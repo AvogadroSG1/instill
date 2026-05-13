@@ -69,6 +69,11 @@ func loadCategories(libraryPath string) (map[string][]string, error) {
 	return categories, nil
 }
 
+func CategoryRegistryExists(libraryPath string) bool {
+	info, err := os.Stat(filepath.Join(libraryPath, categoriesFileName))
+	return err == nil && !info.IsDir()
+}
+
 // CategoryForSkill returns the category path assigned to skillName.
 func CategoryForSkill(categories map[string][]string, skillName string) string {
 	matches := make([]string, 0, 1)
