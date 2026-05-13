@@ -98,6 +98,49 @@ func TestShowLibraryFilterIsCaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestShowLibraryCategoryFiltersByPrefix(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "azure-blob-storage", "docker", "golang-cli")
+	writeCategories(t, library, `{
+		"cloud/azure": ["azure-blob-storage"],
+		"cloud": ["docker"],
+		"golang": ["golang-cli"]
+	}`)
+
+	var stdout bytes.Buffer
+	if err := ShowLibrary(ShowLibraryOptions{
+		LibraryPath: library,
+		Category:    "cloud",
+		Stdout:      &stdout,
+	}); err != nil {
+		t.Fatalf("ShowLibrary() error = %v", err)
+	}
+
+	if stdout.String() != "azure-blob-storage\ndocker\n2 skills\n" {
+		t.Fatalf("stdout = %q, want cloud skills", stdout.String())
+	}
+}
+
+func TestShowLibraryCategoryMissingRegistryIsUnfiltered(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "docker", "golang-cli")
+
+	var stdout bytes.Buffer
+	if err := ShowLibrary(ShowLibraryOptions{
+		LibraryPath: library,
+		Category:    "cloud",
+		Stdout:      &stdout,
+	}); err != nil {
+		t.Fatalf("ShowLibrary() error = %v", err)
+	}
+
+	if stdout.String() != "docker\ngolang-cli\n2 skills\n" {
+		t.Fatalf("stdout = %q, want unfiltered skills", stdout.String())
+	}
+}
+
 func TestShowLibraryEmptyLibrary(t *testing.T) {
 	t.Parallel()
 
