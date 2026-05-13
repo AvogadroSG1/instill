@@ -7,3 +7,5 @@
 .DS_Store
 /dist/
 /instill
+# instill — managed symlinks, do not commit
+.claude/skills/
