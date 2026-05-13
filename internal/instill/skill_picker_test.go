@@ -208,6 +208,36 @@ func TestSkillPickerDrillsDownAndNavigatesBack(t *testing.T) {
 	}
 }
 
+func TestSkillPickerFilterStaysScopedAfterDrilldown(t *testing.T) {
+	t.Parallel()
+
+	model := newSkillPickerModel(
+		[]string{"azure-blob-storage", "azure-functions", "golang-azure-helper"},
+		[]string{},
+		[]string{"cloud", "golang"},
+		map[string][]string{
+			"cloud/azure":  {"azure-blob-storage"},
+			"cloud/server": {"azure-functions"},
+			"golang":       {"golang-azure-helper"},
+		},
+	)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("azure")})
+	model = updated.(skillPickerModel)
+
+	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage" {
+		t.Fatalf("visible skills = %q, want only drilled category matches", got)
+	}
+}
+
 func TestSkillPickerRightArrowOnLeafFocusesSkillsPane(t *testing.T) {
 	t.Parallel()
 
