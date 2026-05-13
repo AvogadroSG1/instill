@@ -42,14 +42,15 @@ func RunPickSkillsTUI(opts PickSkillsTUIOptions) error {
 	if err != nil {
 		return err
 	}
-	categoryEntries := skillPickerCategoriesForLibrary(opts.LibraryPath)
+	categoryAssignments := LoadCategoriesWithWarnings(opts.LibraryPath, nil)
+	categoryEntries := topLevelCategories(categoryAssignments)
 
 	output := opts.Stderr
 	if output == nil {
 		output = io.Discard
 	}
 	program := tea.NewProgram(
-		newSkillPickerModel(librarySkills, manifest.Skills, categoryEntries),
+		newSkillPickerModel(librarySkills, manifest.Skills, categoryEntries, categoryAssignments),
 		tea.WithInput(opts.Stdin),
 		tea.WithOutput(output),
 	)
@@ -74,6 +75,7 @@ type skillPickerModel struct {
 	skills         []string
 	selected       map[string]bool
 	categories     []string
+	categorySkills map[string][]string
 	categoryCursor int
 	skillCursor    int
 	focusedPane    skillPickerPane
@@ -83,7 +85,7 @@ type skillPickerModel struct {
 	cancelled      bool
 }
 
-func newSkillPickerModel(skills []string, selected []string, categories []string) skillPickerModel {
+func newSkillPickerModel(skills []string, selected []string, categories []string, categorySkills map[string][]string) skillPickerModel {
 	available := make(map[string]struct{}, len(skills))
 	for _, skill := range skills {
 		available[skill] = struct{}{}
@@ -95,10 +97,11 @@ func newSkillPickerModel(skills []string, selected []string, categories []string
 		}
 	}
 	return skillPickerModel{
-		skills:      append([]string{}, skills...),
-		selected:    selection,
-		categories:  categoryPaneEntries(categories),
-		focusedPane: skillPickerSkillsPane,
+		skills:         append([]string{}, skills...),
+		selected:       selection,
+		categories:     categoryPaneEntries(categories),
+		categorySkills: copyCategories(categorySkills),
+		focusedPane:    skillPickerSkillsPane,
 	}
 }
 
@@ -129,6 +132,17 @@ func topLevelCategories(categories map[string][]string) []string {
 
 func skillPickerCategoriesForLibrary(libraryPath string) []string {
 	return topLevelCategories(LoadCategoriesWithWarnings(libraryPath, nil))
+}
+
+func copyCategories(categories map[string][]string) map[string][]string {
+	if len(categories) == 0 {
+		return map[string][]string{}
+	}
+	copied := make(map[string][]string, len(categories))
+	for category, skills := range categories {
+		copied[category] = append([]string{}, skills...)
+	}
+	return copied
 }
 
 func (m skillPickerModel) Init() tea.Cmd {
@@ -233,12 +247,16 @@ func (m skillPickerModel) View() string {
 
 func (m *skillPickerModel) move(delta int) {
 	if m.focusedPane == skillPickerCategoriesPane {
+		previous := m.categoryCursor
 		m.categoryCursor += delta
 		if m.categoryCursor < 0 {
 			m.categoryCursor = 0
 		}
 		if m.categoryCursor >= len(m.categories) {
 			m.categoryCursor = len(m.categories) - 1
+		}
+		if m.categoryCursor != previous {
+			m.skillCursor = 0
 		}
 		return
 	}
@@ -323,7 +341,43 @@ func (m skillPickerModel) skillPaneLines(visible []string) []string {
 }
 
 func (m skillPickerModel) visibleSkills() []string {
-	return fuzzyFilterSkills(m.skills, m.filter)
+	return fuzzyFilterSkills(m.visibleCategorySkills(), m.filter)
+}
+
+func (m skillPickerModel) visibleCategorySkills() []string {
+	category := m.selectedCategory()
+	if category == "" || category == "All" || len(m.categorySkills) == 0 {
+		return append([]string{}, m.skills...)
+	}
+
+	filtered := make([]string, 0, len(m.skills))
+	for _, skill := range m.skills {
+		if skillInSelectedCategory(m.categorySkills, category, skill) {
+			filtered = append(filtered, skill)
+		}
+	}
+	return filtered
+}
+
+func (m skillPickerModel) selectedCategory() string {
+	if m.categoryCursor < 0 || m.categoryCursor >= len(m.categories) {
+		return ""
+	}
+	return m.categories[m.categoryCursor]
+}
+
+func skillInSelectedCategory(categories map[string][]string, selectedCategory string, skillName string) bool {
+	for category, skills := range categories {
+		if category != selectedCategory && !strings.HasPrefix(category, selectedCategory+"/") {
+			continue
+		}
+		for _, skill := range skills {
+			if skill == skillName {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (m skillPickerModel) selectedSkills() []string {
