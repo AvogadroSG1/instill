@@ -40,6 +40,39 @@ func TestSkillPickerPrechecksTogglesFiltersAndConfirms(t *testing.T) {
 	}
 }
 
+func TestSkillPickerScaffoldShowsTwoPanesAndSwitchesFocus(t *testing.T) {
+	t.Parallel()
+
+	model := newSkillPickerModel([]string{"docker"}, []string{})
+	view := model.View()
+	if !strings.Contains(view, "Categories") ||
+		!strings.Contains(view, "(categories)") ||
+		!strings.Contains(view, "Skills") ||
+		!strings.Contains(view, "> [ ] docker") {
+		t.Fatalf("view = %q, want category scaffold and focused skill row", view)
+	}
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(skillPickerModel)
+	if model.focusedPane != skillPickerCategoriesPane {
+		t.Fatalf("focusedPane = %v, want categories pane", model.focusedPane)
+	}
+	model.toggleCurrent()
+	if model.selected["docker"] {
+		t.Fatal("docker selected while category pane focused")
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model = updated.(skillPickerModel)
+	if model.focusedPane != skillPickerSkillsPane {
+		t.Fatalf("focusedPane = %v, want skills pane", model.focusedPane)
+	}
+	model.toggleCurrent()
+	if !model.selected["docker"] {
+		t.Fatal("docker not selected after returning to skills pane")
+	}
+}
+
 func TestSkillPickerTogglesOffPrecheckedSkill(t *testing.T) {
 	t.Parallel()
 
@@ -96,8 +129,8 @@ func TestSkillPickerHandlesLargeLibrary(t *testing.T) {
 		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
 		model = updated.(skillPickerModel)
 	}
-	if model.cursor != 219 {
-		t.Fatalf("cursor = %d, want 219", model.cursor)
+	if model.skillCursor != 219 {
+		t.Fatalf("skillCursor = %d, want 219", model.skillCursor)
 	}
 	model.toggleCurrent()
 	if got := strings.Join(model.selectedSkills(), ","); got != "skill-219" {

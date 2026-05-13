@@ -11,6 +11,13 @@ import (
 
 const skillPickerPageSize = 15
 
+type skillPickerPane int
+
+const (
+	skillPickerCategoriesPane skillPickerPane = iota
+	skillPickerSkillsPane
+)
+
 // PickSkillsTUIOptions configures the interactive skill picker.
 type PickSkillsTUIOptions struct {
 	Project     Project
@@ -62,13 +69,16 @@ func RunPickSkillsTUI(opts PickSkillsTUIOptions) error {
 }
 
 type skillPickerModel struct {
-	skills    []string
-	selected  map[string]bool
-	cursor    int
-	filter    string
-	filtering bool
-	confirmed bool
-	cancelled bool
+	skills           []string
+	selected         map[string]bool
+	categories       []string
+	categoryCursor   int
+	skillCursor      int
+	focusedPane      skillPickerPane
+	filter           string
+	filtering        bool
+	confirmed        bool
+	cancelled        bool
 }
 
 func newSkillPickerModel(skills []string, selected []string) skillPickerModel {
@@ -83,8 +93,10 @@ func newSkillPickerModel(skills []string, selected []string) skillPickerModel {
 		}
 	}
 	return skillPickerModel{
-		skills:   append([]string{}, skills...),
-		selected: selection,
+		skills:      append([]string{}, skills...),
+		selected:    selection,
+		categories:  []string{"(categories)"},
+		focusedPane: skillPickerSkillsPane,
 	}
 }
 
@@ -105,6 +117,10 @@ func (m skillPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		m.confirmed = true
 		return m, tea.Quit
+	case tea.KeyLeft:
+		m.focusedPane = skillPickerCategoriesPane
+	case tea.KeyRight:
+		m.focusedPane = skillPickerSkillsPane
 	case tea.KeyUp:
 		m.move(-1)
 	case tea.KeyDown:
@@ -160,68 +176,119 @@ func (m skillPickerModel) View() string {
 	if m.filtering || m.filter != "" {
 		builder.WriteString("/" + m.filter + "\n")
 	}
-	if len(visible) == 0 {
-		builder.WriteString("No matching skills\n")
-		return builder.String()
+
+	categoryLines := m.categoryPaneLines()
+	skillLines := m.skillPaneLines(visible)
+	maxLines := len(categoryLines)
+	if len(skillLines) > maxLines {
+		maxLines = len(skillLines)
 	}
 
-	start := 0
-	if m.cursor >= skillPickerPageSize {
-		start = m.cursor - skillPickerPageSize + 1
-	}
-	end := start + skillPickerPageSize
-	if end > len(visible) {
-		end = len(visible)
-	}
-	for i := start; i < end; i++ {
-		prefix := "  "
-		if i == m.cursor {
-			prefix = "> "
+	builder.WriteString("Categories                 Skills\n")
+	for i := range maxLines {
+		category := ""
+		if i < len(categoryLines) {
+			category = categoryLines[i]
 		}
-		marker := "[ ]"
-		if m.selected[visible[i]] {
-			marker = "[✓]"
+		skill := ""
+		if i < len(skillLines) {
+			skill = skillLines[i]
 		}
-		builder.WriteString(prefix + marker + " " + visible[i] + "\n")
+		_, _ = fmt.Fprintf(&builder, "%-26s %s\n", category, skill)
 	}
-	builder.WriteString("Enter confirms, space toggles, / filters, q/Esc cancels\n")
+	builder.WriteString("Left/right changes pane, enter confirms, space toggles, / filters, q/Esc cancels\n")
 	return builder.String()
 }
 
 func (m *skillPickerModel) move(delta int) {
-	visible := m.visibleSkills()
-	if len(visible) == 0 {
-		m.cursor = 0
+	if m.focusedPane == skillPickerCategoriesPane {
+		m.categoryCursor += delta
+		if m.categoryCursor < 0 {
+			m.categoryCursor = 0
+		}
+		if m.categoryCursor >= len(m.categories) {
+			m.categoryCursor = len(m.categories) - 1
+		}
 		return
 	}
-	m.cursor += delta
+
+	visible := m.visibleSkills()
+	if len(visible) == 0 {
+		m.skillCursor = 0
+		return
+	}
+	m.skillCursor += delta
 	m.clampCursor()
 }
 
 func (m *skillPickerModel) clampCursor() {
 	visible := m.visibleSkills()
 	if len(visible) == 0 {
-		m.cursor = 0
+		m.skillCursor = 0
 		return
 	}
-	if m.cursor < 0 {
-		m.cursor = 0
+	if m.skillCursor < 0 {
+		m.skillCursor = 0
 	}
-	if m.cursor >= len(visible) {
-		m.cursor = len(visible) - 1
+	if m.skillCursor >= len(visible) {
+		m.skillCursor = len(visible) - 1
 	}
 }
 
 func (m *skillPickerModel) toggleCurrent() {
+	if m.focusedPane != skillPickerSkillsPane {
+		return
+	}
 	visible := m.visibleSkills()
 	if len(visible) == 0 {
 		return
 	}
-	skill := visible[m.cursor]
+	skill := visible[m.skillCursor]
 	m.selected[skill] = !m.selected[skill]
 	if !m.selected[skill] {
 		delete(m.selected, skill)
 	}
+}
+
+func (m skillPickerModel) categoryPaneLines() []string {
+	lines := make([]string, 0, len(m.categories))
+	for i, category := range m.categories {
+		prefix := "  "
+		if m.focusedPane == skillPickerCategoriesPane && i == m.categoryCursor {
+			prefix = "> "
+		}
+		lines = append(lines, prefix+category)
+	}
+	return lines
+}
+
+func (m skillPickerModel) skillPaneLines(visible []string) []string {
+	if len(visible) == 0 {
+		return []string{"No matching skills"}
+	}
+
+	start := 0
+	if m.skillCursor >= skillPickerPageSize {
+		start = m.skillCursor - skillPickerPageSize + 1
+	}
+	end := start + skillPickerPageSize
+	if end > len(visible) {
+		end = len(visible)
+	}
+
+	lines := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		prefix := "  "
+		if m.focusedPane == skillPickerSkillsPane && i == m.skillCursor {
+			prefix = "> "
+		}
+		marker := "[ ]"
+		if m.selected[visible[i]] {
+			marker = "[✓]"
+		}
+		lines = append(lines, prefix+marker+" "+visible[i])
+	}
+	return lines
 }
 
 func (m skillPickerModel) visibleSkills() []string {
