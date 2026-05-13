@@ -87,7 +87,7 @@ func TestSkillPickerShowsTopLevelCategoriesAlphabetically(t *testing.T) {
 	allIndex := strings.Index(view, "  All")
 	cloudIndex := strings.Index(view, "  cloud")
 	golangIndex := strings.Index(view, "  golang")
-	if allIndex == -1 || cloudIndex == -1 || golangIndex == -1 || !(allIndex < cloudIndex && cloudIndex < golangIndex) {
+	if allIndex == -1 || cloudIndex == -1 || golangIndex == -1 || allIndex >= cloudIndex || cloudIndex >= golangIndex {
 		t.Fatalf("view = %q, want All then alphabetic categories", view)
 	}
 	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage,docker,golang-cli" {
