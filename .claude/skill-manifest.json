@@ -4,8 +4,7 @@
     "git-advanced-workflows",
     "github-actions-templates",
     "gitops-workflow",
-    "golang-cli"
-    ,
+    "golang-cli",
     "golang-code-style",
     "golang-concurrency",
     "golang-context",
