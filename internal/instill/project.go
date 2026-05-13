@@ -1,3 +1,8 @@
+// Package instill implements the core domain logic for managing project-specific
+// AI coding skill libraries. It handles manifest read/write, skill library
+// discovery, symlink reconciliation, and Claude Code hook injection. All
+// functions accept explicit paths and writers — no direct os.Std* usage —
+// so the package is fully testable without a real terminal or filesystem.
 package instill
 
 import (

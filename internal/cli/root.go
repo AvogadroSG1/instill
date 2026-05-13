@@ -1,3 +1,6 @@
+// Package cli wires the instill Cobra command tree. Each sub-command receives
+// a commandConfig that injects stdin, stdout, stderr, cwd, and optional TUI
+// function so commands remain testable without a real terminal.
 package cli
 
 import (
@@ -19,6 +22,8 @@ type commandConfig struct {
 	pickSkillsTUI func(instill.PickSkillsTUIOptions) error
 }
 
+// Execute is the entry point for the instill CLI. It runs the root Cobra
+// command wired with os.Stdin/Stdout/Stderr and returns the process exit code.
 func Execute() int {
 	return execute(commandConfig{
 		stdin:  os.Stdin,
