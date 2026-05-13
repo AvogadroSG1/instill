@@ -79,6 +79,30 @@ func TestShowLibraryCLIWithCategory(t *testing.T) {
 	}
 }
 
+func TestShowLibraryCLIWithCategoryAndMissingRegistryIsSilent(t *testing.T) {
+	library := createLibrary(t, "docker", "golang-cli")
+	t.Setenv("SKILL_LIBRARY_PATH", library)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"show-library", "--category", "cloud"},
+		cwd:    t.TempDir(),
+	})
+
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "docker\ngolang-cli\n2 skills\n" {
+		t.Fatalf("stdout = %q, want unfiltered library", stdout.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want silent missing registry", stderr.String())
+	}
+}
+
 func TestShowLibraryCLIReconcilesMissingManifestSkill(t *testing.T) {
 	library := createLibrary(t, "docker")
 	root := createProject(t, []string{"docker", "missing"})
