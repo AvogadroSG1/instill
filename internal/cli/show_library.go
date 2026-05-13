@@ -10,6 +10,7 @@ import (
 
 func newShowLibraryCommand(cfg commandConfig) *cobra.Command {
 	var filter string
+	var category string
 
 	command := &cobra.Command{
 		Use:   "show-library",
@@ -62,11 +63,13 @@ func newShowLibraryCommand(cfg commandConfig) *cobra.Command {
 				LibraryPath: libraryPath,
 				Manifest:    manifest,
 				Filter:      filter,
+				Category:    category,
 				Stdout:      cfg.stdout,
 			})
 		},
 	}
 
 	command.Flags().StringVar(&filter, "filter", "", "case-insensitive skill name substring")
+	command.Flags().StringVar(&category, "category", "", "category path prefix")
 	return command
 }

@@ -51,6 +51,58 @@ func TestShowLibraryCLIInsideProjectWithFilter(t *testing.T) {
 	}
 }
 
+func TestShowLibraryCLIWithCategory(t *testing.T) {
+	library := createLibrary(t, "azure-blob-storage", "docker", "golang-cli")
+	root := createProject(t, []string{"docker", "golang-cli"})
+	writeCategories(t, library, `{
+		"cloud/azure": ["azure-blob-storage"],
+		"cloud": ["docker"],
+		"golang": ["golang-cli"]
+	}`)
+	t.Setenv("SKILL_LIBRARY_PATH", library)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"show-library", "--category", "cloud"},
+		cwd:    root,
+	})
+
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	want := "[ ] azure-blob-storage\n[✓] docker\n2 skills  (1 selected)\n"
+	if stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+	}
+}
+
+func TestShowLibraryCLIWithCategoryAndMissingRegistryIsSilent(t *testing.T) {
+	library := createLibrary(t, "docker", "golang-cli")
+	t.Setenv("SKILL_LIBRARY_PATH", library)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"show-library", "--category", "cloud"},
+		cwd:    t.TempDir(),
+	})
+
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "docker\ngolang-cli\n2 skills\n" {
+		t.Fatalf("stdout = %q, want unfiltered library", stdout.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want silent missing registry", stderr.String())
+	}
+}
+
 func TestShowLibraryCLIReconcilesMissingManifestSkill(t *testing.T) {
 	library := createLibrary(t, "docker")
 	root := createProject(t, []string{"docker", "missing"})
@@ -78,5 +130,13 @@ func TestShowLibraryCLIReconcilesMissingManifestSkill(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(root, ".claude", "skills", "missing")); !os.IsNotExist(err) {
 		t.Fatalf("missing symlink remains; err = %v", err)
+	}
+}
+
+func writeCategories(t *testing.T, library string, contents string) {
+	t.Helper()
+
+	if err := os.WriteFile(filepath.Join(library, ".categories.json"), []byte(contents), 0o600); err != nil {
+		t.Fatalf("WriteFile(.categories.json) error = %v", err)
 	}
 }
