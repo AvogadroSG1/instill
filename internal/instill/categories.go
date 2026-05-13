@@ -34,6 +34,27 @@ func LoadCategoriesStrict(libraryPath string) (map[string][]string, error) {
 	return loadCategories(libraryPath)
 }
 
+func WriteCategoriesAtomic(libraryPath string, categories map[string][]string) error {
+	normalized := make(map[string][]string, len(categories))
+	for category, skills := range categories {
+		category = strings.TrimSpace(category)
+		if category == "" {
+			continue
+		}
+		normalized[category] = normalizeSkills(skills)
+	}
+
+	data, err := json.MarshalIndent(normalized, "", "  ")
+	if err != nil {
+		return NewExitError(ExitGeneral, fmt.Sprintf("error: cannot encode category registry: %v", err))
+	}
+	data = append(data, '\n')
+	if err := writeFileAtomic(filepath.Join(libraryPath, categoriesFileName), data, 0o644); err != nil {
+		return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot write category registry: %v", err))
+	}
+	return nil
+}
+
 func loadCategories(libraryPath string) (map[string][]string, error) {
 	contents, err := os.ReadFile(filepath.Join(libraryPath, categoriesFileName)) //nolint:gosec // The configured skill library path is the intended trust boundary.
 	if err != nil {

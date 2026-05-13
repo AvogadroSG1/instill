@@ -58,6 +58,7 @@ func newRootCommand(cfg commandConfig) *cobra.Command {
 
 	root.AddCommand(newCheckSkillsCommand(cfg))
 	root.AddCommand(newAddHooksCommand(cfg))
+	root.AddCommand(newCategorizeCommand(cfg))
 	root.AddCommand(newInitProjectCommand(cfg))
 	root.AddCommand(newPickSkillsCommand(cfg))
 	root.AddCommand(newShowLibraryCommand(cfg))
