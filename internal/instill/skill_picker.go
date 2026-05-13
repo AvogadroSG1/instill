@@ -106,10 +106,12 @@ func newSkillPickerModel(skills []string, selected []string, categories []string
 }
 
 func categoryPaneEntries(categories []string) []string {
+	entries := make([]string, 0, len(categories)+1)
+	entries = append(entries, "All")
 	if len(categories) == 0 {
-		return []string{"All"}
+		return entries
 	}
-	return append([]string{}, categories...)
+	return append(entries, categories...)
 }
 
 func topLevelCategories(categories map[string][]string) []string {
