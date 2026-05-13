@@ -109,6 +109,38 @@ func TestCheckSkillsMissingCategoryRegistryIsSilent(t *testing.T) {
 	library := createLibrary(t, "docker")
 	root := createProject(t, []string{"docker"})
 	t.Setenv("SKILL_LIBRARY_PATH", library)
+	if err := os.Symlink(filepath.Join(library, "docker"), filepath.Join(root, ".claude", "skills", "docker")); err != nil {
+		t.Fatalf("Symlink(docker) error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"check-skills"},
+		cwd:    root,
+	})
+
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want silence", stdout.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want silence", stderr.String())
+	}
+}
+
+func TestCheckSkillsMalformedCategoryRegistryDoesNotWarnEverySkillUncategorized(t *testing.T) {
+	library := createLibrary(t, "docker", "golang-cli")
+	writeCategories(t, library, `{`)
+	root := createProject(t, []string{"docker"})
+	if err := os.Symlink(filepath.Join(library, "docker"), filepath.Join(root, ".claude", "skills", "docker")); err != nil {
+		t.Fatalf("Symlink(docker) error = %v", err)
+	}
+	t.Setenv("SKILL_LIBRARY_PATH", library)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -123,10 +155,10 @@ func TestCheckSkillsMissingCategoryRegistryIsSilent(t *testing.T) {
 		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
 	}
 	if strings.Contains(stdout.String(), "uncategorized:") {
-		t.Fatalf("stdout = %q, want no uncategorized warning", stdout.String())
+		t.Fatalf("stdout = %q, want no uncategorized false positives", stdout.String())
 	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want silence", stderr.String())
+	if !strings.Contains(stderr.String(), "warning: cannot parse category registry") {
+		t.Fatalf("stderr = %q, want malformed registry warning", stderr.String())
 	}
 }
 

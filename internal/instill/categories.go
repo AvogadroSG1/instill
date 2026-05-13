@@ -19,7 +19,7 @@ func LoadCategories(libraryPath string) map[string][]string {
 
 // LoadCategoriesWithWarnings reads the category registry and writes fallback warnings to stderr.
 func LoadCategoriesWithWarnings(libraryPath string, stderr io.Writer) map[string][]string {
-	categories, err := loadCategories(libraryPath)
+	categories, err := LoadCategoriesStrict(libraryPath)
 	if err != nil {
 		if stderr != nil {
 			_, _ = fmt.Fprintln(stderr, "warning: "+err.Error())
@@ -27,6 +27,11 @@ func LoadCategoriesWithWarnings(libraryPath string, stderr io.Writer) map[string
 		return map[string][]string{}
 	}
 	return categories
+}
+
+// LoadCategoriesStrict reads the category registry and returns parse/read errors.
+func LoadCategoriesStrict(libraryPath string) (map[string][]string, error) {
+	return loadCategories(libraryPath)
 }
 
 func loadCategories(libraryPath string) (map[string][]string, error) {

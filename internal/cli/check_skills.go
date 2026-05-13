@@ -43,12 +43,12 @@ func newCheckSkillsCommand(cfg commandConfig) *cobra.Command {
 			if err := instill.ReconcileManifest(project, manifest, libraryPath, cfg.stdout); err != nil {
 				return err
 			}
-			return warnUncategorizedSkills(libraryPath, cfg.stdout)
+			return warnUncategorizedSkills(libraryPath, cfg.stdout, cfg.stderr)
 		},
 	}
 }
 
-func warnUncategorizedSkills(libraryPath string, stdout io.Writer) error {
+func warnUncategorizedSkills(libraryPath string, stdout io.Writer, stderr io.Writer) error {
 	if !instill.CategoryRegistryExists(libraryPath) {
 		return nil
 	}
@@ -57,7 +57,13 @@ func warnUncategorizedSkills(libraryPath string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	categories := instill.LoadCategoriesWithWarnings(libraryPath, nil)
+	categories, err := instill.LoadCategoriesStrict(libraryPath)
+	if err != nil {
+		if stderr != nil {
+			_, _ = fmt.Fprintln(stderr, "warning: "+err.Error())
+		}
+		return nil
+	}
 	for _, skill := range skills {
 		if instill.CategoryForSkill(categories, skill) != "" {
 			continue
