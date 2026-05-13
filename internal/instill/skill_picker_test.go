@@ -208,7 +208,7 @@ func TestSkillPickerDrillsDownAndNavigatesBack(t *testing.T) {
 	}
 }
 
-func TestSkillPickerFilterStaysScopedAfterDrilldown(t *testing.T) {
+func TestSkillPickerGlobalSearchIgnoresDrilledCategoryScope(t *testing.T) {
 	t.Parallel()
 
 	model := newSkillPickerModel(
@@ -233,8 +233,56 @@ func TestSkillPickerFilterStaysScopedAfterDrilldown(t *testing.T) {
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("azure")})
 	model = updated.(skillPickerModel)
 
+	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage,azure-functions,golang-azure-helper" {
+		t.Fatalf("visible skills = %q, want global matches outside drilled category", got)
+	}
+	view := model.View()
+	if strings.Contains(view, "Categories                 Skills") {
+		t.Fatalf("view = %q, want flat search mode without category panes", view)
+	}
+	if !strings.Contains(view, "/azure\n") {
+		t.Fatalf("view = %q, want search prompt", view)
+	}
+}
+
+func TestSkillPickerEscapeLeavesGlobalSearchWithoutCancelling(t *testing.T) {
+	t.Parallel()
+
+	model := newSkillPickerModel(
+		[]string{"azure-blob-storage", "azure-functions", "golang-azure-helper"},
+		[]string{},
+		[]string{"cloud", "golang"},
+		map[string][]string{
+			"cloud/azure":  {"azure-blob-storage"},
+			"cloud/server": {"azure-functions"},
+			"golang":       {"golang-azure-helper"},
+		},
+	)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("azure")})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(skillPickerModel)
+
+	if model.cancelled || model.confirmed {
+		t.Fatalf("cancelled = %v confirmed = %v, want neither after leaving search", model.cancelled, model.confirmed)
+	}
+	if got := strings.Join(model.categoryPath, "/"); got != "cloud" {
+		t.Fatalf("categoryPath = %q, want previous browse path", got)
+	}
+	if got := strings.Join(model.categories, ","); got != "azure,server" {
+		t.Fatalf("categories = %q, want previous subcategory list", got)
+	}
 	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage" {
-		t.Fatalf("visible skills = %q, want only drilled category matches", got)
+		t.Fatalf("visible skills = %q, want browsed category after leaving search", got)
 	}
 }
 

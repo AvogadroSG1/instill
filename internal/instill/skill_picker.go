@@ -79,9 +79,10 @@ type skillPickerModel struct {
 	categoryPath   []string
 	categoryCursor int
 	skillCursor    int
+	searchCursor   int
 	focusedPane    skillPickerPane
 	filter         string
-	filtering      bool
+	searchMode     bool
 	confirmed      bool
 	cancelled      bool
 }
@@ -159,13 +160,25 @@ func (m skillPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch key.Type {
-	case tea.KeyCtrlC, tea.KeyEsc:
+	case tea.KeyCtrlC:
+		m.cancelled = true
+		return m, tea.Quit
+	case tea.KeyEsc:
+		if m.searchMode {
+			m.searchMode = false
+			m.filter = ""
+			m.searchCursor = 0
+			return m, nil
+		}
 		m.cancelled = true
 		return m, tea.Quit
 	case tea.KeyEnter:
 		m.confirmed = true
 		return m, tea.Quit
 	case tea.KeyLeft:
+		if m.searchMode {
+			break
+		}
 		if m.focusedPane == skillPickerCategoriesPane && len(m.categoryPath) > 0 {
 			m.categoryPath = m.categoryPath[:len(m.categoryPath)-1]
 			m.categories = m.categoriesForPath()
@@ -175,6 +188,9 @@ func (m skillPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.focusedPane = skillPickerCategoriesPane
 	case tea.KeyRight:
+		if m.searchMode {
+			break
+		}
 		if m.focusedPane == skillPickerCategoriesPane && m.selectedCategoryHasChildren() {
 			m.categoryPath = append(m.categoryPath, m.selectedCategory())
 			m.categories = m.categoriesForPath()
@@ -188,7 +204,7 @@ func (m skillPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyDown:
 		m.move(1)
 	case tea.KeyBackspace:
-		if m.filtering && m.filter != "" {
+		if m.searchMode && m.filter != "" {
 			m.filter = m.filter[:len(m.filter)-1]
 			m.clampCursor()
 		}
@@ -197,9 +213,16 @@ func (m skillPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyRunes:
 		switch key.String() {
 		case "/":
-			m.filtering = true
+			if m.searchMode {
+				m.filter += key.String()
+				m.clampCursor()
+				break
+			}
+			m.searchMode = true
+			m.filter = ""
+			m.searchCursor = 0
 		case "q":
-			if m.filtering {
+			if m.searchMode {
 				m.filter += key.String()
 				m.clampCursor()
 				break
@@ -207,21 +230,21 @@ func (m skillPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cancelled = true
 			return m, tea.Quit
 		case "j":
-			if m.filtering {
+			if m.searchMode {
 				m.filter += key.String()
 				m.clampCursor()
 				break
 			}
 			m.move(1)
 		case "k":
-			if m.filtering {
+			if m.searchMode {
 				m.filter += key.String()
 				m.clampCursor()
 				break
 			}
 			m.move(-1)
 		default:
-			if m.filtering {
+			if m.searchMode {
 				m.filter += key.String()
 				m.clampCursor()
 			}
@@ -235,8 +258,13 @@ func (m skillPickerModel) View() string {
 	visible := m.visibleSkills()
 	var builder strings.Builder
 	_, _ = fmt.Fprintf(&builder, "Select skills (%d selected)\n", len(m.selectedSkills()))
-	if m.filtering || m.filter != "" {
+	if m.searchMode {
 		builder.WriteString("/" + m.filter + "\n")
+		for _, line := range m.searchPaneLines(visible) {
+			builder.WriteString(line + "\n")
+		}
+		builder.WriteString("Enter confirms, space toggles, Esc returns to browse\n")
+		return builder.String()
 	}
 	if breadcrumb := m.categoryBreadcrumb(); breadcrumb != "" {
 		builder.WriteString(breadcrumb + "\n")
@@ -261,11 +289,22 @@ func (m skillPickerModel) View() string {
 		}
 		_, _ = fmt.Fprintf(&builder, "%-26s %s\n", category, skill)
 	}
-	builder.WriteString("Left/right changes pane, enter confirms, space toggles, / filters, q/Esc cancels\n")
+	builder.WriteString("Left/right changes pane, enter confirms, space toggles, / searches, q/Esc cancels\n")
 	return builder.String()
 }
 
 func (m *skillPickerModel) move(delta int) {
+	if m.searchMode {
+		visible := m.visibleSkills()
+		if len(visible) == 0 {
+			m.searchCursor = 0
+			return
+		}
+		m.searchCursor += delta
+		m.clampCursor()
+		return
+	}
+
 	if m.focusedPane == skillPickerCategoriesPane {
 		previous := m.categoryCursor
 		m.categoryCursor += delta
@@ -293,7 +332,20 @@ func (m *skillPickerModel) move(delta int) {
 func (m *skillPickerModel) clampCursor() {
 	visible := m.visibleSkills()
 	if len(visible) == 0 {
+		if m.searchMode {
+			m.searchCursor = 0
+			return
+		}
 		m.skillCursor = 0
+		return
+	}
+	if m.searchMode {
+		if m.searchCursor < 0 {
+			m.searchCursor = 0
+		}
+		if m.searchCursor >= len(visible) {
+			m.searchCursor = len(visible) - 1
+		}
 		return
 	}
 	if m.skillCursor < 0 {
@@ -305,14 +357,18 @@ func (m *skillPickerModel) clampCursor() {
 }
 
 func (m *skillPickerModel) toggleCurrent() {
-	if m.focusedPane != skillPickerSkillsPane {
+	if !m.searchMode && m.focusedPane != skillPickerSkillsPane {
 		return
 	}
 	visible := m.visibleSkills()
 	if len(visible) == 0 {
 		return
 	}
-	skill := visible[m.skillCursor]
+	cursor := m.skillCursor
+	if m.searchMode {
+		cursor = m.searchCursor
+	}
+	skill := visible[cursor]
 	m.selected[skill] = !m.selected[skill]
 	if !m.selected[skill] {
 		delete(m.selected, skill)
@@ -360,8 +416,40 @@ func (m skillPickerModel) skillPaneLines(visible []string) []string {
 	return lines
 }
 
+func (m skillPickerModel) searchPaneLines(visible []string) []string {
+	if len(visible) == 0 {
+		return []string{"No matching skills"}
+	}
+
+	start := 0
+	if m.searchCursor >= skillPickerPageSize {
+		start = m.searchCursor - skillPickerPageSize + 1
+	}
+	end := start + skillPickerPageSize
+	if end > len(visible) {
+		end = len(visible)
+	}
+
+	lines := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		prefix := "  "
+		if i == m.searchCursor {
+			prefix = "> "
+		}
+		marker := "[ ]"
+		if m.selected[visible[i]] {
+			marker = "[✓]"
+		}
+		lines = append(lines, prefix+marker+" "+visible[i])
+	}
+	return lines
+}
+
 func (m skillPickerModel) visibleSkills() []string {
-	return fuzzyFilterSkills(m.visibleCategorySkills(), m.filter)
+	if m.searchMode {
+		return fuzzyFilterSkills(m.skills, m.filter)
+	}
+	return m.visibleCategorySkills()
 }
 
 func (m skillPickerModel) visibleCategorySkills() []string {
