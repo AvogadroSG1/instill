@@ -84,10 +84,11 @@ func TestSkillPickerShowsTopLevelCategoriesAlphabetically(t *testing.T) {
 	)
 
 	view := model.View()
+	allIndex := strings.Index(view, "  All")
 	cloudIndex := strings.Index(view, "  cloud")
 	golangIndex := strings.Index(view, "  golang")
-	if cloudIndex == -1 || golangIndex == -1 || cloudIndex > golangIndex {
-		t.Fatalf("view = %q, want alphabetic categories", view)
+	if allIndex == -1 || cloudIndex == -1 || golangIndex == -1 || !(allIndex < cloudIndex && cloudIndex < golangIndex) {
+		t.Fatalf("view = %q, want All then alphabetic categories", view)
 	}
 	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage,docker,golang-cli" {
 		t.Fatalf("visible skills = %q, want unfiltered flat list", got)
@@ -115,17 +116,17 @@ func TestSkillPickerCategoryNavigationFiltersSkillsAndResetsCursor(t *testing.T)
 	model = updated.(skillPickerModel)
 
 	if model.categoryCursor != 1 {
-		t.Fatalf("categoryCursor = %d, want 1", model.categoryCursor)
+		t.Fatalf("categoryCursor = %d, want cloud category", model.categoryCursor)
 	}
 	if model.skillCursor != 0 {
 		t.Fatalf("skillCursor = %d, want reset to 0", model.skillCursor)
 	}
-	if got := strings.Join(model.visibleSkills(), ","); got != "golang-cli" {
+	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage,docker" {
 		t.Fatalf("visible skills = %q, want selected category skills", got)
 	}
 }
 
-func TestSkillPickerCategoryFilterIncludesSubcategories(t *testing.T) {
+func TestSkillPickerAllCategoryShowsAllSkillsBeforeFiltering(t *testing.T) {
 	t.Parallel()
 
 	model := newSkillPickerModel(
@@ -139,6 +140,17 @@ func TestSkillPickerCategoryFilterIncludesSubcategories(t *testing.T) {
 		},
 	)
 
+	if model.selectedCategory() != "All" {
+		t.Fatalf("selectedCategory() = %q, want All", model.selectedCategory())
+	}
+	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage,docker,golang-cli" {
+		t.Fatalf("visible skills = %q, want all skills", got)
+	}
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(skillPickerModel)
 	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage,docker" {
 		t.Fatalf("visible skills = %q, want cloud and cloud subcategory skills", got)
 	}
@@ -154,8 +166,18 @@ func TestSkillPickerCategoriesForLibraryUsesRegistryTopLevels(t *testing.T) {
 		"cloud": ["docker"]
 	}`)
 
-	if got := strings.Join(skillPickerCategoriesForLibrary(library), ","); got != "cloud,golang" {
-		t.Fatalf("skillPickerCategoriesForLibrary() = %q, want cloud,golang", got)
+	model := newSkillPickerModel(
+		[]string{"azure-blob-storage", "docker", "golang-cli"},
+		[]string{},
+		skillPickerCategoriesForLibrary(library),
+		LoadCategoriesWithWarnings(library, nil),
+	)
+
+	if got := strings.Join(model.categories, ","); got != "All,cloud,golang" {
+		t.Fatalf("categories = %q, want All,cloud,golang", got)
+	}
+	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage,docker,golang-cli" {
+		t.Fatalf("visible skills = %q, want All to show every skill", got)
 	}
 }
 
