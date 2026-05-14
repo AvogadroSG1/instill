@@ -19,7 +19,16 @@ switch ($Task) {
         New-Item -ItemType Directory -Force $InstallDir | Out-Null
         go build -o "$InstallDir\$Binary" .
         Write-Host "Installed to $InstallDir\$Binary"
-        Write-Host "Add $InstallDir to your PATH if it is not already present."
+
+        $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+        $dirs = $userPath -split ";"
+        if ($dirs -notcontains $InstallDir) {
+            [Environment]::SetEnvironmentVariable("PATH", "$userPath;$InstallDir", "User")
+            Write-Host "Added $InstallDir to your user PATH."
+            Write-Host "Restart your terminal for the change to take effect."
+        } else {
+            Write-Host "$InstallDir is already in your PATH."
+        }
     }
 
     "unit-test" {
