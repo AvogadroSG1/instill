@@ -17,6 +17,10 @@
           {
             "command": "bd prime",
             "type": "command"
+          },
+          {
+            "command": "instill check-skills",
+            "type": "command"
           }
         ],
         "matcher": ""
