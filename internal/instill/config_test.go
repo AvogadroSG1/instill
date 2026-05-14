@@ -2,6 +2,7 @@ package instill
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,6 +40,7 @@ func TestResolveLibraryPathReadsConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(envLibraryPath, "")
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // Windows: os.UserHomeDir() reads USERPROFILE, not HOME
 
 	configPath, err := userConfigPath()
 	if err != nil {
@@ -47,7 +49,11 @@ func TestResolveLibraryPathReadsConfig(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(configPath, []byte(`{"library_path":"`+library+`"}`), 0o600); err != nil {
+	data, err := json.Marshal(configFile{LibraryPath: library})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -63,6 +69,7 @@ func TestResolveLibraryPathReadsConfig(t *testing.T) {
 func TestUserConfigPathIgnoresXDGConfigHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // Windows: os.UserHomeDir() reads USERPROFILE, not HOME
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "xdg"))
 
 	got, err := userConfigPath()
