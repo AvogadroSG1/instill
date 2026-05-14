@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -114,6 +115,10 @@ func TestAddHooksPreservesExistingSettings(t *testing.T) {
 
 func TestAddHooksPreservesExistingMode(t *testing.T) {
 	t.Parallel()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce Unix file permission bits")
+	}
 
 	project := createProject(t, []string{"docker"})
 	settingsPath := filepath.Join(project.Root, ".claude", "settings.json")
