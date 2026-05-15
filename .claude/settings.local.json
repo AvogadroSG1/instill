@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(*)"
+      "PowerShell(*)",
+      "Bash(bd)",
+      "Bash(rtk *)",
+      "Bash(git *)",
+      "Bash(bd *)"
     ]
   }
 }
