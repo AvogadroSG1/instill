@@ -85,12 +85,21 @@ func InitProject(opts InitProjectOptions) error {
 		return err
 	}
 
-	changed, err := ensureGitignoreEntry(root)
+	changed, err := ensureGitignoreEntry(root, ".claude/skills/")
 	if err != nil {
 		return err
 	}
 	if changed {
 		if err := writeLine(stdout, "updated:     .gitignore (+.claude/skills/)"); err != nil {
+			return err
+		}
+	}
+	changed, err = ensureGitignoreEntry(root, ".claude/settings.local.json")
+	if err != nil {
+		return err
+	}
+	if changed {
+		if err := writeLine(stdout, "updated:     .gitignore (+.claude/settings.local.json)"); err != nil {
 			return err
 		}
 	}
@@ -114,7 +123,7 @@ func InitProject(opts InitProjectOptions) error {
 	return ReconcileManifest(project, manifest, opts.LibraryPath, stdout)
 }
 
-func ensureGitignoreEntry(root string) (bool, error) {
+func ensureGitignoreEntry(root, entry string) (bool, error) {
 	path := filepath.Join(root, ".gitignore")
 	info, err := os.Lstat(path)
 	if err == nil && info.Mode()&os.ModeSymlink != 0 {
@@ -128,7 +137,7 @@ func ensureGitignoreEntry(root string) (bool, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return false, NewExitError(ExitFilesystem, "error: cannot read .gitignore: "+err.Error())
 	}
-	if containsLine(string(data), ".claude/skills/") {
+	if containsLine(string(data), entry) {
 		return false, nil
 	}
 
@@ -136,7 +145,10 @@ func ensureGitignoreEntry(root string) (bool, error) {
 	if len(output) > 0 && output[len(output)-1] != '\n' {
 		output = append(output, '\n')
 	}
-	output = append(output, []byte("# instill — managed symlinks, do not commit\n.claude/skills/\n")...)
+	if len(output) == 0 || !strings.Contains(string(output), "# instill — managed symlinks, do not commit\n") {
+		output = append(output, []byte("# instill — managed symlinks, do not commit\n")...)
+	}
+	output = append(output, []byte(entry+"\n")...)
 	if err := writeFileAtomic(path, output, 0o644); err != nil {
 		return false, NewExitError(ExitFilesystem, "error: cannot write .gitignore: "+err.Error())
 	}

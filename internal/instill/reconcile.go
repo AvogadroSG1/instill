@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 // Reconcile reads the project manifest and reconciles symlinks to match it.
@@ -18,14 +19,27 @@ func Reconcile(project Project, libraryPath string, stdout io.Writer) error {
 
 // ReconcileManifest reconciles symlinks to match a previously validated manifest.
 func ReconcileManifest(project Project, manifest Manifest, libraryPath string, stdout io.Writer) error {
-	if err := os.MkdirAll(project.SymlinkDir, 0o755); err != nil { //nolint:gosec // Project symlink directory must be user-accessible in the repository.
-		return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot create symlink directory: %v", err))
-	}
+	return ReconcileManifestWithPrevious(project, manifest, manifest, libraryPath, stdout)
+}
 
+// ReconcileManifestWithPrevious reconciles symlinks and permissions.
+// The previous manifest is the ownership boundary for permissions that can be revoked.
+func ReconcileManifestWithPrevious(
+	project Project,
+	previousManifest Manifest,
+	manifest Manifest,
+	libraryPath string,
+	stdout io.Writer,
+) error {
 	changed := false
+	previousSkills := append([]string(nil), previousManifest.Skills...)
 	selected := make(map[string]struct{}, len(manifest.Skills))
 	for _, skill := range manifest.Skills {
 		selected[skill] = struct{}{}
+	}
+
+	if err := ensureReconcileDirs(project); err != nil {
+		return err
 	}
 
 	existing, err := listExistingSymlinks(project.SymlinkDir)
@@ -88,11 +102,16 @@ func ReconcileManifest(project Project, manifest Manifest, libraryPath string, s
 	}
 
 	normalized := normalizeSkills(finalSkills)
-	if !sameStrings(manifest.Skills, normalized) {
+	if !slices.Equal(manifest.Skills, normalized) {
 		if err := WriteManifestAtomic(project.ManifestPath, Manifest{Skills: normalized}); err != nil {
 			return err
 		}
 		changed = true
+	}
+
+	settingsLocalPath := filepath.Join(project.Root, claudeDirName, settingsLocalFileName)
+	if _, err := reconcileSettingsLocalPermissions(settingsLocalPath, previousSkills, finalSkills); err != nil {
+		return err
 	}
 
 	if changed {
@@ -101,6 +120,44 @@ func ReconcileManifest(project Project, manifest Manifest, libraryPath string, s
 		}
 	}
 
+	return nil
+}
+
+func ensureReconcileDirs(project Project) error {
+	if err := ensureRealDirectory(filepath.Join(project.Root, claudeDirName), ".claude directory"); err != nil {
+		return err
+	}
+	if err := ensureRealDirectory(project.SymlinkDir, "symlink directory"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateReconcile(project Project, previousManifest, manifest Manifest) error {
+	if err := ensureReconcileDirs(project); err != nil {
+		return err
+	}
+
+	settingsLocalPath := filepath.Join(project.Root, claudeDirName, settingsLocalFileName)
+	return validateSettingsLocalPermissions(settingsLocalPath, previousManifest.Skills, manifest.Skills)
+}
+
+func ensureRealDirectory(path, label string) error {
+	//nolint:gosec // Project metadata directories must be user-accessible in the repository.
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot create %s: %v", label, err))
+	}
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot inspect %s: %v", label, err))
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return NewExitError(ExitFilesystem, fmt.Sprintf("error: refusing to write through symlinked %s", label))
+	}
+	if !info.IsDir() {
+		return NewExitError(ExitFilesystem, fmt.Sprintf("error: %s is not a directory", label))
+	}
 	return nil
 }
 
@@ -150,16 +207,4 @@ func linkPointsTo(linkPath string, source string) bool {
 		return false
 	}
 	return target == source
-}
-
-func sameStrings(left []string, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
 }

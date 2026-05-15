@@ -2,10 +2,13 @@ package instill
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestReconcileCreatesMissingSymlinks(t *testing.T) {
@@ -107,6 +110,206 @@ func TestReconcileSilentWhenNoChangesNeeded(t *testing.T) {
 	}
 }
 
+func TestReconcileGrantsFinalSkillPermissions(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "docker")
+	project := createProject(t, []string{"docker"})
+	createSkillSymlink(t, project, library, "docker")
+	writeSettingsLocalForTest(t, project, `{
+  "permissions": {
+    "allow": [
+      "Bash(go test ./...)"
+    ]
+  }
+}
+`)
+
+	var stdout bytes.Buffer
+	if err := Reconcile(project, library, &stdout); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	if stdout.String() != "" {
+		t.Fatalf("output = %q, want silent permission-only change", stdout.String())
+	}
+	assertSettingsAllow(t, project, []string{"Bash(go test ./...)", "Skill(docker)"})
+}
+
+func TestReconcileRevokesRemovedManifestSkillPermissions(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "docker")
+	project := createProject(t, []string{"docker", "missing"})
+	createSkillSymlink(t, project, library, "docker")
+	writeSettingsLocalForTest(t, project, `{
+  "permissions": {
+    "allow": [
+      "Skill(missing)",
+      "Skill(docker)"
+    ]
+  }
+}
+`)
+
+	var stdout bytes.Buffer
+	if err := Reconcile(project, library, &stdout); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	assertSettingsAllow(t, project, []string{"Skill(docker)"})
+}
+
+func TestReconcilePreservesManualSkillPermissions(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "docker")
+	project := createProject(t, []string{"docker", "missing"})
+	createSkillSymlink(t, project, library, "docker")
+	writeSettingsLocalForTest(t, project, `{
+  "permissions": {
+    "allow": [
+      "Skill(manual-private)",
+      "Skill(missing)",
+      "Skill(docker)"
+    ]
+  }
+}
+`)
+
+	var stdout bytes.Buffer
+	if err := Reconcile(project, library, &stdout); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	assertSettingsAllow(t, project, []string{"Skill(manual-private)", "Skill(docker)"})
+}
+
+func TestReconcileCreatesSettingsLocalForFinalSkillPermissions(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "docker")
+	project := createProject(t, []string{"docker"})
+	createSkillSymlink(t, project, library, "docker")
+
+	var stdout bytes.Buffer
+	if err := Reconcile(project, library, &stdout); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	if stdout.String() != "" {
+		t.Fatalf("output = %q, want silent permission-only change", stdout.String())
+	}
+	assertSettingsAllow(t, project, []string{"Skill(docker)"})
+}
+
+func TestReconcileDoesNotRewriteSettingsLocalWhenPermissionsUnchanged(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "docker")
+	project := createProject(t, []string{"docker"})
+	createSkillSymlink(t, project, library, "docker")
+	writeSettingsLocalForTest(t, project, `{
+  "permissions": {
+    "allow": [
+      "Skill(docker)"
+    ]
+  }
+}
+`)
+	settingsPath := filepath.Join(project.Root, claudeDirName, settingsLocalFileName)
+	oldTime := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+	if err := os.Chtimes(settingsPath, oldTime, oldTime); err != nil {
+		t.Fatalf("Chtimes(settings.local) error = %v", err)
+	}
+	before, err := os.Stat(settingsPath)
+	if err != nil {
+		t.Fatalf("Stat(settings.local) before error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := Reconcile(project, library, &stdout); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	if stdout.String() != "" {
+		t.Fatalf("output = %q, want silent no-op", stdout.String())
+	}
+	after, err := os.Stat(settingsPath)
+	if err != nil {
+		t.Fatalf("Stat(settings.local) after error = %v", err)
+	}
+	if !after.ModTime().Equal(before.ModTime()) {
+		t.Fatalf("settings.local modtime = %v, want unchanged %v", after.ModTime(), before.ModTime())
+	}
+}
+
+func TestReconcileRejectsSymlinkedClaudeDirectory(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "docker")
+	root := t.TempDir()
+	target := filepath.Join(t.TempDir(), "outside")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatalf("MkdirAll(target) error = %v", err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, claudeDirName)); err != nil {
+		t.Fatalf("Symlink(.claude) error = %v", err)
+	}
+	project := Project{
+		Root:         root,
+		ManifestPath: filepath.Join(root, claudeDirName, manifestFileName),
+		SymlinkDir:   filepath.Join(root, claudeDirName, skillsDirName),
+	}
+
+	var stdout bytes.Buffer
+	err := ReconcileManifest(project, Manifest{Skills: []string{"docker"}}, library, &stdout)
+	if err == nil {
+		t.Fatal("ReconcileManifest() error = nil, want symlink rejection")
+	}
+	if ExitCode(err) != ExitFilesystem {
+		t.Fatalf("ExitCode(err) = %d, want %d", ExitCode(err), ExitFilesystem)
+	}
+	if _, err := os.Stat(filepath.Join(target, skillsDirName, "docker")); !os.IsNotExist(err) {
+		t.Fatalf("outside docker symlink exists; err = %v", err)
+	}
+}
+
+func TestReconcileRejectsSymlinkedSkillsDirectory(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "docker")
+	root := t.TempDir()
+	claudePath := filepath.Join(root, claudeDirName)
+	if err := os.MkdirAll(claudePath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(.claude) error = %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "outside-skills")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatalf("MkdirAll(target) error = %v", err)
+	}
+	if err := os.Symlink(target, filepath.Join(claudePath, skillsDirName)); err != nil {
+		t.Fatalf("Symlink(.claude/skills) error = %v", err)
+	}
+	project := Project{
+		Root:         root,
+		ManifestPath: filepath.Join(root, claudeDirName, manifestFileName),
+		SymlinkDir:   filepath.Join(root, claudeDirName, skillsDirName),
+	}
+
+	var stdout bytes.Buffer
+	err := ReconcileManifest(project, Manifest{Skills: []string{"docker"}}, library, &stdout)
+	if err == nil {
+		t.Fatal("ReconcileManifest() error = nil, want symlink rejection")
+	}
+	if ExitCode(err) != ExitFilesystem {
+		t.Fatalf("ExitCode(err) = %d, want %d", ExitCode(err), ExitFilesystem)
+	}
+	if _, err := os.Stat(filepath.Join(target, "docker")); !os.IsNotExist(err) {
+		t.Fatalf("outside docker symlink exists; err = %v", err)
+	}
+}
+
 func TestReadManifestMalformedJSONUsesGeneralExitCode(t *testing.T) {
 	t.Parallel()
 
@@ -194,6 +397,14 @@ func createLibrary(t *testing.T, names ...string) string {
 	return root
 }
 
+func createSkillSymlink(t *testing.T, project Project, library string, name string) {
+	t.Helper()
+
+	if err := os.Symlink(filepath.Join(library, name), filepath.Join(project.SymlinkDir, name)); err != nil {
+		t.Fatalf("Symlink(%s) error = %v", name, err)
+	}
+}
+
 func createProject(t *testing.T, skills []string) Project {
 	t.Helper()
 
@@ -210,4 +421,38 @@ func createProject(t *testing.T, skills []string) Project {
 		t.Fatalf("WriteManifestAtomic() error = %v", err)
 	}
 	return project
+}
+
+func writeSettingsLocalForTest(t *testing.T, project Project, content string) {
+	t.Helper()
+
+	path := filepath.Join(project.Root, claudeDirName, settingsLocalFileName)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.claude) error = %v", err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(settings.local) error = %v", err)
+	}
+}
+
+func assertSettingsAllow(t *testing.T, project Project, want []string) {
+	t.Helper()
+
+	path := filepath.Join(project.Root, claudeDirName, settingsLocalFileName)
+	data, err := os.ReadFile(path) //nolint:gosec // Test reads t.TempDir settings file.
+	if err != nil {
+		t.Fatalf("ReadFile(settings.local) error = %v", err)
+	}
+
+	var settings struct {
+		Permissions struct {
+			Allow []string `json:"allow"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("Unmarshal(settings.local) error = %v\n%s", err, data)
+	}
+	if !slices.Equal(settings.Permissions.Allow, want) {
+		t.Fatalf("permissions.allow = %#v, want %#v", settings.Permissions.Allow, want)
+	}
 }
