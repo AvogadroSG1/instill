@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	claudeDirName    = ".claude"
-	manifestFileName = "skill-manifest.json"
-	skillsDirName    = "skills"
+	claudeDirName         = ".claude"
+	manifestFileName      = "skill-manifest.json"
+	settingsLocalFileName = "settings.local.json"
+	skillsDirName         = "skills"
 )
 
 type Project struct {

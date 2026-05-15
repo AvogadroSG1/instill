@@ -4,7 +4,8 @@
 
 `instill` manages a manifest of AI coding skills per project. It creates and
 reconciles symlinks in `.claude/skills/` so that Claude Code can load only the
-skills relevant to the project being worked on.
+skills relevant to the project being worked on, and it reconciles local
+`Skill(name)` permissions in `.claude/settings.local.json`.
 
 ## Module
 
@@ -20,6 +21,10 @@ skills relevant to the project being worked on.
   git. Contains `{"skills": ["skill-a", "skill-b"]}` (always sorted, deduped).
 - **Symlink dir** — `.claude/skills/` — gitignored directory of symlinks managed
   by `instill`. Each symlink points into the library.
+- **Agent permissions** — local `Skill(name)` entries in
+  `.claude/settings.local.json` under `permissions.allow`. The file is
+  gitignored. Current manifests grant permissions; selection flows use the
+  previous manifest as the ownership boundary for revokes.
 - **Category registry** — optional `.categories.json` at the library root.
   Groups skills for display in the interactive TUI.
 
@@ -34,8 +39,13 @@ instill pick-skills [name...] [--remove name,...]
     Add/remove skills. No args = interactive TUI.
 
 instill check-skills
-    Reconcile .claude/skills/ symlinks with the manifest.
-    Removes stale symlinks; creates missing ones; prunes library-removed skills.
+    Reconcile .claude/skills/ symlinks and local Skill permissions with the
+    manifest. Removes stale symlinks; creates missing ones; prunes
+    library-removed skills; grants missing Skill permissions silently.
+
+instill pick-skills [name...] [--remove name,...]
+    Add/remove skills and reconcile local permissions with previous-manifest
+    ownership, so removed managed Skill permissions are revoked.
 
 instill show-library [--filter substring]
     List skills in the configured library.
@@ -80,6 +90,7 @@ internal/instill/               pure domain logic
   config.go                     ResolveLibraryPath(); config file read/write
   categories.go                 LoadCategories(); CategoryForSkill()
   reconcile.go                  ReconcileManifest(); symlink lifecycle
+  settings_local.go             settings.local.json Skill permission lifecycle
   init_project.go               InitProject(); gitignore management
   pick_skills.go                PickSkills(); ApplySkillSelection()
   show_library.go               ShowLibrary()
@@ -93,6 +104,8 @@ internal/instill/               pure domain logic
 
 - All manifest and config writes use `writeFileAtomic` (write `.tmp`, rename) to
   prevent partial-write corruption.
+- Selection flows use `ReconcileManifestWithPrevious` so removed managed
+  permissions are revoked while manual `Skill(...)` entries survive.
 - Skill names are validated with `IsValidSkillName` — must be a single, safe
   path element (no `/`, `..`, absolute paths).
 - The TUI (`RunPickSkillsTUI`) is injected via `commandConfig.pickSkillsTUI` so

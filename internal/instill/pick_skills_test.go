@@ -71,6 +71,97 @@ func TestPickSkillsRemoveDeletesManifestEntryAndSymlink(t *testing.T) {
 	}
 }
 
+func TestPickSkillsRemoveRevokesPreviousManifestPermission(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "docker", "golang-cli")
+	project := createProject(t, []string{"docker", "golang-cli"})
+	createSkillSymlink(t, project, library, "docker")
+	createSkillSymlink(t, project, library, "golang-cli")
+	writeSettingsLocalForTest(t, project, `{
+  "permissions": {
+    "allow": [
+      "Skill(docker)",
+      "Skill(golang-cli)",
+      "Skill(manual-private)"
+    ]
+  }
+}
+`)
+
+	var stdout bytes.Buffer
+	if err := PickSkills(PickSkillsOptions{
+		Project:     project,
+		LibraryPath: library,
+		Remove:      []string{"docker"},
+		Stdout:      &stdout,
+	}); err != nil {
+		t.Fatalf("PickSkills() error = %v", err)
+	}
+
+	assertSettingsAllow(t, project, []string{"Skill(golang-cli)", "Skill(manual-private)"})
+}
+
+func TestPickSkillsMalformedSettingsLeavesManifestUnchanged(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "docker", "golang-cli")
+	project := createProject(t, []string{"docker", "golang-cli"})
+	writeSettingsLocalForTest(t, project, `{"permissions":[]}`)
+
+	var stdout bytes.Buffer
+	err := PickSkills(PickSkillsOptions{
+		Project:     project,
+		LibraryPath: library,
+		Remove:      []string{"docker"},
+		Stdout:      &stdout,
+	})
+	if err == nil {
+		t.Fatal("PickSkills() error = nil, want malformed settings error")
+	}
+	if ExitCode(err) != ExitGeneral {
+		t.Fatalf("ExitCode(err) = %d, want %d", ExitCode(err), ExitGeneral)
+	}
+
+	manifest, readErr := ReadManifest(project.ManifestPath)
+	if readErr != nil {
+		t.Fatalf("ReadManifest() error = %v", readErr)
+	}
+	if strings.Join(manifest.Skills, ",") != "docker,golang-cli" {
+		t.Fatalf("manifest skills = %#v, want unchanged docker,golang-cli", manifest.Skills)
+	}
+}
+
+func TestApplySkillSelectionMalformedSettingsLeavesManifestUnchanged(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "docker", "golang-cli")
+	project := createProject(t, []string{"docker", "golang-cli"})
+	writeSettingsLocalForTest(t, project, `{"permissions":{"allow":[42]}}`)
+
+	var stdout bytes.Buffer
+	err := ApplySkillSelection(SkillSelectionOptions{
+		Project:     project,
+		LibraryPath: library,
+		Skills:      []string{"golang-cli"},
+		Stdout:      &stdout,
+	})
+	if err == nil {
+		t.Fatal("ApplySkillSelection() error = nil, want malformed settings error")
+	}
+	if ExitCode(err) != ExitGeneral {
+		t.Fatalf("ExitCode(err) = %d, want %d", ExitCode(err), ExitGeneral)
+	}
+
+	manifest, readErr := ReadManifest(project.ManifestPath)
+	if readErr != nil {
+		t.Fatalf("ReadManifest() error = %v", readErr)
+	}
+	if strings.Join(manifest.Skills, ",") != "docker,golang-cli" {
+		t.Fatalf("manifest skills = %#v, want unchanged docker,golang-cli", manifest.Skills)
+	}
+}
+
 func TestPickSkillsUnknownAddMakesNoChanges(t *testing.T) {
 	t.Parallel()
 

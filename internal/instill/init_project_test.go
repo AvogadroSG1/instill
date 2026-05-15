@@ -43,6 +43,12 @@ func TestInitProjectCreatesManifestSkillsDirAndGitignore(t *testing.T) {
 	if !strings.Contains(string(gitignore), ".claude/skills/") {
 		t.Fatalf(".gitignore = %q, want skills entry", string(gitignore))
 	}
+	if !strings.Contains(string(gitignore), ".claude/settings.local.json") {
+		t.Fatalf(".gitignore = %q, want settings.local.json entry", string(gitignore))
+	}
+	if !strings.Contains(stdout.String(), "updated:     .gitignore (+.claude/settings.local.json)") {
+		t.Fatalf("stdout = %q, want settings.local.json gitignore update", stdout.String())
+	}
 }
 
 func TestInitProjectExistingManifestRequiresForce(t *testing.T) {
@@ -233,6 +239,94 @@ func TestInitProjectDoesNotDuplicateExistingGitignoreEntry(t *testing.T) {
 	}
 	if strings.Count(string(data), ".claude/skills/") != 1 {
 		t.Fatalf(".gitignore = %q, want no duplicate skills entry", string(data))
+	}
+}
+
+func TestInitProjectAddsSettingsLocalGitignoreEntryWhenSkillsEntryExists(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".claude/skills/\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(.gitignore) error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := InitProject(InitProjectOptions{
+		Root:        root,
+		LibraryPath: createLibrary(t, "docker"),
+		Stdout:      &stdout,
+	}); err != nil {
+		t.Fatalf("InitProject() error = %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		t.Fatalf("ReadFile(.gitignore) error = %v", err)
+	}
+	if !strings.Contains(string(data), ".claude/settings.local.json") {
+		t.Fatalf(".gitignore = %q, want settings.local.json entry", string(data))
+	}
+	if strings.Contains(stdout.String(), "updated:     .gitignore (+.claude/skills/)") {
+		t.Fatalf("stdout = %q, want no skills gitignore update", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "updated:     .gitignore (+.claude/settings.local.json)") {
+		t.Fatalf("stdout = %q, want settings.local.json gitignore update", stdout.String())
+	}
+}
+
+func TestEnsureGitignoreEntryNoopsWhenEntryExists(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	gitignorePath := filepath.Join(root, ".gitignore")
+	initial := []byte(".claude/skills/\n.claude/settings.local.json\n")
+	if err := os.WriteFile(gitignorePath, initial, 0o644); err != nil {
+		t.Fatalf("WriteFile(.gitignore) error = %v", err)
+	}
+
+	changed, err := ensureGitignoreEntry(root, ".claude/settings.local.json")
+	if err != nil {
+		t.Fatalf("ensureGitignoreEntry() error = %v", err)
+	}
+	if changed {
+		t.Fatal("ensureGitignoreEntry() changed = true, want false")
+	}
+	data, err := os.ReadFile(gitignorePath)
+	if err != nil {
+		t.Fatalf("ReadFile(.gitignore) error = %v", err)
+	}
+	if string(data) != string(initial) {
+		t.Fatalf(".gitignore = %q, want unchanged %q", string(data), string(initial))
+	}
+}
+
+func TestInitProjectDoesNotReportGitignoreUpdateWhenEntriesExist(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	initial := []byte(".claude/skills/\n.claude/settings.local.json\n")
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), initial, 0o644); err != nil {
+		t.Fatalf("WriteFile(.gitignore) error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := InitProject(InitProjectOptions{
+		Root:        root,
+		LibraryPath: createLibrary(t, "docker"),
+		Stdout:      &stdout,
+	}); err != nil {
+		t.Fatalf("InitProject() error = %v", err)
+	}
+
+	if strings.Contains(stdout.String(), "updated:     .gitignore") {
+		t.Fatalf("stdout = %q, want no gitignore update", stdout.String())
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		t.Fatalf("ReadFile(.gitignore) error = %v", err)
+	}
+	if string(data) != string(initial) {
+		t.Fatalf(".gitignore = %q, want unchanged %q", string(data), string(initial))
 	}
 }
 

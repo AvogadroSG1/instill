@@ -78,6 +78,9 @@ func PickSkills(opts PickSkillsOptions) error {
 	}
 	next = normalizeSkills(next)
 	updated := Manifest{Skills: next}
+	if err := validateReconcile(opts.Project, manifest, updated); err != nil {
+		return err
+	}
 	if err := WriteManifestAtomic(opts.Project.ManifestPath, updated); err != nil {
 		return err
 	}
@@ -91,7 +94,7 @@ func PickSkills(opts PickSkillsOptions) error {
 			return err
 		}
 	}
-	if err := ReconcileManifest(opts.Project, updated, opts.LibraryPath, stdout); err != nil {
+	if err := ReconcileManifestWithPrevious(opts.Project, manifest, updated, opts.LibraryPath, stdout); err != nil {
 		return err
 	}
 	return writeLine(stdout, fmt.Sprintf("manifest: %d skills", len(updated.Skills)))
@@ -141,6 +144,9 @@ func ApplySkillSelection(opts SkillSelectionOptions) error {
 	}
 
 	updated := Manifest{Skills: selectedSkills}
+	if err := validateReconcile(opts.Project, manifest, updated); err != nil {
+		return err
+	}
 	if err := WriteManifestAtomic(opts.Project.ManifestPath, updated); err != nil {
 		return err
 	}
@@ -154,7 +160,7 @@ func ApplySkillSelection(opts SkillSelectionOptions) error {
 			return err
 		}
 	}
-	if err := ReconcileManifest(opts.Project, updated, opts.LibraryPath, stdout); err != nil {
+	if err := ReconcileManifestWithPrevious(opts.Project, manifest, updated, opts.LibraryPath, stdout); err != nil {
 		return err
 	}
 	return writeLine(stdout, fmt.Sprintf("manifest: %d skills", len(updated.Skills)))
@@ -167,7 +173,10 @@ func validateKnownSkills(libraryPath string, skills []string) error {
 			return err
 		}
 		if !exists {
-			return NewExitError(ExitGeneral, "error: unknown skill: "+skill+" - run 'instill show-library' to see available skills")
+			return NewExitError(
+				ExitGeneral,
+				"error: unknown skill: "+skill+" - run 'instill show-library' to see available skills",
+			)
 		}
 	}
 	return nil

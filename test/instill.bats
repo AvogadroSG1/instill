@@ -74,6 +74,24 @@ run_with_tty() {
   [[ "$(cat .claude/skill-manifest.json)" != *"missing"* ]]
 }
 
+@test "check-skills grants and pick-skills revokes Claude skill permissions" {
+  make_skill docker
+  make_skill golang-cli
+  make_project
+  write_manifest '{"skills":["docker"]}'
+
+  run "$INSTILL_BIN" check-skills
+
+  [ "$status" -eq 0 ]
+  [[ "$(cat .claude/settings.local.json)" == *'"Skill(docker)"'* ]]
+
+  run "$INSTILL_BIN" pick-skills golang-cli --remove docker
+
+  [ "$status" -eq 0 ]
+  [[ "$(cat .claude/settings.local.json)" == *'"Skill(golang-cli)"'* ]]
+  [[ "$(cat .claude/settings.local.json)" != *'"Skill(docker)"'* ]]
+}
+
 @test "init-project with --skills initializes, warns outside git, and links skills" {
   make_skill docker
   make_skill golang-cli
@@ -87,6 +105,7 @@ run_with_tty() {
   [[ "$output" == *"created: docker ->"* ]]
   [ "$(readlink .claude/skills/docker)" = "$SKILL_LIBRARY_PATH/docker" ]
   [[ "$(cat .gitignore)" == *".claude/skills/"* ]]
+  [[ "$(cat .gitignore)" == *".claude/settings.local.json"* ]]
 }
 
 @test "init-project refuses an existing manifest without --force" {
