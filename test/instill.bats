@@ -298,3 +298,58 @@ run_with_tty() {
   [[ "$output" != *"error: cannot remove non-symlink"* ]]
   [[ "$(cat "$BATS_TEST_TMPDIR/exit3.err")" == *"error: cannot remove non-symlink"* ]]
 }
+
+make_group_skill() {
+  mkdir -p "$SKILL_LIBRARY_PATH/$1/$2"
+  printf '# %s/%s\n' "$1" "$2" > "$SKILL_LIBRARY_PATH/$1/$2/SKILL.md"
+}
+
+@test "pick-skills adds a qualified group skill and creates nested symlink" {
+  make_group_skill superpowers brainstorming
+  make_project
+  write_manifest '{"skills":[]}'
+
+  run "$INSTILL_BIN" pick-skills superpowers/brainstorming
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"added:   superpowers/brainstorming"* ]]
+  [ "$(readlink .claude/skills/superpowers/brainstorming)" = "$SKILL_LIBRARY_PATH/superpowers/brainstorming" ]
+  [ -d .claude/skills/superpowers ]
+  [ ! -L .claude/skills/superpowers ]
+  [[ "$(cat .claude/skill-manifest.json)" == *'"superpowers/brainstorming"'* ]]
+}
+
+@test "removing a qualified group skill prunes the empty parent directory" {
+  make_skill docker
+  make_group_skill superpowers brainstorming
+  make_project
+  write_manifest '{"skills":["docker","superpowers/brainstorming"]}'
+
+  run "$INSTILL_BIN" check-skills
+  [ "$status" -eq 0 ]
+
+  run "$INSTILL_BIN" pick-skills --remove superpowers/brainstorming
+
+  [ "$status" -eq 0 ]
+  [ ! -e .claude/skills/superpowers/brainstorming ]
+  [ ! -e .claude/skills/superpowers ]
+  [[ "$(cat .claude/skill-manifest.json)" != *"superpowers"* ]]
+}
+
+@test "removing one group skill keeps the parent dir when a sibling remains" {
+  make_skill docker
+  make_group_skill superpowers brainstorming
+  make_group_skill superpowers writing-plans
+  make_project
+  write_manifest '{"skills":["docker","superpowers/brainstorming","superpowers/writing-plans"]}'
+
+  run "$INSTILL_BIN" check-skills
+  [ "$status" -eq 0 ]
+
+  run "$INSTILL_BIN" pick-skills --remove superpowers/brainstorming
+
+  [ "$status" -eq 0 ]
+  [ ! -e .claude/skills/superpowers/brainstorming ]
+  [ -d .claude/skills/superpowers ]
+  [ "$(readlink .claude/skills/superpowers/writing-plans)" = "$SKILL_LIBRARY_PATH/superpowers/writing-plans" ]
+}
