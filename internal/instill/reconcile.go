@@ -35,7 +35,7 @@ func ReconcileManifestWithPrevious(
 	previousSkills := append([]string(nil), previousManifest.Skills...)
 	selected := make(map[string]struct{}, len(manifest.Skills))
 	for _, skill := range manifest.Skills {
-		selected[skill] = struct{}{}
+		selected[skillLinkName(skill)] = struct{}{}
 	}
 
 	if err := ensureReconcileDirs(project); err != nil {
@@ -68,7 +68,7 @@ func ReconcileManifestWithPrevious(
 			continue
 		}
 
-		target := filepath.Join(project.SymlinkDir, filepath.FromSlash(name))
+		target := filepath.Join(project.SymlinkDir, skillLinkName(name))
 		if _, err := os.Lstat(target); err == nil {
 			if err := removeSymlink(target, project.SymlinkDir); err != nil {
 				return err
@@ -81,20 +81,13 @@ func ReconcileManifestWithPrevious(
 	}
 
 	for _, name := range finalSkills {
-		target := filepath.Join(project.SymlinkDir, filepath.FromSlash(name))
+		target := filepath.Join(project.SymlinkDir, skillLinkName(name))
 		source, err := SkillSourcePath(libraryPath, name)
 		if err != nil {
 			return err
 		}
 		if linkPointsTo(target, source) {
 			continue
-		}
-
-		// For qualified names (one slash), ensure the parent directory exists.
-		if parent := filepath.Dir(target); parent != project.SymlinkDir {
-			if err := ensureRealDirectory(parent, "skill group directory"); err != nil {
-				return err
-			}
 		}
 
 		if _, err := os.Lstat(target); err == nil {

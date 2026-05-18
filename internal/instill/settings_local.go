@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func reconcileSettingsLocalPermissions(path string, previousSkills, finalSkills []string) (bool, error) {
@@ -161,13 +162,17 @@ func reconcileAllowPermissions(existing any, previousSkills, finalSkills []strin
 }
 
 func skillPermissionSet(skills []string) map[string]struct{} {
-	set := make(map[string]struct{}, len(skills))
+	set := make(map[string]struct{}, len(skills)*2)
 	for _, skill := range normalizeSkills(skills) {
 		set[skillPermission(skill)] = struct{}{}
+		// Also recognize the legacy slash format so it can be cleaned up on migration.
+		if strings.Contains(skill, "/") {
+			set["Skill("+skill+")"] = struct{}{}
+		}
 	}
 	return set
 }
 
 func skillPermission(skill string) string {
-	return "Skill(" + skill + ")"
+	return "Skill(" + skillLinkName(skill) + ")"
 }
