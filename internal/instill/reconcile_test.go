@@ -367,6 +367,29 @@ func TestReadManifestRejectsUnsafeSkillNames(t *testing.T) {
 	}
 }
 
+func TestReadManifestAcceptsQualifiedSkillNames(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		skill string
+	}{
+		{name: "flat", skill: "docker"},
+		{name: "qualified", skill: "superpowers/brainstorming"},
+		{name: "qualified with dash", skill: "obsidian/json-canvas"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if !IsValidSkillName(tt.skill) {
+				t.Fatalf("IsValidSkillName(%q) = false, want true", tt.skill)
+			}
+		})
+	}
+}
+
 func TestReconcileFilesystemErrorOnNonSymlinkCollision(t *testing.T) {
 	t.Parallel()
 
