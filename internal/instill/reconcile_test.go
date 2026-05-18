@@ -335,10 +335,15 @@ func TestReadManifestRejectsUnsafeSkillNames(t *testing.T) {
 		skill string
 	}{
 		{name: "parent traversal", skill: "../escape"},
-		{name: "nested path", skill: "go/docker"},
 		{name: "absolute path", skill: "/tmp/docker"},
 		{name: "backslash path", skill: `go\docker`},
 		{name: "dot", skill: "."},
+		{name: "double slash", skill: "go//docker"},
+		{name: "three segments", skill: "a/b/c"},
+		{name: "slash at end", skill: "docker/"},
+		{name: "dotdot second segment", skill: "superpowers/.."},
+		{name: "dot second segment", skill: "superpowers/."},
+		{name: "empty second segment", skill: "superpowers/"},
 	}
 
 	for _, tt := range tests {
