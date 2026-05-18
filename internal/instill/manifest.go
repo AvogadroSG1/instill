@@ -63,19 +63,27 @@ func ValidateSkillNames(skills []string) error {
 	return nil
 }
 
-// IsValidSkillName reports whether skill is a single safe path element.
+// IsValidSkillName reports whether skill is a safe path element or a
+// qualified name with exactly one slash (e.g. "superpowers/brainstorming").
+// Each segment must be a non-empty, non-traversal, single path component.
 func IsValidSkillName(skill string) bool {
-	if skill == "" || skill == "." || skill == ".." {
-		return false
-	}
 	if filepath.IsAbs(skill) {
 		return false
 	}
-	if filepath.Clean(skill) != skill {
+	parts := strings.SplitN(skill, "/", 3)
+	if len(parts) > 2 {
 		return false
 	}
-	if strings.Contains(skill, "/") || strings.Contains(skill, "\\") {
-		return false
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
+		if strings.Contains(part, "\\") {
+			return false
+		}
+		if filepath.Clean(part) != part {
+			return false
+		}
 	}
 	return true
 }
