@@ -41,8 +41,7 @@
       "Read(//tmp/**)",
       "Skill(superpowers:writing-plans)",
       "Skill(superpowers:executing-plans)",
-      "Skill(superpowers:using-git-worktrees)",
-      "Skill(superpowers:finishing-a-development-branch)"
+      "Skill(superpowers:using-git-worktrees)"
     ]
   }
 }
