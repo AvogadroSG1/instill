@@ -51,7 +51,7 @@ func ReconcileManifestWithPrevious(
 		if _, ok := selected[name]; ok {
 			continue
 		}
-		if err := removeSymlink(filepath.Join(project.SymlinkDir, name)); err != nil {
+		if err := removeSymlink(filepath.Join(project.SymlinkDir, filepath.FromSlash(name)), project.SymlinkDir); err != nil {
 			return err
 		}
 		changed = true
@@ -68,9 +68,9 @@ func ReconcileManifestWithPrevious(
 			continue
 		}
 
-		target := filepath.Join(project.SymlinkDir, name)
+		target := filepath.Join(project.SymlinkDir, filepath.FromSlash(name))
 		if _, err := os.Lstat(target); err == nil {
-			if err := removeSymlink(target); err != nil {
+			if err := removeSymlink(target, project.SymlinkDir); err != nil {
 				return err
 			}
 		}
@@ -81,14 +81,24 @@ func ReconcileManifestWithPrevious(
 	}
 
 	for _, name := range finalSkills {
-		target := filepath.Join(project.SymlinkDir, name)
-		source := filepath.Join(libraryPath, name)
+		target := filepath.Join(project.SymlinkDir, filepath.FromSlash(name))
+		source, err := SkillSourcePath(libraryPath, name)
+		if err != nil {
+			return err
+		}
 		if linkPointsTo(target, source) {
 			continue
 		}
 
+		// For qualified names (one slash), ensure the parent directory exists.
+		if parent := filepath.Dir(target); parent != project.SymlinkDir {
+			if err := ensureRealDirectory(parent, "skill group directory"); err != nil {
+				return err
+			}
+		}
+
 		if _, err := os.Lstat(target); err == nil {
-			if err := removeSymlink(target); err != nil {
+			if err := removeSymlink(target, project.SymlinkDir); err != nil {
 				return err
 			}
 		}
@@ -172,19 +182,42 @@ func listExistingSymlinks(path string) ([]string, error) {
 
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		info, err := os.Lstat(filepath.Join(path, entry.Name()))
+		entryPath := filepath.Join(path, entry.Name())
+		info, err := os.Lstat(entryPath)
 		if err != nil {
 			return nil, NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot read symlink: %v", err))
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			names = append(names, entry.Name())
+			continue
+		}
+		if !info.IsDir() {
+			continue
+		}
+		// Real subdirectory — scan one level for nested symlinks (group dir pattern).
+		children, err := os.ReadDir(entryPath)
+		if err != nil {
+			return nil, NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot read skill group directory: %v", err))
+		}
+		for _, child := range children {
+			childPath := filepath.Join(entryPath, child.Name())
+			childInfo, err := os.Lstat(childPath)
+			if err != nil {
+				return nil, NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot read nested symlink: %v", err))
+			}
+			if childInfo.Mode()&os.ModeSymlink != 0 {
+				names = append(names, entry.Name()+"/"+child.Name())
+			}
 		}
 	}
 
 	return names, nil
 }
 
-func removeSymlink(path string) error {
+// removeSymlink removes the symlink at path. If guardDir is non-empty, it
+// best-effort removes the parent directory when it becomes empty — but only
+// if the parent is not guardDir itself (prevents removing the skills root).
+func removeSymlink(path string, guardDir string) error {
 	info, err := os.Lstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -197,6 +230,10 @@ func removeSymlink(path string) error {
 	}
 	if err := os.Remove(path); err != nil {
 		return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot remove symlink: %v", err))
+	}
+	if parent := filepath.Dir(path); guardDir != "" && parent != guardDir {
+		// Best-effort prune: remove group dir when the last child symlink is gone.
+		_ = os.Remove(parent)
 	}
 	return nil
 }

@@ -7,13 +7,25 @@ import (
 	"strings"
 )
 
+// SkillSourcePath returns the absolute directory path for a skill in the library.
+// For flat skills ("docker") it returns libraryPath/docker.
+// For qualified group skills ("superpowers/brainstorming") it returns
+// libraryPath/superpowers/brainstorming.
+func SkillSourcePath(libraryPath string, name string) (string, error) {
+	if !IsValidSkillName(name) {
+		return "", NewExitError(ExitGeneral, "error: invalid skill name: "+name)
+	}
+	return filepath.Join(libraryPath, filepath.FromSlash(name)), nil
+}
+
 // SkillExists reports whether name resolves to a library skill with SKILL.md.
 func SkillExists(libraryPath string, name string) (bool, error) {
-	if !IsValidSkillName(name) {
-		return false, nil
+	source, err := SkillSourcePath(libraryPath, name)
+	if err != nil {
+		return false, nil //nolint:nilerr // invalid name is not an error, just absent
 	}
 
-	info, err := os.Stat(filepath.Join(libraryPath, name, "SKILL.md"))
+	info, err := os.Stat(filepath.Join(source, "SKILL.md"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
@@ -24,6 +36,9 @@ func SkillExists(libraryPath string, name string) (bool, error) {
 }
 
 // ListLibrarySkills returns all valid library skill names sorted alphabetically.
+// It discovers two layouts:
+//   - Flat:  library/<name>/SKILL.md  → skill name "<name>"
+//   - Group: library/<group>/<name>/SKILL.md  → skill name "<group>/<name>"
 func ListLibrarySkills(libraryPath string) ([]string, error) {
 	entries, err := os.ReadDir(libraryPath)
 	if err != nil {
@@ -36,12 +51,34 @@ func ListLibrarySkills(libraryPath string) ([]string, error) {
 			continue
 		}
 		name := entry.Name()
+
+		// Flat skill: library/<name>/SKILL.md
 		exists, err := SkillExists(libraryPath, name)
 		if err != nil {
 			return nil, err
 		}
 		if exists {
 			skills = append(skills, name)
+			continue
+		}
+
+		// Group directory: scan one level deeper for child skills
+		children, readErr := os.ReadDir(filepath.Join(libraryPath, name))
+		if readErr != nil {
+			continue // unreadable directory — skip silently
+		}
+		for _, child := range children {
+			if !child.IsDir() {
+				continue
+			}
+			qualified := name + "/" + child.Name()
+			childExists, err := SkillExists(libraryPath, qualified)
+			if err != nil {
+				return nil, err
+			}
+			if childExists {
+				skills = append(skills, qualified)
+			}
 		}
 	}
 	sort.Strings(skills)
