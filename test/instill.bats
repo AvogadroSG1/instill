@@ -304,7 +304,7 @@ make_group_skill() {
   printf '# %s/%s\n' "$1" "$2" > "$SKILL_LIBRARY_PATH/$1/$2/SKILL.md"
 }
 
-@test "pick-skills adds a qualified group skill and creates nested symlink" {
+@test "pick-skills adds a qualified group skill and creates a flat colon symlink" {
   make_group_skill superpowers brainstorming
   make_project
   write_manifest '{"skills":[]}'
@@ -313,13 +313,12 @@ make_group_skill() {
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"added:   superpowers/brainstorming"* ]]
-  [ "$(readlink .claude/skills/superpowers/brainstorming)" = "$SKILL_LIBRARY_PATH/superpowers/brainstorming" ]
-  [ -d .claude/skills/superpowers ]
-  [ ! -L .claude/skills/superpowers ]
+  [ "$(readlink ".claude/skills/superpowers:brainstorming")" = "$SKILL_LIBRARY_PATH/superpowers/brainstorming" ]
+  [ ! -e .claude/skills/superpowers ]
   [[ "$(cat .claude/skill-manifest.json)" == *'"superpowers/brainstorming"'* ]]
 }
 
-@test "removing a qualified group skill prunes the empty parent directory" {
+@test "removing a qualified group skill removes the flat colon symlink" {
   make_skill docker
   make_group_skill superpowers brainstorming
   make_project
@@ -331,12 +330,11 @@ make_group_skill() {
   run "$INSTILL_BIN" pick-skills --remove superpowers/brainstorming
 
   [ "$status" -eq 0 ]
-  [ ! -e .claude/skills/superpowers/brainstorming ]
-  [ ! -e .claude/skills/superpowers ]
+  [ ! -e ".claude/skills/superpowers:brainstorming" ]
   [[ "$(cat .claude/skill-manifest.json)" != *"superpowers"* ]]
 }
 
-@test "removing one group skill keeps the parent dir when a sibling remains" {
+@test "removing one group skill leaves the other flat colon symlink intact" {
   make_skill docker
   make_group_skill superpowers brainstorming
   make_group_skill superpowers writing-plans
@@ -349,7 +347,6 @@ make_group_skill() {
   run "$INSTILL_BIN" pick-skills --remove superpowers/brainstorming
 
   [ "$status" -eq 0 ]
-  [ ! -e .claude/skills/superpowers/brainstorming ]
-  [ -d .claude/skills/superpowers ]
-  [ "$(readlink .claude/skills/superpowers/writing-plans)" = "$SKILL_LIBRARY_PATH/superpowers/writing-plans" ]
+  [ ! -e ".claude/skills/superpowers:brainstorming" ]
+  [ "$(readlink ".claude/skills/superpowers:writing-plans")" = "$SKILL_LIBRARY_PATH/superpowers/writing-plans" ]
 }

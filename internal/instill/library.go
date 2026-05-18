@@ -85,6 +85,14 @@ func ListLibrarySkills(libraryPath string) ([]string, error) {
 	return skills, nil
 }
 
+// skillLinkName returns the symlink filename used in the project's skills dir.
+// Group skills ("superpowers/brainstorming") become colon-separated
+// ("superpowers:brainstorming") so the skills dir stays flat. Flat skills are
+// returned unchanged.
+func skillLinkName(name string) string {
+	return strings.ReplaceAll(name, "/", ":")
+}
+
 // FilterSkills returns skills whose names contain filter, case-insensitively.
 func FilterSkills(skills []string, filter string) []string {
 	if filter == "" {

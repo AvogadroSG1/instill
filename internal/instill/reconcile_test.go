@@ -498,7 +498,7 @@ func createGroupSkill(t *testing.T, library, group, leaf string) string {
 	return group + "/" + leaf
 }
 
-func TestReconcileCreatesNestedSymlinkForGroupSkill(t *testing.T) {
+func TestReconcileCreatesFlatSymlinkForGroupSkill(t *testing.T) {
 	t.Parallel()
 
 	library := createLibrary(t, "docker")
@@ -510,7 +510,7 @@ func TestReconcileCreatesNestedSymlinkForGroupSkill(t *testing.T) {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 
-	// flat symlink still works
+	// flat docker symlink still works
 	flatTarget, err := os.Readlink(filepath.Join(project.SymlinkDir, "docker"))
 	if err != nil {
 		t.Fatalf("Readlink(docker) error = %v", err)
@@ -519,47 +519,36 @@ func TestReconcileCreatesNestedSymlinkForGroupSkill(t *testing.T) {
 		t.Fatalf("docker -> %q, want %q", flatTarget, filepath.Join(library, "docker"))
 	}
 
-	// parent dir must be a real directory, not a symlink
-	parentInfo, err := os.Lstat(filepath.Join(project.SymlinkDir, "superpowers"))
-	if err != nil {
-		t.Fatalf("Lstat(superpowers) error = %v", err)
-	}
-	if parentInfo.Mode()&os.ModeSymlink != 0 {
-		t.Fatal("superpowers parent is a symlink, want real directory")
-	}
-	if !parentInfo.IsDir() {
-		t.Fatal("superpowers parent is not a directory")
+	// no nested superpowers directory
+	if _, err := os.Lstat(filepath.Join(project.SymlinkDir, "superpowers")); !os.IsNotExist(err) {
+		t.Fatalf("nested superpowers dir should not exist; err = %v", err)
 	}
 
-	// nested symlink points to library source
-	nestedTarget, err := os.Readlink(filepath.Join(project.SymlinkDir, "superpowers", "brainstorming"))
+	// group skill is a flat colon-separated symlink pointing to library source
+	groupTarget, err := os.Readlink(filepath.Join(project.SymlinkDir, "superpowers:brainstorming"))
 	if err != nil {
-		t.Fatalf("Readlink(superpowers/brainstorming) error = %v", err)
+		t.Fatalf("Readlink(superpowers:brainstorming) error = %v", err)
 	}
 	wantTarget := filepath.Join(library, "superpowers", "brainstorming")
-	if nestedTarget != wantTarget {
-		t.Fatalf("superpowers/brainstorming -> %q, want %q", nestedTarget, wantTarget)
+	if groupTarget != wantTarget {
+		t.Fatalf("superpowers:brainstorming -> %q, want %q", groupTarget, wantTarget)
 	}
 
 	if !strings.Contains(stdout.String(), "created: superpowers/brainstorming ->") {
-		t.Fatalf("output = %q, missing nested created line", stdout.String())
+		t.Fatalf("output = %q, missing created line", stdout.String())
 	}
 }
 
-func TestReconcileRemovesNestedSymlinkAndPrunesEmptyParent(t *testing.T) {
+func TestReconcileRemovesFlatGroupSymlink(t *testing.T) {
 	t.Parallel()
 
 	library := createLibrary(t, "docker")
 	createGroupSkill(t, library, "superpowers", "brainstorming")
 	project := createProject(t, []string{"docker", "superpowers/brainstorming"})
 
-	// pre-create state (as if reconcile already ran once)
-	superpowersDir := filepath.Join(project.SymlinkDir, "superpowers")
-	if err := os.MkdirAll(superpowersDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll(superpowers) error = %v", err)
-	}
-	if err := os.Symlink(filepath.Join(library, "superpowers", "brainstorming"), filepath.Join(superpowersDir, "brainstorming")); err != nil {
-		t.Fatalf("Symlink(brainstorming) error = %v", err)
+	// pre-create state (as if reconcile already ran once with flat links)
+	if err := os.Symlink(filepath.Join(library, "superpowers", "brainstorming"), filepath.Join(project.SymlinkDir, "superpowers:brainstorming")); err != nil {
+		t.Fatalf("Symlink(superpowers:brainstorming) error = %v", err)
 	}
 	if err := os.Symlink(filepath.Join(library, "docker"), filepath.Join(project.SymlinkDir, "docker")); err != nil {
 		t.Fatalf("Symlink(docker) error = %v", err)
@@ -574,15 +563,12 @@ func TestReconcileRemovesNestedSymlinkAndPrunesEmptyParent(t *testing.T) {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 
-	if _, err := os.Lstat(filepath.Join(superpowersDir, "brainstorming")); !os.IsNotExist(err) {
-		t.Fatalf("brainstorming symlink still exists; err = %v", err)
-	}
-	if _, err := os.Lstat(superpowersDir); !os.IsNotExist(err) {
-		t.Fatalf("empty superpowers dir still exists; err = %v", err)
+	if _, err := os.Lstat(filepath.Join(project.SymlinkDir, "superpowers:brainstorming")); !os.IsNotExist(err) {
+		t.Fatalf("superpowers:brainstorming symlink still exists; err = %v", err)
 	}
 }
 
-func TestReconcileKeepsParentDirWhenSiblingRemains(t *testing.T) {
+func TestReconcileFlatGroupSymlinksAreIndependent(t *testing.T) {
 	t.Parallel()
 
 	library := createLibrary(t, "docker")
@@ -604,16 +590,54 @@ func TestReconcileKeepsParentDirWhenSiblingRemains(t *testing.T) {
 		t.Fatalf("Reconcile(updated) error = %v", err)
 	}
 
-	// writing-plans symlink must survive
-	if _, err := os.Readlink(filepath.Join(project.SymlinkDir, "superpowers", "writing-plans")); err != nil {
-		t.Fatalf("writing-plans symlink missing; err = %v", err)
+	// writing-plans flat symlink must survive
+	if _, err := os.Readlink(filepath.Join(project.SymlinkDir, "superpowers:writing-plans")); err != nil {
+		t.Fatalf("superpowers:writing-plans symlink missing; err = %v", err)
 	}
-	// superpowers dir must survive (non-empty)
-	if _, err := os.Lstat(filepath.Join(project.SymlinkDir, "superpowers")); err != nil {
-		t.Fatalf("superpowers dir removed prematurely; err = %v", err)
+	// brainstorming flat symlink must be gone
+	if _, err := os.Lstat(filepath.Join(project.SymlinkDir, "superpowers:brainstorming")); !os.IsNotExist(err) {
+		t.Fatalf("superpowers:brainstorming still exists; err = %v", err)
 	}
-	// brainstorming symlink must be gone
-	if _, err := os.Lstat(filepath.Join(project.SymlinkDir, "superpowers", "brainstorming")); !os.IsNotExist(err) {
-		t.Fatalf("brainstorming still exists; err = %v", err)
+}
+
+func TestReconcileMigratesLegacyNestedToFlatSymlink(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "docker")
+	createGroupSkill(t, library, "superpowers", "brainstorming")
+	project := createProject(t, []string{"docker", "superpowers/brainstorming"})
+
+	// Pre-create legacy nested structure (old behavior: real dir + nested symlink).
+	superpowersDir := filepath.Join(project.SymlinkDir, "superpowers")
+	if err := os.MkdirAll(superpowersDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(superpowers) error = %v", err)
+	}
+	if err := os.Symlink(filepath.Join(library, "superpowers", "brainstorming"), filepath.Join(superpowersDir, "brainstorming")); err != nil {
+		t.Fatalf("Symlink(brainstorming) error = %v", err)
+	}
+	if err := os.Symlink(filepath.Join(library, "docker"), filepath.Join(project.SymlinkDir, "docker")); err != nil {
+		t.Fatalf("Symlink(docker) error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := Reconcile(project, library, &stdout); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	// Legacy nested symlink and its parent dir must be gone.
+	if _, err := os.Lstat(filepath.Join(superpowersDir, "brainstorming")); !os.IsNotExist(err) {
+		t.Fatalf("legacy nested brainstorming symlink still exists; err = %v", err)
+	}
+	if _, err := os.Lstat(superpowersDir); !os.IsNotExist(err) {
+		t.Fatalf("legacy superpowers dir still exists; err = %v", err)
+	}
+
+	// New flat colon symlink must exist and point to the correct library source.
+	flatTarget, err := os.Readlink(filepath.Join(project.SymlinkDir, "superpowers:brainstorming"))
+	if err != nil {
+		t.Fatalf("Readlink(superpowers:brainstorming) error = %v", err)
+	}
+	if flatTarget != filepath.Join(library, "superpowers", "brainstorming") {
+		t.Fatalf("superpowers:brainstorming -> %q, want %q", flatTarget, filepath.Join(library, "superpowers", "brainstorming"))
 	}
 }
