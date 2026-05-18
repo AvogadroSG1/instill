@@ -30,9 +30,10 @@ func InitProject(opts InitProjectOptions) error {
 	}
 
 	project := Project{
-		Root:         root,
-		ManifestPath: filepath.Join(root, claudeDirName, manifestFileName),
-		SymlinkDir:   filepath.Join(root, claudeDirName, skillsDirName),
+		Root:             root,
+		ManifestPath:     filepath.Join(root, claudeDirName, manifestFileName),
+		SymlinkDir:       filepath.Join(root, claudeDirName, skillsDirName),
+		AgentsSymlinkDir: filepath.Join(root, agentsDirName, skillsDirName),
 	}
 
 	if HasManifest(root) && !opts.Force {
@@ -85,12 +86,28 @@ func InitProject(opts InitProjectOptions) error {
 		return err
 	}
 
+	if err := os.MkdirAll(project.AgentsSymlinkDir, 0o755); err != nil { //nolint:gosec // Project symlink directory must be user-accessible in the repository.
+		return NewExitError(ExitFilesystem, "error: cannot create .agents/skills: "+err.Error())
+	}
+	if err := writeLine(stdout, "created:     .agents/skills/"); err != nil {
+		return err
+	}
+
 	changed, err := ensureGitignoreEntry(root, ".claude/skills/")
 	if err != nil {
 		return err
 	}
 	if changed {
 		if err := writeLine(stdout, "updated:     .gitignore (+.claude/skills/)"); err != nil {
+			return err
+		}
+	}
+	changed, err = ensureGitignoreEntry(root, ".agents/skills/")
+	if err != nil {
+		return err
+	}
+	if changed {
+		if err := writeLine(stdout, "updated:     .gitignore (+.agents/skills/)"); err != nil {
 			return err
 		}
 	}

@@ -36,12 +36,18 @@ func TestInitProjectCreatesManifestSkillsDirAndGitignore(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".claude", "skills")); err != nil {
 		t.Fatalf("Stat(.claude/skills) error = %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills")); err != nil {
+		t.Fatalf("Stat(.agents/skills) error = %v", err)
+	}
 	gitignore, err := os.ReadFile(filepath.Join(root, ".gitignore")) //nolint:gosec // Test reads inside t.TempDir project root.
 	if err != nil {
 		t.Fatalf("ReadFile(.gitignore) error = %v", err)
 	}
 	if !strings.Contains(string(gitignore), ".claude/skills/") {
 		t.Fatalf(".gitignore = %q, want skills entry", string(gitignore))
+	}
+	if !strings.Contains(string(gitignore), ".agents/skills/") {
+		t.Fatalf(".gitignore = %q, want agents skills entry", string(gitignore))
 	}
 	if !strings.Contains(string(gitignore), ".claude/settings.local.json") {
 		t.Fatalf(".gitignore = %q, want settings.local.json entry", string(gitignore))
@@ -196,7 +202,10 @@ func TestInitProjectWithSkillsWritesManifestAndReconciles(t *testing.T) {
 		t.Fatalf("manifest skills = %q, want sorted docker,golang-cli", got)
 	}
 	if _, err := os.Readlink(filepath.Join(root, ".claude", "skills", "docker")); err != nil {
-		t.Fatalf("Readlink(docker) error = %v", err)
+		t.Fatalf("Readlink(.claude/skills/docker) error = %v", err)
+	}
+	if _, err := os.Readlink(filepath.Join(root, ".agents", "skills", "docker")); err != nil {
+		t.Fatalf("Readlink(.agents/skills/docker) error = %v", err)
 	}
 }
 
@@ -304,7 +313,7 @@ func TestInitProjectDoesNotReportGitignoreUpdateWhenEntriesExist(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	initial := []byte(".claude/skills/\n.claude/settings.local.json\n")
+	initial := []byte(".claude/skills/\n.agents/skills/\n.claude/settings.local.json\n")
 	if err := os.WriteFile(filepath.Join(root, ".gitignore"), initial, 0o644); err != nil {
 		t.Fatalf("WriteFile(.gitignore) error = %v", err)
 	}

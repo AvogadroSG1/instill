@@ -21,7 +21,7 @@ A directory containing an instill Manifest. Discovered by walking up from the cu
 _Avoid_: workspace, repo
 
 **Reconcile**:
-The process of bringing a developer's local state — symlinks and agent permissions — into agreement with the Manifest. Runs automatically on `SessionStart` via a hook.
+The process of bringing a developer's local state — symlinks and agent permissions — into agreement with the Manifest. Creates skill symlinks in both `.claude/skills/` (Claude Code) and `.agents/skills/` (OpenAI Codex). Agent permissions are written only to `.claude/settings.local.json`; Codex has no equivalent. Runs automatically on `SessionStart` via a hook.
 _Avoid_: sync, update, apply
 
 **Agent permission**:
@@ -32,7 +32,7 @@ _Avoid_: whitelist entry, allowlist, tool permission
 
 - A **Manifest** lists one or more **Skills** by name
 - A **Library** contains the actual **Skill** directories that a Manifest references
-- **Reconcile** reads the **Manifest**, creates symlinks from `.claude/skills/` → **Library**, and writes **agent permissions** to `settings.local.json`
+- **Reconcile** reads the **Manifest**, creates symlinks from `.claude/skills/` and `.agents/skills/` → **Library**, and writes **agent permissions** to `.claude/settings.local.json` (Claude-only)
 - The **Manifest** is the ownership boundary for agent permissions: instill only adds or removes a permission for a Skill it also manages as a symlink
 
 ## Example dialogue

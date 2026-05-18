@@ -112,6 +112,9 @@ func TestCheckSkillsMissingCategoryRegistryIsSilent(t *testing.T) {
 	if err := os.Symlink(filepath.Join(library, "docker"), filepath.Join(root, ".claude", "skills", "docker")); err != nil {
 		t.Fatalf("Symlink(docker) error = %v", err)
 	}
+	if err := os.Symlink(filepath.Join(library, "docker"), filepath.Join(root, ".agents", "skills", "docker")); err != nil {
+		t.Fatalf("Symlink(.agents/skills/docker) error = %v", err)
+	}
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -245,6 +248,9 @@ func createProject(t *testing.T, skills []string) string {
 	claudeDir := filepath.Join(root, ".claude")
 	if err := os.MkdirAll(filepath.Join(claudeDir, "skills"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(.claude/skills) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".agents", "skills"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.agents/skills) error = %v", err)
 	}
 	manifest := `{"skills":[`
 	for i, skill := range skills {

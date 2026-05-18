@@ -12,15 +12,17 @@ import (
 
 const (
 	claudeDirName         = ".claude"
+	agentsDirName         = ".agents"
 	manifestFileName      = "skill-manifest.json"
 	settingsLocalFileName = "settings.local.json"
 	skillsDirName         = "skills"
 )
 
 type Project struct {
-	Root         string
-	ManifestPath string
-	SymlinkDir   string
+	Root             string
+	ManifestPath     string
+	SymlinkDir       string // .claude/skills — Claude Code
+	AgentsSymlinkDir string // .agents/skills — OpenAI Codex
 }
 
 // FindProject walks up from start until it finds a project manifest.
@@ -34,9 +36,10 @@ func FindProject(start string) (Project, bool, error) {
 		manifestPath := filepath.Join(root, claudeDirName, manifestFileName)
 		if _, err := os.Stat(manifestPath); err == nil {
 			return Project{
-				Root:         root,
-				ManifestPath: manifestPath,
-				SymlinkDir:   filepath.Join(root, claudeDirName, skillsDirName),
+				Root:             root,
+				ManifestPath:     manifestPath,
+				SymlinkDir:       filepath.Join(root, claudeDirName, skillsDirName),
+				AgentsSymlinkDir: filepath.Join(root, agentsDirName, skillsDirName),
 			}, true, nil
 		} else if err != nil && !os.IsNotExist(err) {
 			return Project{}, false, NewExitError(ExitFilesystem, "error: cannot read manifest: "+err.Error())
