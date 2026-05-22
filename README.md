@@ -33,8 +33,8 @@ export SKILL_LIBRARY_PATH=~/path/to/skills   # or let instill prompt you
 
 ```bash
 cd your-project
-instill init-project        # launches interactive skill picker
-instill init-project --skills golang-testing,golang-error-handling  # headless
+instill init        # launches interactive skill picker
+instill init --skills golang-testing,golang-error-handling  # headless
 ```
 
 **Result:**
@@ -79,18 +79,18 @@ automatically.
 
 | Command | Description |
 |---------|-------------|
-| `instill init-project` | Initialize a manifest in the current project |
+| `instill init` | Initialize a manifest in the current project |
 | `instill pick-skills [name...]` | Add or remove skills interactively or by name |
 | `instill check-skills` | Reconcile symlinks and local skill permissions with the manifest |
 | `instill show-library` | List available skills in the configured library |
 | `instill add-hooks` | Register `check-skills` as a Claude Code `SessionStart` hook |
 
-### `init-project`
+### `init`
 
 ```bash
-instill init-project                        # interactive TUI skill picker
-instill init-project --skills foo,bar       # headless: add specific skills
-instill init-project --force                # overwrite an existing manifest
+instill init                        # interactive TUI skill picker
+instill init --skills foo,bar       # headless: add specific skills
+instill init --force                # overwrite an existing manifest
 ```
 
 ### `pick-skills`

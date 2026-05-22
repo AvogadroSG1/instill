@@ -92,12 +92,12 @@ run_with_tty() {
   [[ "$(cat .claude/settings.local.json)" != *'"Skill(docker)"'* ]]
 }
 
-@test "init-project with --skills initializes, warns outside git, and links skills" {
+@test "init with --skills initializes, warns outside git, and links skills" {
   make_skill docker
   make_skill golang-cli
   make_project
 
-  run "$INSTILL_BIN" init-project --skills docker,golang-cli
+  run "$INSTILL_BIN" init --skills docker,golang-cli
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"initialized: .claude/skill-manifest.json"* ]]
@@ -108,23 +108,23 @@ run_with_tty() {
   [[ "$(cat .gitignore)" == *".claude/settings.local.json"* ]]
 }
 
-@test "init-project refuses an existing manifest without --force" {
+@test "init refuses an existing manifest without --force" {
   make_skill docker
   make_project
   write_manifest '{"skills":[]}'
 
-  run "$INSTILL_BIN" init-project
+  run "$INSTILL_BIN" init
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"error: manifest already exists; use --force to reinitialize"* ]]
 }
 
-@test "init-project --force overwrites an existing manifest before launching TUI" {
+@test "init --force overwrites an existing manifest before launching TUI" {
   make_skill docker
   make_project
   write_manifest '{"skills":["docker"]}'
 
-  run "$INSTILL_BIN" init-project --force
+  run "$INSTILL_BIN" init --force
 
   [ "$status" -eq 2 ]
   [[ "$output" == *"error: pick-skills TUI requires a terminal"* ]]
@@ -132,11 +132,11 @@ run_with_tty() {
   [ -d .claude/skills ]
 }
 
-@test "init-project without --skills in a non-TTY exits 2 without writes" {
+@test "init without --skills in a non-TTY exits 2 without writes" {
   make_skill docker
   make_project
 
-  run "$INSTILL_BIN" init-project
+  run "$INSTILL_BIN" init
 
   [ "$status" -eq 2 ]
   [[ "$output" == *"error: pick-skills TUI requires a terminal"* ]]
@@ -208,7 +208,7 @@ run_with_tty() {
   run "$INSTILL_BIN" pick-skills docker
 
   [ "$status" -eq 1 ]
-  [[ "$output" == *"error: no manifest found — run 'instill init-project' first"* ]]
+  [[ "$output" == *"error: no manifest found — run 'instill init' first"* ]]
 }
 
 @test "pick-skills no-args non-TTY exits 2 and leaves manifest unchanged" {

@@ -20,7 +20,7 @@ func TestInitProjectCLISucceedsWithSkills(t *testing.T) {
 	code := execute(commandConfig{
 		stdout: &stdout,
 		stderr: &stderr,
-		args:   []string{"init-project", "--skills", "golang-cli,docker"},
+		args:   []string{"init", "--skills", "golang-cli,docker"},
 		cwd:    root,
 	})
 
@@ -51,7 +51,7 @@ func TestInitProjectCLIExistingManifestExitsOne(t *testing.T) {
 	code := execute(commandConfig{
 		stdout: &stdout,
 		stderr: &stderr,
-		args:   []string{"init-project"},
+		args:   []string{"init"},
 		cwd:    root,
 	})
 
@@ -73,7 +73,7 @@ func TestInitProjectCLIForceOverwritesManifest(t *testing.T) {
 	code := execute(commandConfig{
 		stdout: &stdout,
 		stderr: &stderr,
-		args:   []string{"init-project", "--force"},
+		args:   []string{"init", "--force"},
 		cwd:    root,
 		isTTY: func(*os.File) bool {
 			return true
@@ -96,7 +96,7 @@ func TestInitProjectCLIForceOverwritesManifest(t *testing.T) {
 		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
 	}
 	if !launched {
-		t.Fatal("init-project --force did not launch pick-skills TUI")
+		t.Fatal("init --force did not launch pick-skills TUI")
 	}
 	manifest, err := os.ReadFile(filepath.Join(root, ".claude", "skill-manifest.json"))
 	if err != nil {
@@ -118,7 +118,7 @@ func TestInitProjectCLINoSkillsLaunchesTUIAfterProjectFiles(t *testing.T) {
 	code := execute(commandConfig{
 		stdout: &stdout,
 		stderr: &stderr,
-		args:   []string{"init-project"},
+		args:   []string{"init"},
 		cwd:    root,
 		isTTY: func(*os.File) bool {
 			return true
@@ -144,7 +144,7 @@ func TestInitProjectCLINoSkillsLaunchesTUIAfterProjectFiles(t *testing.T) {
 		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
 	}
 	if !launched {
-		t.Fatal("init-project did not launch pick-skills TUI")
+		t.Fatal("init did not launch pick-skills TUI")
 	}
 	if !strings.Contains(stdout.String(), "initialized: .claude/skill-manifest.json") ||
 		!strings.Contains(stdout.String(), "added:   docker") ||
@@ -173,7 +173,7 @@ func TestInitProjectCLINoSkillsNonTTYExitsTwoWithoutProjectWrites(t *testing.T) 
 		stdin:  stdin,
 		stdout: &stdout,
 		stderr: &stderr,
-		args:   []string{"init-project"},
+		args:   []string{"init"},
 		cwd:    root,
 	})
 
@@ -184,10 +184,10 @@ func TestInitProjectCLINoSkillsNonTTYExitsTwoWithoutProjectWrites(t *testing.T) 
 		t.Fatalf("stderr = %q, want TUI terminal error", stderr.String())
 	}
 	if _, err := os.Stat(filepath.Join(root, ".claude")); !os.IsNotExist(err) {
-		t.Fatalf(".claude exists after non-TTY init-project; err = %v", err)
+		t.Fatalf(".claude exists after non-TTY init; err = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".gitignore")); !os.IsNotExist(err) {
-		t.Fatalf(".gitignore exists after non-TTY init-project; err = %v", err)
+		t.Fatalf(".gitignore exists after non-TTY init; err = %v", err)
 	}
 }
 
@@ -201,7 +201,7 @@ func TestInitProjectCLIInvalidSkillsExitsOneWithoutProjectWrites(t *testing.T) {
 	code := execute(commandConfig{
 		stdout: &stdout,
 		stderr: &stderr,
-		args:   []string{"init-project", "--skills", "docker,missing"},
+		args:   []string{"init", "--skills", "docker,missing"},
 		cwd:    root,
 	})
 

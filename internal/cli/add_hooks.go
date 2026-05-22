@@ -28,7 +28,7 @@ func newAddHooksCommand(cfg commandConfig) *cobra.Command {
 				return err
 			}
 			if !found {
-				return instill.NewExitError(instill.ExitGeneral, "error: no manifest found — run 'instill init-project' first")
+				return instill.NewExitError(instill.ExitGeneral, "error: no manifest found — run 'instill init' first")
 			}
 			if _, err := instill.ReadManifest(project.ManifestPath); err != nil {
 				return err
