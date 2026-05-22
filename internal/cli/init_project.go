@@ -12,7 +12,7 @@ func newInitProjectCommand(cfg commandConfig) *cobra.Command {
 	var skillsCSV string
 
 	command := &cobra.Command{
-		Use:   "init-project",
+		Use:   "init",
 		Short: "Initialize an instill manifest in the current project",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {

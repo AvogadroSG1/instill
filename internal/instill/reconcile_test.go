@@ -641,3 +641,68 @@ func TestReconcileMigratesLegacyNestedToFlatSymlink(t *testing.T) {
 		t.Fatalf("superpowers:brainstorming -> %q, want %q", flatTarget, filepath.Join(library, "superpowers", "brainstorming"))
 	}
 }
+
+func TestReconcilePopulatesAgentsSkillsDir(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "docker", "golang-cli")
+	project := createProject(t, []string{"docker", "golang-cli"})
+	project.AgentsSymlinkDir = filepath.Join(project.Root, agentsDirName, skillsDirName)
+
+	var stdout bytes.Buffer
+	if err := Reconcile(project, library, &stdout); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	for _, name := range []string{"docker", "golang-cli"} {
+		claudeTarget, err := os.Readlink(filepath.Join(project.SymlinkDir, name))
+		if err != nil {
+			t.Fatalf("Readlink(.claude/skills/%s) error = %v", name, err)
+		}
+		agentsTarget, err := os.Readlink(filepath.Join(project.AgentsSymlinkDir, name))
+		if err != nil {
+			t.Fatalf("Readlink(.agents/skills/%s) error = %v", name, err)
+		}
+		if claudeTarget != agentsTarget {
+			t.Fatalf("%s: .claude/skills -> %q, .agents/skills -> %q, want identical targets", name, claudeTarget, agentsTarget)
+		}
+	}
+}
+
+func TestReconcileRemovesOrphansFromAgentsSkillsDir(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "docker", "golang-cli")
+	project := createProject(t, []string{"docker", "golang-cli"})
+	project.AgentsSymlinkDir = filepath.Join(project.Root, agentsDirName, skillsDirName)
+	if err := os.MkdirAll(project.AgentsSymlinkDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(.agents/skills) error = %v", err)
+	}
+
+	// Pre-create symlinks as if previously reconciled.
+	for _, name := range []string{"docker", "golang-cli"} {
+		if err := os.Symlink(filepath.Join(library, name), filepath.Join(project.SymlinkDir, name)); err != nil {
+			t.Fatalf("Symlink(.claude/skills/%s) error = %v", name, err)
+		}
+		if err := os.Symlink(filepath.Join(library, name), filepath.Join(project.AgentsSymlinkDir, name)); err != nil {
+			t.Fatalf("Symlink(.agents/skills/%s) error = %v", name, err)
+		}
+	}
+
+	// Remove golang-cli from manifest.
+	if err := WriteManifestAtomic(project.ManifestPath, Manifest{Skills: []string{"docker"}}); err != nil {
+		t.Fatalf("WriteManifestAtomic() error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := Reconcile(project, library, &stdout); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	if _, err := os.Lstat(filepath.Join(project.SymlinkDir, "golang-cli")); !os.IsNotExist(err) {
+		t.Fatalf(".claude/skills/golang-cli still exists after removal; err = %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(project.AgentsSymlinkDir, "golang-cli")); !os.IsNotExist(err) {
+		t.Fatalf(".agents/skills/golang-cli still exists after removal; err = %v", err)
+	}
+}

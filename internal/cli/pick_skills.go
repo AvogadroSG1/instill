@@ -30,7 +30,7 @@ func newPickSkillsCommand(cfg commandConfig) *cobra.Command {
 				return err
 			}
 			if !found {
-				return instill.NewExitError(instill.ExitGeneral, "error: no manifest found — run 'instill init-project' first")
+				return instill.NewExitError(instill.ExitGeneral, "error: no manifest found — run 'instill init' first")
 			}
 
 			if len(args) == 0 && len(parseCSV(removeCSV)) == 0 {

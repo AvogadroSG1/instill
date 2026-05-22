@@ -58,7 +58,7 @@ func TestAddHooksCLINoManifestExitsOneWhenTTY(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("execute() = %d, want 1; stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "error: no manifest found — run 'instill init-project' first") {
+	if !strings.Contains(stderr.String(), "error: no manifest found — run 'instill init' first") {
 		t.Fatalf("stderr = %q, want no manifest message", stderr.String())
 	}
 }

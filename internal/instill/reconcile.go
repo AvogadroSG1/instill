@@ -33,30 +33,12 @@ func ReconcileManifestWithPrevious(
 ) error {
 	changed := false
 	previousSkills := append([]string(nil), previousManifest.Skills...)
-	selected := make(map[string]struct{}, len(manifest.Skills))
-	for _, skill := range manifest.Skills {
-		selected[skillLinkName(skill)] = struct{}{}
-	}
 
 	if err := ensureReconcileDirs(project); err != nil {
 		return err
 	}
 
-	existing, err := listExistingSymlinks(project.SymlinkDir)
-	if err != nil {
-		return err
-	}
-
-	for _, name := range existing {
-		if _, ok := selected[name]; ok {
-			continue
-		}
-		if err := removeSymlink(filepath.Join(project.SymlinkDir, filepath.FromSlash(name)), project.SymlinkDir); err != nil {
-			return err
-		}
-		changed = true
-	}
-
+	// Determine which manifest skills still exist in the library.
 	finalSkills := make([]string, 0, len(manifest.Skills))
 	for _, name := range manifest.Skills {
 		exists, err := SkillExists(libraryPath, name)
@@ -67,41 +49,31 @@ func ReconcileManifestWithPrevious(
 			finalSkills = append(finalSkills, name)
 			continue
 		}
-
-		target := filepath.Join(project.SymlinkDir, skillLinkName(name))
-		if _, err := os.Lstat(target); err == nil {
-			if err := removeSymlink(target, project.SymlinkDir); err != nil {
-				return err
-			}
-		}
 		if _, err := fmt.Fprintf(stdout, "removed: %s (no longer in library)\n", name); err != nil {
 			return NewExitError(ExitFilesystem, "error: cannot write output: "+err.Error())
 		}
 		changed = true
 	}
 
-	for _, name := range finalSkills {
-		target := filepath.Join(project.SymlinkDir, skillLinkName(name))
-		source, err := SkillSourcePath(libraryPath, name)
+	// selected is the set of link names that should exist after reconcile.
+	selected := make(map[string]struct{}, len(finalSkills))
+	for _, skill := range finalSkills {
+		selected[skillLinkName(skill)] = struct{}{}
+	}
+
+	// Reconcile .claude/skills (primary) with full output, then .agents/skills silently.
+	claudeChanged, err := reconcileOneSymlinkDir(project.SymlinkDir, selected, finalSkills, libraryPath, stdout)
+	if err != nil {
+		return err
+	}
+	changed = changed || claudeChanged
+
+	if project.AgentsSymlinkDir != "" {
+		agentsChanged, err := reconcileOneSymlinkDir(project.AgentsSymlinkDir, selected, finalSkills, libraryPath, io.Discard)
 		if err != nil {
 			return err
 		}
-		if linkPointsTo(target, source) {
-			continue
-		}
-
-		if _, err := os.Lstat(target); err == nil {
-			if err := removeSymlink(target, project.SymlinkDir); err != nil {
-				return err
-			}
-		}
-		if err := os.Symlink(source, target); err != nil {
-			return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot create symlink: %v", err))
-		}
-		if _, err := fmt.Fprintf(stdout, "created: %s -> %s\n", name, source); err != nil {
-			return NewExitError(ExitFilesystem, "error: cannot write output: "+err.Error())
-		}
-		changed = true
+		changed = changed || agentsChanged
 	}
 
 	normalized := normalizeSkills(finalSkills)
@@ -126,12 +98,72 @@ func ReconcileManifestWithPrevious(
 	return nil
 }
 
+// reconcileOneSymlinkDir removes orphan symlinks and creates/updates symlinks for
+// finalSkills in dir. selected is the set of link names that should remain.
+func reconcileOneSymlinkDir(
+	dir string,
+	selected map[string]struct{},
+	finalSkills []string,
+	libraryPath string,
+	stdout io.Writer,
+) (bool, error) {
+	changed := false
+
+	existing, err := listExistingSymlinks(dir)
+	if err != nil {
+		return false, err
+	}
+
+	for _, name := range existing {
+		if _, ok := selected[name]; ok {
+			continue
+		}
+		if err := removeSymlink(filepath.Join(dir, filepath.FromSlash(name)), dir); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+
+	for _, name := range finalSkills {
+		target := filepath.Join(dir, skillLinkName(name))
+		source, err := SkillSourcePath(libraryPath, name)
+		if err != nil {
+			return false, err
+		}
+		if linkPointsTo(target, source) {
+			continue
+		}
+		if _, err := os.Lstat(target); err == nil {
+			if err := removeSymlink(target, dir); err != nil {
+				return false, err
+			}
+		}
+		if err := os.Symlink(source, target); err != nil {
+			return false, NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot create symlink: %v", err))
+		}
+		if _, err := fmt.Fprintf(stdout, "created: %s -> %s\n", name, source); err != nil {
+			return false, NewExitError(ExitFilesystem, "error: cannot write output: "+err.Error())
+		}
+		changed = true
+	}
+
+	return changed, nil
+}
+
 func ensureReconcileDirs(project Project) error {
 	if err := ensureRealDirectory(filepath.Join(project.Root, claudeDirName), ".claude directory"); err != nil {
 		return err
 	}
-	if err := ensureRealDirectory(project.SymlinkDir, "symlink directory"); err != nil {
+	if err := ensureRealDirectory(project.SymlinkDir, ".claude/skills directory"); err != nil {
 		return err
+	}
+	if project.AgentsSymlinkDir != "" {
+		if err := ensureRealDirectory(filepath.Join(project.Root, agentsDirName), ".agents directory"); err != nil {
+			return err
+		}
+		if err := ensureRealDirectory(project.AgentsSymlinkDir, ".agents/skills directory"); err != nil {
+			return err
+		}
 	}
 	return nil
 }

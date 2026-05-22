@@ -14,14 +14,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- `init-project` now accepts `--skills` flag for headless initialization without launching the TUI
+- `init` now accepts `--skills` flag for headless initialization without launching the TUI
 - Skill names are always normalized (deduped + sorted) before writing the manifest
 
 ## [0.1.0] - 2026-01-01
 
 ### Added
 
-- `init-project` command: initialize `.claude/skill-manifest.json` and `.claude/skills/` symlink directory; adds `.claude/skills/` to `.gitignore` automatically
+- `init` command: initialize `.claude/skill-manifest.json` and `.claude/skills/` symlink directory; adds `.claude/skills/` to `.gitignore` automatically
 - `pick-skills` command: add or remove skills from the manifest; interactive TUI (Bubbletea) or headless via positional args / `--remove` flag
 - `check-skills` command: reconcile `.claude/skills/` symlinks with the manifest; removes stale symlinks and creates missing ones
 - `show-library` command: list all skills in the configured library; `--filter` flag for substring search; annotates selected skills when run inside a project
