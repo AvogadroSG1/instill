@@ -9,3 +9,4 @@
 /instill
 # instill — managed symlinks, do not commit
 .claude/skills/
+.claude/settings.local.json
