@@ -93,6 +93,43 @@ func TestListLibrarySkillsExcludesGroupDirWithNoSkillChildren(t *testing.T) {
 	}
 }
 
+func TestListLibrarySkillsDiscoversDeepNesting(t *testing.T) {
+	t.Parallel()
+
+	library := t.TempDir()
+	for _, name := range []string{"cloud/azure/azure-cli", "cloud/k8s-helm", "docker"} {
+		mustMkdirAllLib(t, filepath.Join(library, filepath.FromSlash(name)))
+		mustWriteFileLib(t, filepath.Join(library, filepath.FromSlash(name), "SKILL.md"), "# "+name+"\n")
+	}
+
+	skills, err := ListLibrarySkills(library)
+	if err != nil {
+		t.Fatalf("ListLibrarySkills() error = %v", err)
+	}
+	if got := strings.Join(skills, ","); got != "cloud/azure/azure-cli,cloud/k8s-helm,docker" {
+		t.Fatalf("skills = %q, want cloud/azure/azure-cli,cloud/k8s-helm,docker", got)
+	}
+}
+
+func TestListLibrarySkillsStopsAtSkillMarker(t *testing.T) {
+	t.Parallel()
+
+	library := t.TempDir()
+	// cloud/azure is a skill; a nested dir beneath it must NOT be discovered.
+	mustMkdirAllLib(t, filepath.Join(library, "cloud", "azure"))
+	mustWriteFileLib(t, filepath.Join(library, "cloud", "azure", "SKILL.md"), "# azure\n")
+	mustMkdirAllLib(t, filepath.Join(library, "cloud", "azure", "nested"))
+	mustWriteFileLib(t, filepath.Join(library, "cloud", "azure", "nested", "SKILL.md"), "# nested\n")
+
+	skills, err := ListLibrarySkills(library)
+	if err != nil {
+		t.Fatalf("ListLibrarySkills() error = %v", err)
+	}
+	if got := strings.Join(skills, ","); got != "cloud/azure" {
+		t.Fatalf("skills = %q, want cloud/azure only (leaf stops recursion)", got)
+	}
+}
+
 func TestSkillExistsReturnsTrueForFlatSkill(t *testing.T) {
 	t.Parallel()
 

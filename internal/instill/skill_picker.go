@@ -42,15 +42,13 @@ func RunPickSkillsTUI(opts PickSkillsTUIOptions) error {
 	if err != nil {
 		return err
 	}
-	categoryAssignments := LoadCategoriesWithWarnings(opts.LibraryPath, nil)
-	categoryEntries := topLevelCategories(categoryAssignments)
 
 	output := opts.Stderr
 	if output == nil {
 		output = io.Discard
 	}
 	program := tea.NewProgram(
-		newSkillPickerModel(librarySkills, manifest.Skills, categoryEntries, categoryAssignments),
+		newSkillPickerModel(librarySkills, manifest.Skills),
 		tea.WithInput(opts.Stdin),
 		tea.WithOutput(output),
 	)
@@ -75,7 +73,7 @@ type skillPickerModel struct {
 	skills         []string
 	selected       map[string]bool
 	categories     []string
-	categorySkills map[string][]string
+	tree           *categoryNode
 	categoryPath   []string
 	categoryCursor int
 	skillCursor    int
@@ -87,7 +85,74 @@ type skillPickerModel struct {
 	cancelled      bool
 }
 
-func newSkillPickerModel(skills []string, selected []string, categories []string, categorySkills map[string][]string) skillPickerModel {
+// categoryNode is a node in the tree derived from skill-name path segments.
+// children maps a subcategory segment to its node; skills holds the full names
+// of skills that live directly at this node's level.
+type categoryNode struct {
+	children map[string]*categoryNode
+	skills   []string
+}
+
+// buildCategoryTree groups skill names by their path segments. A skill
+// "a/b/leaf" registers "leaf" as an immediate skill of node a/b and ensures
+// category nodes a and a/b exist. A flat skill "docker" becomes an immediate
+// skill of the root (surfaced only under "All").
+func buildCategoryTree(skills []string) *categoryNode {
+	root := &categoryNode{children: map[string]*categoryNode{}}
+	for _, skill := range skills {
+		segs := strings.Split(skill, "/")
+		node := root
+		for _, seg := range segs[:len(segs)-1] {
+			child, ok := node.children[seg]
+			if !ok {
+				child = &categoryNode{children: map[string]*categoryNode{}}
+				node.children[seg] = child
+			}
+			node = child
+		}
+		node.skills = append(node.skills, skill)
+	}
+	return root
+}
+
+func (n *categoryNode) nodeAt(path []string) *categoryNode {
+	cur := n
+	for _, seg := range path {
+		next, ok := cur.children[seg]
+		if !ok {
+			return nil
+		}
+		cur = next
+	}
+	return cur
+}
+
+// subcategoryNames returns the sorted child-category names at path.
+func (n *categoryNode) subcategoryNames(path []string) []string {
+	node := n.nodeAt(path)
+	if node == nil {
+		return nil
+	}
+	names := make([]string, 0, len(node.children))
+	for name := range node.children {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// immediateSkills returns the sorted skill names that live directly at path.
+func (n *categoryNode) immediateSkills(path []string) []string {
+	node := n.nodeAt(path)
+	if node == nil {
+		return nil
+	}
+	out := append([]string{}, node.skills...)
+	sort.Strings(out)
+	return out
+}
+
+func newSkillPickerModel(skills []string, selected []string) skillPickerModel {
 	available := make(map[string]struct{}, len(skills))
 	for _, skill := range skills {
 		available[skill] = struct{}{}
@@ -98,12 +163,13 @@ func newSkillPickerModel(skills []string, selected []string, categories []string
 			selection[skill] = true
 		}
 	}
+	tree := buildCategoryTree(skills)
 	return skillPickerModel{
-		skills:         append([]string{}, skills...),
-		selected:       selection,
-		categories:     categoryPaneEntries(categories),
-		categorySkills: copyCategories(categorySkills),
-		focusedPane:    skillPickerSkillsPane,
+		skills:      append([]string{}, skills...),
+		selected:    selection,
+		tree:        tree,
+		categories:  categoryPaneEntries(tree.subcategoryNames(nil)),
+		focusedPane: skillPickerSkillsPane,
 	}
 }
 
@@ -114,39 +180,6 @@ func categoryPaneEntries(categories []string) []string {
 		return entries
 	}
 	return append(entries, categories...)
-}
-
-func topLevelCategories(categories map[string][]string) []string {
-	topLevel := map[string]struct{}{}
-	for category := range categories {
-		top, _, _ := strings.Cut(strings.Trim(category, "/"), "/")
-		if top == "" {
-			continue
-		}
-		topLevel[top] = struct{}{}
-	}
-
-	entries := make([]string, 0, len(topLevel))
-	for category := range topLevel {
-		entries = append(entries, category)
-	}
-	sort.Strings(entries)
-	return entries
-}
-
-func skillPickerCategoriesForLibrary(libraryPath string) []string {
-	return topLevelCategories(LoadCategoriesWithWarnings(libraryPath, nil))
-}
-
-func copyCategories(categories map[string][]string) map[string][]string {
-	if len(categories) == 0 {
-		return map[string][]string{}
-	}
-	copied := make(map[string][]string, len(categories))
-	for category, skills := range categories {
-		copied[category] = append([]string{}, skills...)
-	}
-	return copied
 }
 
 func (m skillPickerModel) Init() tea.Cmd {
@@ -453,18 +486,12 @@ func (m skillPickerModel) visibleSkills() []string {
 }
 
 func (m skillPickerModel) visibleCategorySkills() []string {
-	category := m.selectedCategoryPath()
-	if category == "" || category == "All" || len(m.categorySkills) == 0 {
+	category := m.selectedCategory()
+	if category == "" || category == "All" {
 		return append([]string{}, m.skills...)
 	}
-
-	filtered := make([]string, 0, len(m.skills))
-	for _, skill := range m.skills {
-		if skillInSelectedCategory(m.categorySkills, category, skill) {
-			filtered = append(filtered, skill)
-		}
-	}
-	return filtered
+	path := append(append([]string{}, m.categoryPath...), category)
+	return m.tree.immediateSkills(path)
 }
 
 func (m skillPickerModel) selectedCategory() string {
@@ -474,54 +501,22 @@ func (m skillPickerModel) selectedCategory() string {
 	return m.categories[m.categoryCursor]
 }
 
-func (m skillPickerModel) selectedCategoryPath() string {
+func (m skillPickerModel) selectedCategoryHasChildren() bool {
 	category := m.selectedCategory()
 	if category == "" || category == "All" {
-		return category
-	}
-	path := append([]string{}, m.categoryPath...)
-	path = append(path, category)
-	return strings.Join(path, "/")
-}
-
-func (m skillPickerModel) selectedCategoryHasChildren() bool {
-	categoryPath := m.selectedCategoryPath()
-	if categoryPath == "" || categoryPath == "All" {
 		return false
 	}
-	prefix := categoryPath + "/"
-	for category := range m.categorySkills {
-		remainder, ok := strings.CutPrefix(category, prefix)
-		if ok && remainder != "" {
-			return true
-		}
-	}
-	return false
+	path := append(append([]string{}, m.categoryPath...), category)
+	node := m.tree.nodeAt(path)
+	return node != nil && len(node.children) > 0
 }
 
 func (m skillPickerModel) categoriesForPath() []string {
+	subs := m.tree.subcategoryNames(m.categoryPath)
 	if len(m.categoryPath) == 0 {
-		return categoryPaneEntries(topLevelCategories(m.categorySkills))
+		return categoryPaneEntries(subs)
 	}
-
-	prefix := strings.Join(m.categoryPath, "/") + "/"
-	children := map[string]struct{}{}
-	for category := range m.categorySkills {
-		remainder, ok := strings.CutPrefix(category, prefix)
-		if !ok || remainder == "" {
-			continue
-		}
-		child, _, _ := strings.Cut(remainder, "/")
-		if child != "" {
-			children[child] = struct{}{}
-		}
-	}
-	entries := make([]string, 0, len(children))
-	for child := range children {
-		entries = append(entries, child)
-	}
-	sort.Strings(entries)
-	return entries
+	return subs
 }
 
 func (m skillPickerModel) categoryBreadcrumb() string {

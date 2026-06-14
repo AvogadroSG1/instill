@@ -350,3 +350,50 @@ make_group_skill() {
   [ ! -e ".claude/skills/superpowers:brainstorming" ]
   [ "$(readlink ".claude/skills/superpowers:writing-plans")" = "$SKILL_LIBRARY_PATH/superpowers/writing-plans" ]
 }
+
+make_deep_skill() {
+  # $1 = slash-separated path, e.g. cloud/azure/azure-cli
+  mkdir -p "$SKILL_LIBRARY_PATH/$1"
+  printf '# %s\n' "$1" > "$SKILL_LIBRARY_PATH/$1/SKILL.md"
+}
+
+@test "pick-skills adds a deeply nested skill and creates a flat colon symlink" {
+  make_deep_skill cloud/azure/azure-cli
+  make_project
+  write_manifest '{"skills":[]}'
+
+  run "$INSTILL_BIN" pick-skills cloud/azure/azure-cli
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"added:   cloud/azure/azure-cli"* ]]
+  [ "$(readlink ".claude/skills/cloud:azure:azure-cli")" = "$SKILL_LIBRARY_PATH/cloud/azure/azure-cli" ]
+  [ ! -e .claude/skills/cloud ]
+  [[ "$(cat .claude/skill-manifest.json)" == *'"cloud/azure/azure-cli"'* ]]
+}
+
+@test "removing a deeply nested skill removes the flat colon symlink" {
+  make_deep_skill cloud/azure/azure-cli
+  make_project
+  write_manifest '{"skills":["cloud/azure/azure-cli"]}'
+
+  run "$INSTILL_BIN" check-skills
+  [ "$status" -eq 0 ]
+
+  run "$INSTILL_BIN" pick-skills --remove cloud/azure/azure-cli
+
+  [ "$status" -eq 0 ]
+  [ ! -e ".claude/skills/cloud:azure:azure-cli" ]
+  [[ "$(cat .claude/skill-manifest.json)" != *"cloud/azure/azure-cli"* ]]
+}
+
+@test "show-library lists deeply nested skills" {
+  make_deep_skill cloud/azure/azure-cli
+  make_skill docker
+  make_project
+
+  run "$INSTILL_BIN" show-library
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"cloud/azure/azure-cli"* ]]
+  [[ "$output" == *"docker"* ]]
+}
