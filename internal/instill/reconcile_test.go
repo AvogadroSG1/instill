@@ -339,7 +339,6 @@ func TestReadManifestRejectsUnsafeSkillNames(t *testing.T) {
 		{name: "backslash path", skill: `go\docker`},
 		{name: "dot", skill: "."},
 		{name: "double slash", skill: "go//docker"},
-		{name: "three segments", skill: "a/b/c"},
 		{name: "slash at end", skill: "docker/"},
 		{name: "dotdot second segment", skill: "superpowers/.."},
 		{name: "dot second segment", skill: "superpowers/."},
@@ -377,6 +376,8 @@ func TestReadManifestAcceptsQualifiedSkillNames(t *testing.T) {
 		{name: "flat", skill: "docker"},
 		{name: "qualified", skill: "superpowers/brainstorming"},
 		{name: "qualified with dash", skill: "obsidian/json-canvas"},
+		{name: "three segments", skill: "cloud/azure/azure-cli"},
+		{name: "deep nesting", skill: "cloud/azure/compute/azure-vm"},
 	}
 
 	for _, tt := range tests {

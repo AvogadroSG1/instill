@@ -14,7 +14,7 @@ import (
 func TestSkillPickerPrechecksTogglesFiltersAndConfirms(t *testing.T) {
 	t.Parallel()
 
-	model := newSkillPickerModel([]string{"docker", "golang-cli", "golang-testing"}, []string{"golang-cli"}, nil, nil)
+	model := newSkillPickerModel([]string{"docker", "golang-cli", "golang-testing"}, []string{"golang-cli"})
 	if !model.selected["golang-cli"] {
 		t.Fatal("golang-cli not preselected")
 	}
@@ -43,7 +43,7 @@ func TestSkillPickerPrechecksTogglesFiltersAndConfirms(t *testing.T) {
 func TestSkillPickerScaffoldShowsTwoPanesAndSwitchesFocus(t *testing.T) {
 	t.Parallel()
 
-	model := newSkillPickerModel([]string{"docker"}, []string{}, nil, nil)
+	model := newSkillPickerModel([]string{"docker"}, []string{})
 	view := model.View()
 	if !strings.Contains(view, "Categories") ||
 		!strings.Contains(view, "All") ||
@@ -77,10 +77,8 @@ func TestSkillPickerShowsTopLevelCategoriesAlphabetically(t *testing.T) {
 	t.Parallel()
 
 	model := newSkillPickerModel(
-		[]string{"azure-blob-storage", "docker", "golang-cli"},
+		[]string{"cloud/azure/azure-blob-storage", "cloud/docker", "golang/golang-cli"},
 		[]string{},
-		[]string{"cloud", "golang"},
-		nil,
 	)
 
 	view := model.View()
@@ -90,7 +88,7 @@ func TestSkillPickerShowsTopLevelCategoriesAlphabetically(t *testing.T) {
 	if allIndex == -1 || cloudIndex == -1 || golangIndex == -1 || allIndex >= cloudIndex || cloudIndex >= golangIndex {
 		t.Fatalf("view = %q, want All then alphabetic categories", view)
 	}
-	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage,docker,golang-cli" {
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/azure-blob-storage,cloud/docker,golang/golang-cli" {
 		t.Fatalf("visible skills = %q, want unfiltered flat list", got)
 	}
 }
@@ -99,14 +97,8 @@ func TestSkillPickerCategoryNavigationFiltersSkillsAndResetsCursor(t *testing.T)
 	t.Parallel()
 
 	model := newSkillPickerModel(
-		[]string{"azure-blob-storage", "docker", "golang-cli"},
+		[]string{"cloud/azure/azure-blob-storage", "cloud/docker", "golang/golang-cli"},
 		[]string{},
-		[]string{"cloud", "golang"},
-		map[string][]string{
-			"cloud/azure": {"azure-blob-storage"},
-			"cloud":       {"docker"},
-			"golang":      {"golang-cli"},
-		},
 	)
 	model.skillCursor = 2
 
@@ -121,8 +113,8 @@ func TestSkillPickerCategoryNavigationFiltersSkillsAndResetsCursor(t *testing.T)
 	if model.skillCursor != 0 {
 		t.Fatalf("skillCursor = %d, want reset to 0", model.skillCursor)
 	}
-	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage,docker" {
-		t.Fatalf("visible skills = %q, want selected category skills", got)
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/docker" {
+		t.Fatalf("visible skills = %q, want immediate-level skills under cloud", got)
 	}
 }
 
@@ -130,20 +122,14 @@ func TestSkillPickerAllCategoryShowsAllSkillsBeforeFiltering(t *testing.T) {
 	t.Parallel()
 
 	model := newSkillPickerModel(
-		[]string{"azure-blob-storage", "docker", "golang-cli"},
+		[]string{"cloud/azure/azure-blob-storage", "cloud/docker", "golang/golang-cli"},
 		[]string{},
-		[]string{"cloud", "golang"},
-		map[string][]string{
-			"cloud/azure": {"azure-blob-storage"},
-			"cloud":       {"docker"},
-			"golang":      {"golang-cli"},
-		},
 	)
 
 	if model.selectedCategory() != "All" {
 		t.Fatalf("selectedCategory() = %q, want All", model.selectedCategory())
 	}
-	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage,docker,golang-cli" {
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/azure-blob-storage,cloud/docker,golang/golang-cli" {
 		t.Fatalf("visible skills = %q, want all skills", got)
 	}
 
@@ -151,8 +137,8 @@ func TestSkillPickerAllCategoryShowsAllSkillsBeforeFiltering(t *testing.T) {
 	model = updated.(skillPickerModel)
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
 	model = updated.(skillPickerModel)
-	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage,docker" {
-		t.Fatalf("visible skills = %q, want cloud and cloud subcategory skills", got)
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/docker" {
+		t.Fatalf("visible skills = %q, want only cloud's immediate skills", got)
 	}
 }
 
@@ -160,15 +146,8 @@ func TestSkillPickerDrillsDownAndNavigatesBack(t *testing.T) {
 	t.Parallel()
 
 	model := newSkillPickerModel(
-		[]string{"azure-blob-storage", "azure-functions", "docker", "golang-cli"},
+		[]string{"cloud/azure/azure-blob-storage", "cloud/server/azure-functions", "cloud/docker", "golang/golang-cli"},
 		[]string{},
-		[]string{"cloud", "golang"},
-		map[string][]string{
-			"cloud/azure":  {"azure-blob-storage"},
-			"cloud/server": {"azure-functions"},
-			"cloud":        {"docker"},
-			"golang":       {"golang-cli"},
-		},
 	)
 
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
@@ -187,7 +166,7 @@ func TestSkillPickerDrillsDownAndNavigatesBack(t *testing.T) {
 	if got := model.categoryBreadcrumb(); got != "cloud" {
 		t.Fatalf("breadcrumb = %q, want cloud", got)
 	}
-	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage" {
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/azure-blob-storage" {
 		t.Fatalf("visible skills = %q, want azure skills", got)
 	}
 	view := model.View()
@@ -212,14 +191,8 @@ func TestSkillPickerGlobalSearchIgnoresDrilledCategoryScope(t *testing.T) {
 	t.Parallel()
 
 	model := newSkillPickerModel(
-		[]string{"azure-blob-storage", "azure-functions", "golang-azure-helper"},
+		[]string{"cloud/azure/azure-blob-storage", "cloud/server/azure-functions", "golang/golang-azure-helper"},
 		[]string{},
-		[]string{"cloud", "golang"},
-		map[string][]string{
-			"cloud/azure":  {"azure-blob-storage"},
-			"cloud/server": {"azure-functions"},
-			"golang":       {"golang-azure-helper"},
-		},
 	)
 
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
@@ -233,7 +206,7 @@ func TestSkillPickerGlobalSearchIgnoresDrilledCategoryScope(t *testing.T) {
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("azure")})
 	model = updated.(skillPickerModel)
 
-	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage,azure-functions,golang-azure-helper" {
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/azure-blob-storage,cloud/server/azure-functions,golang/golang-azure-helper" {
 		t.Fatalf("visible skills = %q, want global matches outside drilled category", got)
 	}
 	view := model.View()
@@ -249,14 +222,8 @@ func TestSkillPickerEscapeLeavesGlobalSearchWithoutCancelling(t *testing.T) {
 	t.Parallel()
 
 	model := newSkillPickerModel(
-		[]string{"azure-blob-storage", "azure-functions", "golang-azure-helper"},
+		[]string{"cloud/azure/azure-blob-storage", "cloud/server/azure-functions", "golang/golang-azure-helper"},
 		[]string{},
-		[]string{"cloud", "golang"},
-		map[string][]string{
-			"cloud/azure":  {"azure-blob-storage"},
-			"cloud/server": {"azure-functions"},
-			"golang":       {"golang-azure-helper"},
-		},
 	)
 
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
@@ -281,7 +248,7 @@ func TestSkillPickerEscapeLeavesGlobalSearchWithoutCancelling(t *testing.T) {
 	if got := strings.Join(model.categories, ","); got != "azure,server" {
 		t.Fatalf("categories = %q, want previous subcategory list", got)
 	}
-	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage" {
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/azure-blob-storage" {
 		t.Fatalf("visible skills = %q, want browsed category after leaving search", got)
 	}
 }
@@ -290,10 +257,8 @@ func TestSkillPickerRightArrowOnLeafFocusesSkillsPane(t *testing.T) {
 	t.Parallel()
 
 	model := newSkillPickerModel(
-		[]string{"docker"},
+		[]string{"cloud/docker"},
 		[]string{},
-		[]string{"cloud"},
-		map[string][]string{"cloud": {"docker"}},
 	)
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
 	model = updated.(skillPickerModel)
@@ -310,58 +275,83 @@ func TestSkillPickerRightArrowOnLeafFocusesSkillsPane(t *testing.T) {
 	}
 }
 
-func TestSkillPickerCategoriesForLibraryUsesRegistryTopLevels(t *testing.T) {
+func TestBuildCategoryTreeGroupsBySegments(t *testing.T) {
 	t.Parallel()
 
-	library := createLibrary(t, "azure-blob-storage", "docker", "golang-cli")
-	writeCategories(t, library, `{
-		"golang": ["golang-cli"],
-		"cloud/azure": ["azure-blob-storage"],
-		"cloud": ["docker"]
-	}`)
+	tree := buildCategoryTree([]string{
+		"cloud/azure/azure-cli",
+		"cloud/azure/azure-blob-storage",
+		"cloud/k8s-helm",
+		"docker",
+		"golang/golang-cli",
+	})
 
+	if got := strings.Join(tree.subcategoryNames(nil), ","); got != "cloud,golang" {
+		t.Fatalf("top-level categories = %q, want cloud,golang", got)
+	}
+	if got := strings.Join(tree.subcategoryNames([]string{"cloud"}), ","); got != "azure" {
+		t.Fatalf("cloud subcategories = %q, want azure", got)
+	}
+	if got := strings.Join(tree.immediateSkills([]string{"cloud"}), ","); got != "cloud/k8s-helm" {
+		t.Fatalf("cloud immediate skills = %q, want cloud/k8s-helm", got)
+	}
+	if got := strings.Join(tree.immediateSkills([]string{"cloud", "azure"}), ","); got != "cloud/azure/azure-blob-storage,cloud/azure/azure-cli" {
+		t.Fatalf("cloud/azure immediate skills = %q, want both azure skills sorted", got)
+	}
+	if got := strings.Join(tree.immediateSkills(nil), ","); got != "docker" {
+		t.Fatalf("root immediate skills = %q, want docker", got)
+	}
+}
+
+func TestSkillPickerDrillsThreeLevels(t *testing.T) {
+	t.Parallel()
+
+	// azure has both an immediate skill (azure-cli) and a deeper subcategory
+	// (compute), so it is genuinely drillable.
 	model := newSkillPickerModel(
-		[]string{"azure-blob-storage", "docker", "golang-cli"},
+		[]string{"cloud/azure/compute/azure-vm", "cloud/azure/azure-cli", "cloud/k8s-helm", "docker"},
 		[]string{},
-		skillPickerCategoriesForLibrary(library),
-		LoadCategoriesWithWarnings(library, nil),
 	)
 
-	if got := strings.Join(model.categories, ","); got != "All,cloud,golang" {
-		t.Fatalf("categories = %q, want All,cloud,golang", got)
+	// Focus categories, highlight "cloud" at the top level. The skills pane
+	// shows cloud's own immediate skills before drilling.
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(skillPickerModel)
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/k8s-helm" {
+		t.Fatalf("visible at cloud (highlighted) = %q, want cloud/k8s-helm", got)
 	}
-	if got := strings.Join(model.visibleSkills(), ","); got != "azure-blob-storage,docker,golang-cli" {
-		t.Fatalf("visible skills = %q, want All to show every skill", got)
+
+	// Drill into cloud; cursor lands on subcategory "azure", showing azure's
+	// immediate skill.
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model = updated.(skillPickerModel)
+	if got := strings.Join(model.categories, ","); got != "azure" {
+		t.Fatalf("categories at cloud = %q, want azure", got)
 	}
-}
-
-func TestSkillPickerCategoriesForLibraryFallsBackToAll(t *testing.T) {
-	t.Parallel()
-
-	library := createLibrary(t, "docker")
-
-	model := newSkillPickerModel([]string{"docker"}, []string{}, skillPickerCategoriesForLibrary(library), nil)
-	if got := strings.Join(model.categories, ","); got != "All" {
-		t.Fatalf("categories = %q, want All fallback", got)
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/azure-cli" {
+		t.Fatalf("visible after drilling cloud = %q, want cloud/azure/azure-cli", got)
 	}
-}
 
-func TestSkillPickerCategoriesForLibraryEmptyRegistryFallsBackToAll(t *testing.T) {
-	t.Parallel()
-
-	library := createLibrary(t, "docker")
-	writeCategories(t, library, `{}`)
-
-	model := newSkillPickerModel([]string{"docker"}, []string{}, skillPickerCategoriesForLibrary(library), nil)
-	if got := strings.Join(model.categories, ","); got != "All" {
-		t.Fatalf("categories = %q, want All fallback", got)
+	// Drill into azure (it has subcategory compute); cursor lands on compute.
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model = updated.(skillPickerModel)
+	if got := model.categoryBreadcrumb(); got != "cloud > azure" {
+		t.Fatalf("breadcrumb = %q, want 'cloud > azure'", got)
+	}
+	if got := strings.Join(model.categories, ","); got != "compute" {
+		t.Fatalf("categories at cloud/azure = %q, want compute", got)
+	}
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/compute/azure-vm" {
+		t.Fatalf("visible after drilling azure = %q, want cloud/azure/compute/azure-vm", got)
 	}
 }
 
 func TestSkillPickerTogglesOffPrecheckedSkill(t *testing.T) {
 	t.Parallel()
 
-	model := newSkillPickerModel([]string{"docker", "golang-cli"}, []string{"docker"}, nil, nil)
+	model := newSkillPickerModel([]string{"docker", "golang-cli"}, []string{"docker"})
 	model.toggleCurrent()
 	if model.selected["docker"] {
 		t.Fatal("docker remains selected after toggle")
@@ -374,7 +364,7 @@ func TestSkillPickerTogglesOffPrecheckedSkill(t *testing.T) {
 func TestSkillPickerDropsStaleManifestSkillsFromSelection(t *testing.T) {
 	t.Parallel()
 
-	model := newSkillPickerModel([]string{"docker"}, []string{"docker", "missing"}, nil, nil)
+	model := newSkillPickerModel([]string{"docker"}, []string{"docker", "missing"})
 	if got := strings.Join(model.selectedSkills(), ","); got != "docker" {
 		t.Fatalf("selected skills = %q, want docker only", got)
 	}
@@ -383,7 +373,7 @@ func TestSkillPickerDropsStaleManifestSkillsFromSelection(t *testing.T) {
 func TestSkillPickerCancelDoesNotApplySelection(t *testing.T) {
 	t.Parallel()
 
-	model := newSkillPickerModel([]string{"docker"}, []string{"docker"}, nil, nil)
+	model := newSkillPickerModel([]string{"docker"}, []string{"docker"})
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	model = updated.(skillPickerModel)
 	if !model.cancelled || model.confirmed {
@@ -394,7 +384,7 @@ func TestSkillPickerCancelDoesNotApplySelection(t *testing.T) {
 func TestSkillPickerQCancelDoesNotConfirm(t *testing.T) {
 	t.Parallel()
 
-	model := newSkillPickerModel([]string{"docker"}, []string{"docker"}, nil, nil)
+	model := newSkillPickerModel([]string{"docker"}, []string{"docker"})
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
 	model = updated.(skillPickerModel)
 	if !model.cancelled || model.confirmed {
@@ -409,7 +399,7 @@ func TestSkillPickerHandlesLargeLibrary(t *testing.T) {
 	for i := range 220 {
 		skills = append(skills, "skill-"+strconv.Itoa(i))
 	}
-	model := newSkillPickerModel(skills, []string{}, nil, nil)
+	model := newSkillPickerModel(skills, []string{})
 	for range 219 {
 		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
 		model = updated.(skillPickerModel)
