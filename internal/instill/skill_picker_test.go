@@ -160,14 +160,14 @@ func TestSkillPickerDrillsDownAndNavigatesBack(t *testing.T) {
 	if got := strings.Join(model.categoryPath, "/"); got != "cloud" {
 		t.Fatalf("categoryPath = %q, want cloud", got)
 	}
-	if got := strings.Join(model.categories, ","); got != "azure,server" {
-		t.Fatalf("categories = %q, want cloud children", got)
+	if got := strings.Join(model.categories, ","); got != "All,azure,server" {
+		t.Fatalf("categories = %q, want All plus cloud children", got)
 	}
 	if got := model.categoryBreadcrumb(); got != "cloud" {
 		t.Fatalf("breadcrumb = %q, want cloud", got)
 	}
-	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/azure-blob-storage" {
-		t.Fatalf("visible skills = %q, want azure skills", got)
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/azure-blob-storage,cloud/server/azure-functions,cloud/docker" {
+		t.Fatalf("visible skills = %q, want all skills under cloud", got)
 	}
 	view := model.View()
 	if !strings.Contains(view, "cloud\n") {
@@ -245,10 +245,10 @@ func TestSkillPickerEscapeLeavesGlobalSearchWithoutCancelling(t *testing.T) {
 	if got := strings.Join(model.categoryPath, "/"); got != "cloud" {
 		t.Fatalf("categoryPath = %q, want previous browse path", got)
 	}
-	if got := strings.Join(model.categories, ","); got != "azure,server" {
+	if got := strings.Join(model.categories, ","); got != "All,azure,server" {
 		t.Fatalf("categories = %q, want previous subcategory list", got)
 	}
-	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/azure-blob-storage" {
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/azure-blob-storage,cloud/server/azure-functions" {
 		t.Fatalf("visible skills = %q, want browsed category after leaving search", got)
 	}
 }
@@ -272,6 +272,60 @@ func TestSkillPickerRightArrowOnLeafFocusesSkillsPane(t *testing.T) {
 	}
 	if got := strings.Join(model.categoryPath, "/"); got != "" {
 		t.Fatalf("categoryPath = %q, want no drilldown on leaf", got)
+	}
+}
+
+func TestSkillPickerSelectsParentSkillWithSubfolders(t *testing.T) {
+	t.Parallel()
+
+	// "foo" owns the immediate skill foo/qux and also has the subfolder "bar".
+	// Before the fix, drilling into foo to reach bar made foo/qux unreachable.
+	model := newSkillPickerModel(
+		[]string{"foo/qux", "foo/bar/baz"},
+		[]string{},
+	)
+
+	// Focus categories and highlight "foo".
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(skillPickerModel)
+
+	// Drill into foo; cursor lands on "All", which still lists foo/qux.
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model = updated.(skillPickerModel)
+	if got := model.selectedCategory(); got != "All" {
+		t.Fatalf("selectedCategory after drilling foo = %q, want All", got)
+	}
+	visible := model.visibleSkills()
+	if got := strings.Join(visible, ","); got != "foo/qux,foo/bar/baz" {
+		t.Fatalf("visible after drilling foo = %q, want both skills under foo", got)
+	}
+
+	// Right on "All" (no children) focuses the skills pane.
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model = updated.(skillPickerModel)
+	if model.focusedPane != skillPickerSkillsPane {
+		t.Fatalf("focusedPane = %v, want skills pane", model.focusedPane)
+	}
+
+	// Move to foo/qux and toggle it.
+	target := 0
+	for i, skill := range visible {
+		if skill == "foo/qux" {
+			target = i
+			break
+		}
+	}
+	for range target {
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+		model = updated.(skillPickerModel)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updated.(skillPickerModel)
+
+	if !model.selected["foo/qux"] {
+		t.Fatal("foo/qux not selected; parent skill remained unreachable")
 	}
 }
 
@@ -323,28 +377,33 @@ func TestSkillPickerDrillsThreeLevels(t *testing.T) {
 		t.Fatalf("visible at cloud (highlighted) = %q, want cloud/k8s-helm", got)
 	}
 
-	// Drill into cloud; cursor lands on subcategory "azure", showing azure's
-	// immediate skill.
+	// Drill into cloud; cursor lands on the "All" entry, which lists every
+	// skill under cloud so the parent-level skills are not lost.
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
 	model = updated.(skillPickerModel)
-	if got := strings.Join(model.categories, ","); got != "azure" {
-		t.Fatalf("categories at cloud = %q, want azure", got)
+	if got := strings.Join(model.categories, ","); got != "All,azure" {
+		t.Fatalf("categories at cloud = %q, want All,azure", got)
 	}
-	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/azure-cli" {
-		t.Fatalf("visible after drilling cloud = %q, want cloud/azure/azure-cli", got)
+	if got := model.selectedCategory(); got != "All" {
+		t.Fatalf("selectedCategory after drilling cloud = %q, want All", got)
+	}
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/compute/azure-vm,cloud/azure/azure-cli,cloud/k8s-helm" {
+		t.Fatalf("visible after drilling cloud = %q, want all skills under cloud", got)
 	}
 
-	// Drill into azure (it has subcategory compute); cursor lands on compute.
+	// Move to subcategory "azure" and drill into it (it has subcategory compute).
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(skillPickerModel)
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
 	model = updated.(skillPickerModel)
 	if got := model.categoryBreadcrumb(); got != "cloud > azure" {
 		t.Fatalf("breadcrumb = %q, want 'cloud > azure'", got)
 	}
-	if got := strings.Join(model.categories, ","); got != "compute" {
-		t.Fatalf("categories at cloud/azure = %q, want compute", got)
+	if got := strings.Join(model.categories, ","); got != "All,compute" {
+		t.Fatalf("categories at cloud/azure = %q, want All,compute", got)
 	}
-	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/compute/azure-vm" {
-		t.Fatalf("visible after drilling azure = %q, want cloud/azure/compute/azure-vm", got)
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/compute/azure-vm,cloud/azure/azure-cli" {
+		t.Fatalf("visible after drilling azure = %q, want all skills under cloud/azure", got)
 	}
 }
 
