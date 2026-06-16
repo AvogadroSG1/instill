@@ -488,10 +488,27 @@ func (m skillPickerModel) visibleSkills() []string {
 func (m skillPickerModel) visibleCategorySkills() []string {
 	category := m.selectedCategory()
 	if category == "" || category == "All" {
-		return append([]string{}, m.skills...)
+		return m.skillsUnderPath(m.categoryPath)
 	}
 	path := append(append([]string{}, m.categoryPath...), category)
 	return m.tree.immediateSkills(path)
+}
+
+// skillsUnderPath returns the skills that live at path or in any descendant
+// category beneath it, preserving the original skill ordering. An empty path
+// returns every skill.
+func (m skillPickerModel) skillsUnderPath(path []string) []string {
+	if len(path) == 0 {
+		return append([]string{}, m.skills...)
+	}
+	prefix := strings.Join(path, "/") + "/"
+	out := make([]string, 0, len(m.skills))
+	for _, skill := range m.skills {
+		if strings.HasPrefix(skill, prefix) {
+			out = append(out, skill)
+		}
+	}
+	return out
 }
 
 func (m skillPickerModel) selectedCategory() string {
@@ -513,10 +530,7 @@ func (m skillPickerModel) selectedCategoryHasChildren() bool {
 
 func (m skillPickerModel) categoriesForPath() []string {
 	subs := m.tree.subcategoryNames(m.categoryPath)
-	if len(m.categoryPath) == 0 {
-		return categoryPaneEntries(subs)
-	}
-	return subs
+	return categoryPaneEntries(subs)
 }
 
 func (m skillPickerModel) categoryBreadcrumb() string {
