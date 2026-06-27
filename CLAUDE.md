@@ -94,7 +94,7 @@ validation, and a cross-build matrix (darwin/linux × amd64/arm64). Keep all of 
 
 | Command | Domain entry | Purpose |
 |---------|--------------|---------|
-| `instill init` | `InitProject` | Create manifest + symlink dirs + `.gitignore` entries; launches TUI picker unless `--skills`/`--force` headless |
+| `instill init` | `InitProject` | Create manifest + symlink dirs + `.gitignore` entries; launches TUI picker unless `--skills` is given (`--force` only allows overwriting an existing manifest, it does not make `init` headless) |
 | `instill pick-skills [name...]` | `PickSkills` / `RunPickSkillsTUI` | Add/remove skills by name, `--remove`, or interactive TUI |
 | `instill check-skills` | `ReconcileManifest` | Reconcile symlinks + local permissions with the manifest (the hook target) |
 | `instill show-library` | `ShowLibrary` | List library skills; `--filter` substring, `--category` prefix |
@@ -123,7 +123,7 @@ Note: the `init` command was formerly `init-project` — it is now just `init`.
 
 your-project/
   .claude/
-    skill-manifest.json              ← COMMITTED: ["golang-testing", "cloud/azure/azure-cli"]
+    skill-manifest.json              ← COMMITTED: {"skills": ["golang-testing", "cloud/azure/azure-cli"]}
     settings.json                    ← committed: holds the SessionStart hook (add-hooks)
     settings.local.json              ← gitignored: local Skill(...) permissions
     skills/                          ← gitignored: symlinks managed by instill (Claude Code)
@@ -160,8 +160,9 @@ This is the heart of the tool. `ReconcileManifest` calls it with `previous == cu
 `PickSkills`/`ApplySkillSelection` pass the **previous** manifest so removed permissions can
 be revoked.
 
-1. Ensure `.claude/`, `.claude/skills/`, and (if applicable) `.agents/`, `.agents/skills/`
-   are real directories (refuse to write through symlinks).
+1. Ensure `.claude/`, `.claude/skills/`, `.agents/`, and `.agents/skills/` are real
+   directories (refuse to write through symlinks). `FindProject`/`InitProject` always
+   populate the `.agents` paths, so the `.agents` dirs are reconciled on every run.
 2. Drop manifest entries whose library skill no longer exists (prints
    `removed: <name> (no longer in library)`).
 3. Reconcile `.claude/skills/` (primary, full output) then `.agents/skills/` (silent):
@@ -169,7 +170,9 @@ be revoked.
 4. Rewrite the manifest atomically if it changed.
 5. Reconcile `.claude/settings.local.json` permissions (see below). `.agents` has no
    permissions equivalent.
-6. Print `ok: N skills linked` if anything changed.
+6. Print `ok: N skills linked` if symlinks or the manifest changed. (Permission-only
+   writes to `settings.local.json` do not flip the `changed` flag, so a reconcile that
+   only adjusts permissions prints nothing.)
 
 ## Permission ownership boundary (`settings_local.go`)
 
