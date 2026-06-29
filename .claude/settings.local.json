@@ -15,16 +15,13 @@
       "Bash(instill --help)",
       "Skill(ai-workflow:claude-code)",
       "Skill(ai-workflow:claude-md-architect)",
-      "Skill(ai-workflow:grill-me)",
-      "Skill(ai-workflow:grill-with-docs)",
-      "Skill(ai-workflow:multi-reviewer-patterns)",
       "Skill(ai-workflow:notebooklm)",
       "Skill(ai-workflow:parallel-debugging)",
       "Skill(ai-workflow:parallel-feature-development)",
-      "Skill(ai-workflow:tdd)",
-      "Skill(ai-workflow:to-issues)",
       "Skill(workflow:git-advanced-workflows)",
-      "WebFetch(domain:developers.openai.com)"
+      "WebFetch(domain:developers.openai.com)",
+      "Bash(/usr/bin/find ~/peter_code/ai_support/skills -type d ! -perm -u=x)",
+      "Bash(rtk make *)"
     ]
   }
 }

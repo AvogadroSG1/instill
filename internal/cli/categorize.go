@@ -22,6 +22,7 @@ func newCategorizeCommand(cfg commandConfig) *cobra.Command {
 			return instill.CategorizeLibrary(instill.CategorizeOptions{
 				LibraryPath: libraryPath,
 				Stdout:      cfg.stdout,
+				Stderr:      cfg.stderr,
 			})
 		},
 	}

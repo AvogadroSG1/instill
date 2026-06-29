@@ -53,7 +53,7 @@ func warnUncategorizedSkills(libraryPath string, stdout io.Writer, stderr io.Wri
 		return nil
 	}
 
-	skills, err := instill.ListLibrarySkills(libraryPath)
+	skills, err := instill.ListLibrarySkills(libraryPath, stderr)
 	if err != nil {
 		return err
 	}

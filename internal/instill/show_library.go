@@ -13,6 +13,7 @@ type ShowLibraryOptions struct {
 	Filter      string
 	Category    string
 	Stdout      io.Writer
+	Stderr      io.Writer
 }
 
 // ShowLibrary lists library skills, optionally annotated with project selection state.
@@ -22,7 +23,7 @@ func ShowLibrary(opts ShowLibraryOptions) error {
 		stdout = io.Discard
 	}
 
-	skills, err := ListLibrarySkills(opts.LibraryPath)
+	skills, err := ListLibrarySkills(opts.LibraryPath, opts.Stderr)
 	if err != nil {
 		return err
 	}

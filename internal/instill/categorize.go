@@ -8,6 +8,7 @@ import (
 type CategorizeOptions struct {
 	LibraryPath string
 	Stdout      io.Writer
+	Stderr      io.Writer
 }
 
 func CategorizeLibrary(opts CategorizeOptions) error {
@@ -16,7 +17,7 @@ func CategorizeLibrary(opts CategorizeOptions) error {
 		stdout = io.Discard
 	}
 
-	skills, err := ListLibrarySkills(opts.LibraryPath)
+	skills, err := ListLibrarySkills(opts.LibraryPath, opts.Stderr)
 	if err != nil {
 		return err
 	}
