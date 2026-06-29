@@ -34,7 +34,7 @@ func RunPickSkillsTUI(opts PickSkillsTUIOptions) error {
 		return NewExitError(ExitEnvironment, "error: pick-skills TUI requires a terminal")
 	}
 
-	librarySkills, err := ListLibrarySkills(opts.LibraryPath)
+	librarySkills, err := ListLibrarySkills(opts.LibraryPath, opts.Stderr)
 	if err != nil {
 		return err
 	}

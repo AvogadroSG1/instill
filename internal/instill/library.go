@@ -1,6 +1,8 @@
 package instill
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -45,16 +47,19 @@ const maxSkillDepth = 32
 // "superpowers/brainstorming", "cloud/azure/azure-cli"). A directory without
 // SKILL.md is treated as a category node and recursed into; recursion stops at
 // each leaf so a skill's internal directories are never scanned.
-func ListLibrarySkills(libraryPath string) ([]string, error) {
+//
+// When stderr is non-nil, permission errors on subdirectories are reported as
+// warnings instead of being silently skipped.
+func ListLibrarySkills(libraryPath string, stderr io.Writer) ([]string, error) {
 	skills := make([]string, 0)
-	if err := walkLibrarySkills(libraryPath, "", &skills, 0); err != nil {
+	if err := walkLibrarySkills(libraryPath, "", &skills, 0, stderr); err != nil {
 		return nil, err
 	}
 	sort.Strings(skills)
 	return skills, nil
 }
 
-func walkLibrarySkills(libraryPath, rel string, out *[]string, depth int) error {
+func walkLibrarySkills(libraryPath, rel string, out *[]string, depth int, stderr io.Writer) error {
 	if depth > maxSkillDepth {
 		return nil
 	}
@@ -65,7 +70,10 @@ func walkLibrarySkills(libraryPath, rel string, out *[]string, depth int) error 
 		if rel == "" {
 			return NewExitError(ExitEnvironment, "error: cannot read library: "+err.Error())
 		}
-		return nil // unreadable subdirectory — skip silently
+		if os.IsPermission(err) && stderr != nil {
+			_, _ = fmt.Fprintf(stderr, "warning: cannot read skill directory: %s: permission denied\n", dir)
+		}
+		return nil
 	}
 
 	for _, entry := range entries {
@@ -77,25 +85,40 @@ func walkLibrarySkills(libraryPath, rel string, out *[]string, depth int) error 
 			childRel = rel + "/" + entry.Name()
 		}
 
-		// A directory with SKILL.md is a leaf skill; do not recurse into it.
-		if hasSkillMarker(filepath.Join(libraryPath, filepath.FromSlash(childRel))) {
+		childDir := filepath.Join(libraryPath, filepath.FromSlash(childRel))
+		isSkill, markerErr := hasSkillMarker(childDir)
+		if markerErr != nil {
+			if os.IsPermission(markerErr) && stderr != nil {
+				_, _ = fmt.Fprintf(stderr, "warning: cannot access skill directory: %s: permission denied\n", childDir)
+			}
+			continue
+		}
+		if isSkill {
 			if IsValidSkillName(childRel) {
 				*out = append(*out, childRel)
 			}
 			continue
 		}
 
-		if err := walkLibrarySkills(libraryPath, childRel, out, depth+1); err != nil {
+		if err := walkLibrarySkills(libraryPath, childRel, out, depth+1, stderr); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// hasSkillMarker reports whether dir contains a SKILL.md file.
-func hasSkillMarker(dir string) bool {
+// hasSkillMarker reports whether dir contains a SKILL.md file. It returns an
+// error when the directory cannot be accessed (e.g. permission denied) so that
+// callers can distinguish "no SKILL.md" from "cannot check".
+func hasSkillMarker(dir string) (bool, error) {
 	info, err := os.Stat(filepath.Join(dir, "SKILL.md"))
-	return err == nil && !info.IsDir()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return !info.IsDir(), nil
 }
 
 // skillLinkName returns the symlink filename used in the project's skills dir.

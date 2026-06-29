@@ -1,8 +1,10 @@
 package instill
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -47,7 +49,7 @@ func TestListLibrarySkillsDiscoversGroupDirSkills(t *testing.T) {
 
 	library := createGroupLibrary(t)
 
-	skills, err := ListLibrarySkills(library)
+	skills, err := ListLibrarySkills(library, nil)
 	if err != nil {
 		t.Fatalf("ListLibrarySkills() error = %v", err)
 	}
@@ -66,7 +68,7 @@ func TestListLibrarySkillsExcludesGroupRootItself(t *testing.T) {
 
 	library := createGroupLibrary(t)
 
-	skills, err := ListLibrarySkills(library)
+	skills, err := ListLibrarySkills(library, nil)
 	if err != nil {
 		t.Fatalf("ListLibrarySkills() error = %v", err)
 	}
@@ -84,7 +86,7 @@ func TestListLibrarySkillsExcludesGroupDirWithNoSkillChildren(t *testing.T) {
 	library := t.TempDir()
 	mustMkdirAllLib(t, filepath.Join(library, "emptygroup"))
 
-	skills, err := ListLibrarySkills(library)
+	skills, err := ListLibrarySkills(library, nil)
 	if err != nil {
 		t.Fatalf("ListLibrarySkills() error = %v", err)
 	}
@@ -102,7 +104,7 @@ func TestListLibrarySkillsDiscoversDeepNesting(t *testing.T) {
 		mustWriteFileLib(t, filepath.Join(library, filepath.FromSlash(name), "SKILL.md"), "# "+name+"\n")
 	}
 
-	skills, err := ListLibrarySkills(library)
+	skills, err := ListLibrarySkills(library, nil)
 	if err != nil {
 		t.Fatalf("ListLibrarySkills() error = %v", err)
 	}
@@ -121,7 +123,7 @@ func TestListLibrarySkillsStopsAtSkillMarker(t *testing.T) {
 	mustMkdirAllLib(t, filepath.Join(library, "cloud", "azure", "nested"))
 	mustWriteFileLib(t, filepath.Join(library, "cloud", "azure", "nested", "SKILL.md"), "# nested\n")
 
-	skills, err := ListLibrarySkills(library)
+	skills, err := ListLibrarySkills(library, nil)
 	if err != nil {
 		t.Fatalf("ListLibrarySkills() error = %v", err)
 	}
@@ -199,5 +201,93 @@ func TestSkillSourcePathForGroupSkill(t *testing.T) {
 	want := filepath.Join(library, "superpowers", "brainstorming")
 	if got != want {
 		t.Fatalf("SkillSourcePath(superpowers/brainstorming) = %q, want %q", got, want)
+	}
+}
+
+func TestListLibrarySkillsWarnsOnPermissionDenied(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce Unix file permission bits")
+	}
+
+	library := createGroupLibrary(t)
+	dir := filepath.Join(library, "superpowers", "brainstorming")
+	if err := os.Chmod(dir, 0o644); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	var stderr bytes.Buffer
+	skills, err := ListLibrarySkills(library, &stderr)
+	if err != nil {
+		t.Fatalf("ListLibrarySkills() error = %v", err)
+	}
+
+	for _, s := range skills {
+		if s == "superpowers/brainstorming" {
+			t.Fatal("ListLibrarySkills() included inaccessible skill")
+		}
+	}
+	if !strings.Contains(stderr.String(), "warning:") || !strings.Contains(stderr.String(), "permission denied") {
+		t.Fatalf("stderr = %q, want permission warning", stderr.String())
+	}
+	found := false
+	for _, s := range skills {
+		if s == "superpowers/writing-plans" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("ListLibrarySkills() should still find sibling skills")
+	}
+}
+
+func TestListLibrarySkillsSuppressesWarningsWhenStderrNil(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce Unix file permission bits")
+	}
+
+	library := createGroupLibrary(t)
+	dir := filepath.Join(library, "superpowers", "brainstorming")
+	if err := os.Chmod(dir, 0o644); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	skills, err := ListLibrarySkills(library, nil)
+	if err != nil {
+		t.Fatalf("ListLibrarySkills() error = %v", err)
+	}
+	if len(skills) == 0 {
+		t.Fatal("ListLibrarySkills() returned no skills")
+	}
+}
+
+func TestListLibrarySkillsUnreadableCategoryDirWarns(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce Unix file permission bits")
+	}
+
+	library := createGroupLibrary(t)
+	dir := filepath.Join(library, "superpowers")
+	if err := os.Chmod(dir, 0o644); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	var stderr bytes.Buffer
+	skills, err := ListLibrarySkills(library, &stderr)
+	if err != nil {
+		t.Fatalf("ListLibrarySkills() error = %v", err)
+	}
+	for _, s := range skills {
+		if strings.HasPrefix(s, "superpowers/") {
+			t.Fatalf("ListLibrarySkills() returned %q from inaccessible category", s)
+		}
+	}
+	if !strings.Contains(stderr.String(), "permission denied") {
+		t.Fatalf("stderr = %q, want permission warning", stderr.String())
 	}
 }

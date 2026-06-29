@@ -65,6 +65,7 @@ func newShowLibraryCommand(cfg commandConfig) *cobra.Command {
 				Filter:      filter,
 				Category:    category,
 				Stdout:      cfg.stdout,
+				Stderr:      cfg.stderr,
 			})
 		},
 	}
