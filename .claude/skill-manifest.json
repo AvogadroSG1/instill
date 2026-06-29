@@ -2,14 +2,9 @@
   "skills": [
     "ai-workflow/claude-code",
     "ai-workflow/claude-md-architect",
-    "ai-workflow/grill-me",
-    "ai-workflow/grill-with-docs",
-    "ai-workflow/multi-reviewer-patterns",
     "ai-workflow/notebooklm",
     "ai-workflow/parallel-debugging",
     "ai-workflow/parallel-feature-development",
-    "ai-workflow/tdd",
-    "ai-workflow/to-issues",
     "workflow/git-advanced-workflows"
   ]
 }
