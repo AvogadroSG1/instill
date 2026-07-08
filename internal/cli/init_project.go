@@ -30,19 +30,19 @@ func newInitProjectCommand(cfg commandConfig) *cobra.Command {
 			}
 
 			skills := parseCSV(skillsCSV)
-			if len(skills) == 0 && (force || !instill.HasManifest(cwd)) {
+			if len(skills) == 0 && (force || !instill.HasAPMManifest(cwd)) {
 				isTTY := cfg.isTTY
 				if isTTY == nil {
 					isTTY = instill.IsTerminal
 				}
 				if !isTTY(cfg.stdin) {
-					return instill.NewExitError(instill.ExitEnvironment, "error: pick-skills TUI requires a terminal")
+					return instill.NewExitError(instill.ExitEnvironment, "error: pick TUI requires a terminal")
 				}
 			}
 
-			runPicker := cfg.pickSkillsTUI
+			runPicker := cfg.pickTUI
 			if runPicker == nil {
-				runPicker = instill.RunPickSkillsTUI
+				runPicker = instill.RunPickTUI
 			}
 
 			return instill.InitProject(instill.InitProjectOptions{
@@ -50,17 +50,20 @@ func newInitProjectCommand(cfg commandConfig) *cobra.Command {
 				LibraryPath: libraryPath,
 				Skills:      skills,
 				Force:       force,
+				Runner:      cfg.runner,
 				Stdout:      cfg.stdout,
 				SelectSkills: func(project instill.Project) error {
 					if len(skills) > 0 {
 						return nil
 					}
-					return runPicker(instill.PickSkillsTUIOptions{
+					return runPicker(instill.PickTUIOptions{
 						Project:     project,
 						LibraryPath: libraryPath,
+						InitialType: instill.LibraryTypeSkill,
 						Stdin:       cfg.stdin,
 						Stdout:      cfg.stdout,
 						Stderr:      cfg.stderr,
+						Runner:      cfg.runner,
 					})
 				},
 			})

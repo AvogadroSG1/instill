@@ -2,15 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What this is
+## What This Is
 
-`instill` is a Go CLI that curates a **project-specific skill library** for Claude Code and
-other AI coding agents. It keeps a committed manifest of the skills a project needs, creates
-symlinks so agents can discover them, grants local agent permissions, and wires a
-`SessionStart` hook that reconciles all of that automatically each time a session opens.
+`instill` is a Go CLI for curating a **Library catalog** of AI agent capabilities and syncing selected project entries through APM. instill owns catalog UX and project selection. APM owns dependency resolution, lockfile management, install, compile, security scanning, and rendered agent artifacts.
 
-The module is `github.com/AvogadroSG1/instill`. Built with **Cobra** (command tree) +
-**Bubbletea** (interactive picker TUI).
+The module is `github.com/AvogadroSG1/instill`. The CLI uses **Cobra** for command wiring and **Bubbletea** for interactive selection.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
 ## Beads Issue Tracker
@@ -59,163 +55,123 @@ bd close <id>         # Complete work
 - If push fails, resolve and retry until it succeeds
 <!-- END BEADS INTEGRATION -->
 
-## Build & Test
+## Build And Test
 
 ```bash
 make build           # build binary to ./instill
 make unit-test       # go test ./...
-make bats-test       # integration tests via bats (falls back to npx bats if not installed)
+make bats-test       # integration tests via bats
 make test            # unit + bats
-make lint            # golangci-lint (pinned v2.6.2, run via `go run`)
+make lint            # golangci-lint
 make vet             # go vet ./...
-make install         # install to ~/.local/bin/instill (PREFIX overridable)
-make clean           # remove dist/ and ./instill
+make install         # install to ~/.local/bin/instill
 ```
 
-Run a single Go test package: `go test ./internal/instill/...`
-Run a single bats test file: `bats test/instill.bats`
+Focused commands:
 
-CI (`.github/workflows/ci.yml`) runs on push/PR to `main`: `go test`, `go test -race`,
-`go vet`, `make lint`, `bats`, a `go mod tidy` cleanliness check, goreleaser config
-validation, and a cross-build matrix (darwin/linux × amd64/arm64). Keep all of these green.
+```bash
+go test ./internal/instill ./internal/cli -run 'TestCheckSkills|TestReconcile|TestSettingsLocal|TestLegacy' -v
+bats test/instill.bats
+```
+
+## Ubiquitous Language
+
+| Term | Meaning |
+|------|---------|
+| Library catalog | Typed CSV catalog under the configured library root |
+| Typed library entry | One catalog row for a skill, MCP server, instruction, or prompt |
+| APM manifest | Project-local `apm.yml` committed to the repo |
+| Sync | `instill sync`, which runs `apm install` and `apm compile` |
+| Project content | Copied `.apm/instructions/*.instructions.md` and `.apm/prompts/*.prompt.md` files |
+
+Legacy terms such as skill manifest, symlink reconciliation, and `settings.local.json` permission ownership SHOULD only appear in import or migration code.
 
 ## Architecture
 
-**Two packages, strict layering:**
+```mermaid
+flowchart TD
+    CLI[internal/cli Cobra commands] --> Domain[internal/instill domain]
+    Domain --> Catalog[Library catalog CSV]
+    Domain --> Manifest[APM manifest apm.yml]
+    Domain --> Runner[APM runner]
+    Runner --> APM[apm install and compile]
+```
 
-- `internal/instill/` — pure domain logic. Every function takes explicit paths and
-  `io.Writer`s; **no direct `os.Std*` usage**. Fully testable without a real terminal or
-  filesystem (`t.TempDir()` isolation).
-- `internal/cli/` — Cobra command wiring. Each command receives a `commandConfig`
-  (stdin/stdout/stderr/args/cwd/isTTY/pickSkillsTUI) and passes it into the domain layer.
-  `main.go` calls `cli.Execute()`, which returns the process exit code.
+- `internal/cli/` MUST only wire commands, parse flags, and pass injected `commandConfig` dependencies.
+- `internal/instill/` MUST hold domain behavior with explicit paths, writers, and command runners.
+- Domain code MUST use `ExitError` for CLI-facing errors and MUST NOT call `os.Exit`.
+- Writes MUST go through atomic helpers when persisting project or library files.
 
-**Commands** (registered in `internal/cli/root.go`):
+## Commands
 
 | Command | Domain entry | Purpose |
 |---------|--------------|---------|
-| `instill init` | `InitProject` | Create manifest + symlink dirs + `.gitignore` entries; launches TUI picker unless `--skills` is given (`--force` only allows overwriting an existing manifest, it does not make `init` headless) |
-| `instill pick-skills [name...]` | `PickSkills` / `RunPickSkillsTUI` | Add/remove skills by name, `--remove`, or interactive TUI |
-| `instill check-skills` | `ReconcileManifest` | Reconcile symlinks + local permissions with the manifest (the hook target) |
-| `instill show-library` | `ShowLibrary` | List library skills; `--filter` substring, `--category` prefix |
-| `instill categorize` | `CategorizeLibrary` | Create/update the library `.categories.json` registry |
-| `instill add-hooks` | `AddHooks` | Register `instill check-skills` as a Claude Code `SessionStart` hook |
+| `instill init` | `InitProject` | Create the APM manifest and optionally seed skill dependencies |
+| `instill pick` | `Pick` / `RunPickTUI` | Add or remove typed library entries |
+| `instill sync` | `SyncProject` | Run `apm install`, `apm compile`, then report counts |
+| `instill status` | `ProjectStatus` | Compare project APM state with the Library catalog |
+| `instill library scan` | `ScanLibrary` | Rebuild typed catalog CSV files |
+| `instill library add` | `AddCatalogEntry` | Add one typed catalog row |
+| `instill library show` | `ShowCatalog` | Display typed catalog rows |
+| `instill import` | import functions | Migrate old instill, graft, Claude config, or generic content |
+| `instill bootstrap` | `EnsureAPM` | Ensure the external APM CLI is available |
+| `instill add-hooks` | `AddHooks` | Register `instill sync` as the Claude Code `SessionStart` hook |
 
-Note: the `init` command was formerly `init-project` — it is now just `init`.
+`instill check-skills` is a hidden legacy command. It MUST exit 1 with migration guidance and MUST NOT mutate project state.
 
-**Key domain concepts:**
+## Layout On Disk
 
-| Type / file | Purpose |
-|-------------|---------|
-| `Project` (`project.go`) | Root + manifest path + two symlink dirs (`.claude/skills`, `.agents/skills`); discovered by walking up from cwd via `FindProject` |
-| `Manifest` (`manifest.go`) | `{"skills": [...]}` — always written atomically, always normalized (deduped + sorted), every name validated by `IsValidSkillName` |
-| `Library` (`library.go`) | Directory of skill dirs, each a leaf containing `SKILL.md`; walked to arbitrary depth |
-| `ExitError` (`errors.go`) | Carries exit code (0/1/2/3); `cli/root.go` extracts code via `ExitCode()` and message via `ErrorMessage()` |
+```text
+~/.config/instill/config.json
 
-## Layout on disk
+Library root from INSTILL_LIBRARY_PATH/
+  skills/catalog.csv
+  skills/<name>/SKILL.md
+  mcp/catalog.csv
+  mcp/<name>/config.json
+  instructions/catalog.csv
+  instructions/<name>/INSTRUCTION.md
+  prompts/catalog.csv
+  prompts/<name>/PROMPT.md
 
-```
-~/.config/instill/config.json       ← library path (or SKILL_LIBRARY_PATH env var)
-~/skills/                            ← the Library (developer-local, not committed)
-  golang-testing/SKILL.md            ← flat skill
-  cloud/azure/azure-cli/SKILL.md     ← nested skill (arbitrary depth)
-  .categories.json                   ← optional category registry
-
-your-project/
-  .claude/
-    skill-manifest.json              ← COMMITTED: {"skills": ["golang-testing", "cloud/azure/azure-cli"]}
-    settings.json                    ← committed: holds the SessionStart hook (add-hooks)
-    settings.local.json              ← gitignored: local Skill(...) permissions
-    skills/                          ← gitignored: symlinks managed by instill (Claude Code)
-      golang-testing -> ~/skills/golang-testing
-      cloud:azure:azure-cli -> ~/skills/cloud/azure/azure-cli
-  .agents/
-    skills/                          ← gitignored: same symlinks for OpenAI Codex
+project/
+  apm.yml
+  apm.lock.yaml
+  .apm/
+    instructions/<name>.instructions.md
+    prompts/<name>.prompt.md
+  .claude/settings.json
 ```
 
-### Skill names, nesting, and link names
+## Configuration
 
-- A skill name is a safe relative path of one or more slash-separated segments
-  (`docker`, `superpowers/brainstorming`, `cloud/azure/azure-cli`). `IsValidSkillName`
-  rejects empty, absolute, backslash, `.`, or `..` segments.
-- `ListLibrarySkills` walks the library to arbitrary depth (capped at `maxSkillDepth = 32`
-  to defeat symlink cycles): **any directory containing `SKILL.md` is a leaf skill**; a
-  directory without one is a category node and is recursed into.
-- Symlink filenames are **flattened**: slashes become colons (`cloud/azure/azure-cli` →
-  `cloud:azure:azure-cli`) via `skillLinkName`, so the skills dir stays flat. Older
-  group-dir layouts (`group/leaf` symlinks) are still recognized when scanning existing links.
+`ResolveLibraryPath` MUST resolve the Library catalog path in this order:
 
-## Config resolution order (`config.go:ResolveLibraryPath`)
+1. `INSTILL_LIBRARY_PATH`
+2. `SKILL_LIBRARY_PATH` migration fallback
+3. `~/.config/instill/config.json`
+4. Interactive prompt when stdin is a TTY
 
-1. `SKILL_LIBRARY_PATH` env var
-2. `~/.config/instill/config.json` (`{"library_path": "..."}`)
-3. Interactive TTY prompt → writes config (default `~/ObsidianNotes/agent_config/skills`)
-4. Exit 2 if no TTY
+APM-facing commands MUST call `EnsureAPM` before mutating project APM state. Library-only commands MUST NOT bootstrap or invoke APM.
 
-`~`-prefixed paths are expanded; the resolved path must be an existing directory or exit 2.
+## Legacy Boundaries
 
-## Reconcile flow (`reconcile.go:ReconcileManifestWithPrevious`)
-
-This is the heart of the tool. `ReconcileManifest` calls it with `previous == current`;
-`PickSkills`/`ApplySkillSelection` pass the **previous** manifest so removed permissions can
-be revoked.
-
-1. Ensure `.claude/`, `.claude/skills/`, `.agents/`, and `.agents/skills/` are real
-   directories (refuse to write through symlinks). `FindProject`/`InitProject` always
-   populate the `.agents` paths, so the `.agents` dirs are reconciled on every run.
-2. Drop manifest entries whose library skill no longer exists (prints
-   `removed: <name> (no longer in library)`).
-3. Reconcile `.claude/skills/` (primary, full output) then `.agents/skills/` (silent):
-   remove orphan symlinks not in the selected set, create/repair symlinks for current skills.
-4. Rewrite the manifest atomically if it changed.
-5. Reconcile `.claude/settings.local.json` permissions (see below). `.agents` has no
-   permissions equivalent.
-6. Print `ok: N skills linked` if symlinks or the manifest changed. (Permission-only
-   writes to `settings.local.json` do not flip the `changed` flag, so a reconcile that
-   only adjusts permissions prints nothing.)
-
-## Permission ownership boundary (`settings_local.go`)
-
-instill writes `"Skill(<linkName>)"` entries to `permissions.allow` in
-`.claude/settings.local.json`. **The manifest is the ownership boundary**
-(`docs/adr/0001-manifest-as-permission-ownership-boundary.md`): instill only adds or removes
-a permission for a skill that is (or was) in the manifest. A `Skill(...)` entry the developer
-added manually for a skill *not* in the manifest is left untouched across reconciles. The
-legacy slash form `Skill(group/leaf)` is recognized so it can be migrated to the colon form
-on the next run.
-
-## Category registry (`categories.go`, `categorize.go`)
-
-Optional `.categories.json` at the library root maps category paths to skill-name lists.
-`instill categorize` auto-assigns by name prefix (`golang-*` → `golang`, `azure-*` →
-`cloud/azure`, `dd-*` → `datadog`, `k8s-*`/`docker` → `cloud`) and prints
-`uncategorized: <skill>` for the rest. `check-skills` also warns about uncategorized skills
-when the registry exists. Note: the **pick-skills TUI** derives its category tree directly
-from the library folder structure (`buildCategoryTree` in `skill_picker.go`), independent of
-`.categories.json`; the registry feeds `show-library --category` and the categorize/warn flows.
+- Legacy `skill-manifest.json`, `.claude/skills` symlinks, `.agents/skills` symlinks, and `settings.local.json` permission reconciliation are migration concerns.
+- Supported commands MUST NOT depend on symlink reconciliation.
+- Import code MAY retain small helpers to read or remove legacy artifacts.
+- Hidden legacy command names MUST give migration guidance instead of mutating state.
 
 ## Conventions
 
-- **Atomic writes only.** All manifest, config, categories, and settings writes go through
-  `writeFileAtomic` (`atomic.go`): write a unique `.tmp` in the same dir, chmod, rename.
-- **Normalize before writing.** Skill lists are always deduped + sorted (`normalizeSkills`)
-  and validated (`IsValidSkillName`) before being persisted.
-- **Exit codes are the spec contract** (0 success, 1 general, 2 environment, 3 filesystem).
-  Use `NewExitError(ExitXxx, "error: ...")` in domain code — never `os.Exit` directly. Error
-  messages are lowercase and prefixed `error:` (or `warning:`).
-- **No real I/O in tests.** Commands must be drivable with an injected `commandConfig`
-  (stdin/stdout/stderr/cwd/isTTY); never reach for `os.Std*` inside a command. The TUI is
-  injected via `commandConfig.pickSkillsTUI` so tests can stub it.
-- **Refuse to write through symlinks** for `.claude`, `.agents`, `.gitignore`,
-  `settings.json`, and `settings.local.json` — always `Lstat` and check `ModeSymlink` first.
-- **Keep `.claude/skills/` and `.agents/skills/` symmetric.** Anything that creates or
-  removes a symlink must do so for both dirs (Claude Code + OpenAI Codex).
-- **Tests:** `internal/instill` tests use `t.TempDir()` for isolation; bats tests set
-  `SKILL_LIBRARY_PATH` to a temp dir and build a fresh binary in `setup_file`.
+- Use RFC 2119 terms for requirements.
+- Use `t.TempDir()` and injected runners/writers in tests.
+- Use `INSTILL_LIBRARY_PATH` in new tests and docs; use `SKILL_LIBRARY_PATH` only for fallback coverage.
+- Keep PRs small and keep command behavior covered by Go tests plus `test/instill.bats`.
+- Commit messages MUST include both required co-author trailers from the repository instructions.
 
-## Related docs
+## Related Docs
 
-- `README.md` — user-facing install/usage
-- `CONTEXT.md` — domain glossary (Skill, Library, Manifest, Project, Reconcile, Agent permission)
-- `docs/adr/0001-manifest-as-permission-ownership-boundary.md` — why the manifest bounds permissions
-- `CHANGELOG.md` — notable changes; `AGENTS.md` — agent/beads quick reference
+- `README.md` - user-facing install and workflow
+- `docs/adr/0002-apm-backed-library-catalog.md` - APM-backed Library catalog decision
+- `docs/adr/0001-manifest-as-permission-ownership-boundary.md` - legacy permission ownership context
+- `CONTRIBUTING.md` - contribution workflow

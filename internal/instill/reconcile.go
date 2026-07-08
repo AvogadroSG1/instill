@@ -8,7 +8,8 @@ import (
 	"slices"
 )
 
-// Reconcile reads the project manifest and reconciles symlinks to match it.
+// Reconcile reads the legacy project manifest and reconciles symlinks to match it.
+// Deprecated: supported commands must use the APM-backed sync path instead.
 func Reconcile(project Project, libraryPath string, stdout io.Writer) error {
 	manifest, err := ReadManifest(project.ManifestPath)
 	if err != nil {
@@ -17,12 +18,14 @@ func Reconcile(project Project, libraryPath string, stdout io.Writer) error {
 	return ReconcileManifest(project, manifest, libraryPath, stdout)
 }
 
-// ReconcileManifest reconciles symlinks to match a previously validated manifest.
+// ReconcileManifest reconciles symlinks to match a previously validated legacy manifest.
+// Deprecated: supported commands must use the APM-backed sync path instead.
 func ReconcileManifest(project Project, manifest Manifest, libraryPath string, stdout io.Writer) error {
 	return ReconcileManifestWithPrevious(project, manifest, manifest, libraryPath, stdout)
 }
 
-// ReconcileManifestWithPrevious reconciles symlinks and permissions.
+// ReconcileManifestWithPrevious reconciles legacy symlinks and permissions.
+// Deprecated: supported commands must use the APM-backed sync path instead.
 // The previous manifest is the ownership boundary for permissions that can be revoked.
 func ReconcileManifestWithPrevious(
 	project Project,

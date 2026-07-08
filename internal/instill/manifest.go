@@ -104,6 +104,6 @@ func normalizeSkills(skills []string) []string {
 
 // HasManifest reports whether root contains an instill manifest.
 func HasManifest(root string) bool {
-	_, err := os.Stat(filepath.Join(root, claudeDirName, manifestFileName))
+	_, err := os.Stat(ProjectManifestPath(root))
 	return err == nil
 }

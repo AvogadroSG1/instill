@@ -10,9 +10,15 @@ import (
 	"github.com/AvogadroSG1/instill/internal/instill"
 )
 
-func TestPickSkillsCLIAddsAndRemoves(t *testing.T) {
-	library := createLibrary(t, "docker", "golang-cli")
-	root := createProject(t, []string{"docker"})
+func TestPickCLIAddsSkillDependency(t *testing.T) {
+	library := createCatalogLibrary(t, cliCatalogLibrarySeed{
+		skills: []catalogFixture{{
+			typ:  "skill",
+			name: "docker",
+			path: "docker/SKILL.md",
+		}},
+	})
+	root := createAPMProjectRoot(t, instill.APMManifest{})
 	t.Setenv("SKILL_LIBRARY_PATH", library)
 
 	var stdout bytes.Buffer
@@ -20,85 +26,109 @@ func TestPickSkillsCLIAddsAndRemoves(t *testing.T) {
 	code := execute(commandConfig{
 		stdout: &stdout,
 		stderr: &stderr,
-		args:   []string{"pick-skills", "golang-cli", "--remove", "docker"},
+		args:   []string{"pick", "--type", "skill", "docker"},
 		cwd:    root,
+		runner: recordingRunner(nil),
 	})
 
 	if code != 0 {
 		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "added:   golang-cli") ||
-		!strings.Contains(stdout.String(), "removed: docker") ||
-		!strings.Contains(stdout.String(), "manifest: 1 skills") {
-		t.Fatalf("stdout = %q, want add/remove/manifest lines", stdout.String())
+	data, err := os.ReadFile(filepath.Join(root, "apm.yml"))
+	if err != nil {
+		t.Fatalf("ReadFile(apm.yml) error = %v", err)
+	}
+	if !strings.Contains(string(data), filepath.Join(library, "skills", "docker")) {
+		t.Fatalf("manifest = %q, want docker dependency", string(data))
 	}
 }
 
-func TestPickSkillsCLINoManifestExitsOne(t *testing.T) {
-	t.Setenv("SKILL_LIBRARY_PATH", createLibrary(t, "docker"))
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := execute(commandConfig{
-		stdout: &stdout,
-		stderr: &stderr,
-		args:   []string{"pick-skills", "docker"},
-		cwd:    t.TempDir(),
+func TestPickCLIInteractivePassesRunnerToTUI(t *testing.T) {
+	library := createCatalogLibrary(t, cliCatalogLibrarySeed{
+		skills: []catalogFixture{{
+			typ:  "skill",
+			name: "docker",
+			path: "docker/SKILL.md",
+		}},
 	})
-
-	if code != 1 {
-		t.Fatalf("execute() = %d, want 1; stderr = %q", code, stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "no manifest found") {
-		t.Fatalf("stderr = %q, want no manifest error", stderr.String())
-	}
-}
-
-func TestPickSkillsCLINoArgsLaunchesTUI(t *testing.T) {
-	library := createLibrary(t, "docker", "golang-cli")
-	root := createProject(t, []string{"docker"})
+	root := createAPMProjectRoot(t, instill.APMManifest{})
 	t.Setenv("SKILL_LIBRARY_PATH", library)
 
+	calls := []string{}
+	var captured instill.PickTUIOptions
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	launched := false
 	code := execute(commandConfig{
 		stdout: &stdout,
 		stderr: &stderr,
-		args:   []string{"pick-skills"},
+		args:   []string{"pick"},
 		cwd:    root,
-		pickSkillsTUI: func(opts instill.PickSkillsTUIOptions) error {
-			launched = true
-			if opts.Project.Root != root {
-				t.Fatalf("project root = %q, want %q", opts.Project.Root, root)
-			}
-			if opts.LibraryPath != library {
-				t.Fatalf("library = %q, want %q", opts.LibraryPath, library)
-			}
-			return instill.ApplySkillSelection(instill.SkillSelectionOptions{
-				Project:     opts.Project,
-				LibraryPath: opts.LibraryPath,
-				Skills:      []string{"docker", "golang-cli"},
-				Stdout:      opts.Stdout,
-			})
+		runner: recordingRunner(&calls),
+		pickTUI: func(opts instill.PickTUIOptions) error {
+			captured = opts
+			return nil
 		},
 	})
 
 	if code != 0 {
 		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
 	}
-	if !launched {
-		t.Fatal("pick-skills TUI did not launch")
+	if captured.Runner == nil {
+		t.Fatal("captured.Runner = nil, want injected runner")
 	}
-	if !strings.Contains(stdout.String(), "added:   golang-cli") ||
-		!strings.Contains(stdout.String(), "manifest: 2 skills") {
-		t.Fatalf("stdout = %q, want TUI diff output", stdout.String())
+	if captured.InitialType != instill.LibraryTypeSkill {
+		t.Fatalf("InitialType = %q, want %q", captured.InitialType, instill.LibraryTypeSkill)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("runner calls = %#v, want no direct calls before interactive selection", calls)
 	}
 }
 
-func TestPickSkillsCLIUnknownSkillMakesNoChanges(t *testing.T) {
-	library := createLibrary(t, "docker")
-	root := createProject(t, []string{"docker"})
+func TestPickCLIInteractiveStartsAtMCPType(t *testing.T) {
+	library := createPickCatalogLibrary(t, []instill.CatalogEntry{{
+		Type:      instill.LibraryTypeMCP,
+		Name:      "github",
+		Transport: "stdio",
+		Command:   "github-mcp",
+	}})
+	root := createAPMProjectRoot(t, instill.APMManifest{})
+	t.Setenv("SKILL_LIBRARY_PATH", library)
+
+	var captured instill.PickTUIOptions
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"pick", "--type", "mcp"},
+		cwd:    root,
+		runner: recordingRunner(nil),
+		pickTUI: func(opts instill.PickTUIOptions) error {
+			captured = opts
+			return nil
+		},
+	})
+
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	if captured.InitialType != instill.LibraryTypeMCP {
+		t.Fatalf("InitialType = %q, want %q", captured.InitialType, instill.LibraryTypeMCP)
+	}
+	if captured.Runner == nil {
+		t.Fatal("captured.Runner = nil, want injected runner")
+	}
+}
+
+func TestPickCLIAddsMCPDependency(t *testing.T) {
+	library := createPickCatalogLibrary(t, []instill.CatalogEntry{{
+		Type:      instill.LibraryTypeMCP,
+		Name:      "github",
+		Transport: "stdio",
+		Command:   "github-mcp",
+		Args:      []string{"serve"},
+	}})
+	root := createAPMProjectRoot(t, instill.APMManifest{})
 	t.Setenv("SKILL_LIBRARY_PATH", library)
 
 	var stdout bytes.Buffer
@@ -106,25 +136,38 @@ func TestPickSkillsCLIUnknownSkillMakesNoChanges(t *testing.T) {
 	code := execute(commandConfig{
 		stdout: &stdout,
 		stderr: &stderr,
-		args:   []string{"pick-skills", "missing"},
+		args:   []string{"pick", "--type", "mcp", "github"},
 		cwd:    root,
+		runner: recordingRunner(nil),
 	})
 
-	if code != 1 {
-		t.Fatalf("execute() = %d, want 1; stderr = %q", code, stderr.String())
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
 	}
-	manifest, err := os.ReadFile(filepath.Join(root, ".claude", "skill-manifest.json"))
+	manifest, err := instill.ReadAPMManifest(filepath.Join(root, "apm.yml"))
 	if err != nil {
-		t.Fatalf("ReadFile(manifest) error = %v", err)
+		t.Fatalf("ReadAPMManifest() error = %v", err)
 	}
-	if !strings.Contains(string(manifest), "docker") || strings.Contains(string(manifest), "missing") {
-		t.Fatalf("manifest = %q, want unchanged docker only", string(manifest))
+	if len(manifest.Dependencies.MCP) != 1 || manifest.Dependencies.MCP[0].Name != "github" {
+		t.Fatalf("MCP dependencies = %#v, want github", manifest.Dependencies.MCP)
 	}
 }
 
-func TestPickSkillsCLIUnknownRemoveMakesNoChanges(t *testing.T) {
-	library := createLibrary(t, "docker")
-	root := createProject(t, []string{"docker"})
+func TestPickCLIRemovesMCPDependency(t *testing.T) {
+	library := createPickCatalogLibrary(t, []instill.CatalogEntry{{
+		Type:      instill.LibraryTypeMCP,
+		Name:      "github",
+		Transport: "stdio",
+		Command:   "github-mcp",
+	}})
+	root := createAPMProjectRoot(t, instill.APMManifest{
+		Dependencies: instill.APMDependencies{
+			MCP: []instill.MCPDependency{{
+				Name:    "github",
+				Command: "github-mcp",
+			}},
+		},
+	})
 	t.Setenv("SKILL_LIBRARY_PATH", library)
 
 	var stdout bytes.Buffer
@@ -132,21 +175,76 @@ func TestPickSkillsCLIUnknownRemoveMakesNoChanges(t *testing.T) {
 	code := execute(commandConfig{
 		stdout: &stdout,
 		stderr: &stderr,
-		args:   []string{"pick-skills", "--remove", "docker,missing"},
+		args:   []string{"pick", "--type", "mcp", "--remove", "github"},
 		cwd:    root,
+		runner: recordingRunner(nil),
 	})
 
-	if code != 1 {
-		t.Fatalf("execute() = %d, want 1; stderr = %q", code, stderr.String())
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
 	}
-	manifest, err := os.ReadFile(filepath.Join(root, ".claude", "skill-manifest.json"))
+	manifest, err := instill.ReadAPMManifest(filepath.Join(root, "apm.yml"))
 	if err != nil {
-		t.Fatalf("ReadFile(manifest) error = %v", err)
+		t.Fatalf("ReadAPMManifest() error = %v", err)
 	}
-	if !strings.Contains(string(manifest), "docker") {
-		t.Fatalf("manifest = %q, want unchanged docker", string(manifest))
+	if len(manifest.Dependencies.MCP) != 0 {
+		t.Fatalf("MCP dependencies = %#v, want none", manifest.Dependencies.MCP)
 	}
-	if !strings.Contains(stderr.String(), "unknown skill: missing") {
-		t.Fatalf("stderr = %q, want unknown remove skill error", stderr.String())
+}
+
+func TestPickCLIRemoveModeUsesAllNamesAsRemovals(t *testing.T) {
+	library := createPickCatalogLibrary(t, []instill.CatalogEntry{{
+		Type:      instill.LibraryTypeMCP,
+		Name:      "github",
+		Transport: "stdio",
+		Command:   "github-mcp",
+	}, {
+		Type:      instill.LibraryTypeMCP,
+		Name:      "sentry",
+		Transport: "stdio",
+		Command:   "sentry-mcp",
+	}})
+	root := createAPMProjectRoot(t, instill.APMManifest{
+		Dependencies: instill.APMDependencies{
+			MCP: []instill.MCPDependency{{
+				Name:    "github",
+				Command: "github-mcp",
+			}, {
+				Name:    "sentry",
+				Command: "sentry-mcp",
+			}},
+		},
+	})
+	t.Setenv("SKILL_LIBRARY_PATH", library)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"pick", "--type", "mcp", "--remove", "github", "sentry"},
+		cwd:    root,
+		runner: recordingRunner(nil),
+	})
+
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
 	}
+	manifest, err := instill.ReadAPMManifest(filepath.Join(root, "apm.yml"))
+	if err != nil {
+		t.Fatalf("ReadAPMManifest() error = %v", err)
+	}
+	if len(manifest.Dependencies.MCP) != 0 {
+		t.Fatalf("MCP dependencies = %#v, want none", manifest.Dependencies.MCP)
+	}
+}
+
+func createPickCatalogLibrary(t *testing.T, mcpEntries []instill.CatalogEntry) string {
+	t.Helper()
+
+	root := t.TempDir()
+	if err := instill.WriteCatalog(root, instill.LibraryTypeMCP, mcpEntries); err != nil {
+		t.Fatalf("WriteCatalog(mcp) error = %v", err)
+	}
+	return root
 }

@@ -2,8 +2,10 @@ package instill
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -37,6 +39,46 @@ func TestSkillPickerPrechecksTogglesFiltersAndConfirms(t *testing.T) {
 	model = updated.(skillPickerModel)
 	if !model.confirmed {
 		t.Fatal("model not confirmed after enter")
+	}
+}
+
+func TestPickPickerTopLevelShowsLibraryTypesWithCounts(t *testing.T) {
+	t.Parallel()
+
+	model := newPickPickerModel([]pickTypeState{
+		{typ: LibraryTypeSkill, available: []string{"docker", "go"}, selected: []string{"docker"}},
+		{typ: LibraryTypeMCP, available: []string{"filesystem", "github", "slack"}, selected: []string{"github", "slack"}},
+		{typ: LibraryTypeInstruction, available: []string{"architecture"}, selected: []string{}},
+		{typ: LibraryTypePrompt, available: []string{"daily", "retro"}, selected: []string{"daily"}},
+	}, LibraryTypeSkill)
+
+	view := model.View()
+	want := []string{
+		"▶ Skills (2 available, 1 installed)",
+		"  MCP Servers (3 available, 2 installed)",
+		"  Instructions (1 available, 0 installed)",
+		"  Prompts (2 available, 1 installed)",
+	}
+	for _, line := range want {
+		if !strings.Contains(view, line) {
+			t.Fatalf("view = %q, want line %q", view, line)
+		}
+	}
+}
+
+func TestPickPickerInitialTypeStartsOnMCP(t *testing.T) {
+	t.Parallel()
+
+	model := newPickPickerModel([]pickTypeState{
+		{typ: LibraryTypeSkill, available: []string{"docker"}},
+		{typ: LibraryTypeMCP, available: []string{"github"}},
+		{typ: LibraryTypeInstruction, available: []string{"architecture"}},
+		{typ: LibraryTypePrompt, available: []string{"daily"}},
+	}, LibraryTypeMCP)
+
+	view := model.View()
+	if !strings.Contains(view, "▶ MCP Servers (1 available, 0 installed)") {
+		t.Fatalf("view = %q, want MCP row focused", view)
 	}
 }
 
@@ -429,6 +471,20 @@ func TestSkillPickerDropsStaleManifestSkillsFromSelection(t *testing.T) {
 	}
 }
 
+func TestPreserveHiddenSelectionsKeepsInstalledItemsOutsideCatalog(t *testing.T) {
+	t.Parallel()
+
+	got := preserveHiddenSelections(
+		[]string{"visible"},
+		[]string{"visible", "hidden-installed"},
+		[]string{"visible"},
+	)
+
+	if !slices.Equal(got, []string{"visible", "hidden-installed"}) {
+		t.Fatalf("preserved selections = %#v, want hidden-installed and visible", got)
+	}
+}
+
 func TestSkillPickerCancelDoesNotApplySelection(t *testing.T) {
 	t.Parallel()
 
@@ -475,64 +531,229 @@ func TestSkillPickerHandlesLargeLibrary(t *testing.T) {
 func TestApplySkillSelectionWritesDiffAndReconciles(t *testing.T) {
 	t.Parallel()
 
-	library := createLibrary(t, "docker", "golang-cli", "golang-testing")
-	project := createProject(t, []string{"docker", "golang-cli"})
-	if err := os.Symlink(filepath.Join(library, "docker"), filepath.Join(project.SymlinkDir, "docker")); err != nil {
-		t.Fatalf("Symlink(docker) error = %v", err)
-	}
-
-	var stdout bytes.Buffer
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		skills: []CatalogEntry{
+			{Type: LibraryTypeSkill, Name: "docker", Path: "docker/SKILL.md"},
+			{Type: LibraryTypeSkill, Name: "golang-cli", Path: "golang-cli/SKILL.md"},
+			{Type: LibraryTypeSkill, Name: "golang-testing", Path: "golang-testing/SKILL.md"},
+		},
+	})
+	project := createAPMProject(t, APMManifest{
+		Dependencies: APMDependencies{
+			APM: []string{
+				filepath.Join(library, "skills", "docker"),
+				filepath.Join(library, "skills", "golang-cli"),
+			},
+		},
+	})
+	calls := []string{}
 	if err := ApplySkillSelection(SkillSelectionOptions{
 		Project:     project,
 		LibraryPath: library,
 		Skills:      []string{"golang-testing", "golang-cli"},
-		Stdout:      &stdout,
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
 	}); err != nil {
 		t.Fatalf("ApplySkillSelection() error = %v", err)
 	}
 
-	manifest, err := ReadManifest(project.ManifestPath)
+	manifest, err := ReadAPMManifest(project.ManifestPath)
 	if err != nil {
-		t.Fatalf("ReadManifest() error = %v", err)
+		t.Fatalf("ReadAPMManifest() error = %v", err)
 	}
-	if got := strings.Join(manifest.Skills, ","); got != "golang-cli,golang-testing" {
-		t.Fatalf("manifest skills = %q, want golang-cli,golang-testing", got)
-	}
-	if _, err := os.Lstat(filepath.Join(project.SymlinkDir, "docker")); !os.IsNotExist(err) {
-		t.Fatalf("docker symlink remains; err = %v", err)
-	}
-	if !strings.Contains(stdout.String(), "added:   golang-testing") ||
-		!strings.Contains(stdout.String(), "removed: docker") ||
-		!strings.Contains(stdout.String(), "manifest: 2 skills") {
-		t.Fatalf("stdout = %q, want diff and manifest lines", stdout.String())
-	}
+	requireEqual(t, []string{
+		filepath.Join(library, "skills", "golang-cli"),
+		filepath.Join(library, "skills", "golang-testing"),
+	}, manifest.Dependencies.APM)
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm prune --project " + project.Root,
+	})
+}
+
+func TestApplySkillSelectionWritesAPMManifestAndRunsAPMPruneOnRemoval(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		skills: []CatalogEntry{
+			{
+				Type: LibraryTypeSkill,
+				Name: "docker",
+				Path: "docker/SKILL.md",
+			},
+			{
+				Type: LibraryTypeSkill,
+				Name: "golang-cli",
+				Path: "golang-cli/SKILL.md",
+			},
+			{
+				Type: LibraryTypeSkill,
+				Name: "golang-testing",
+				Path: "golang-testing/SKILL.md",
+			},
+		},
+	})
+	project := createAPMProject(t, APMManifest{
+		Dependencies: APMDependencies{
+			APM: []string{
+				filepath.Join(library, "skills", "docker"),
+				filepath.Join(library, "skills", "golang-cli"),
+			},
+		},
+	})
+	calls := []string{}
+
+	err := ApplySkillSelection(SkillSelectionOptions{
+		Project:     project,
+		LibraryPath: library,
+		Skills:      []string{"golang-cli", "golang-testing"},
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
+	})
+	requireNoError(t, err)
+
+	manifest, readErr := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, readErr)
+	requireEqual(t, []string{
+		filepath.Join(library, "skills", "golang-cli"),
+		filepath.Join(library, "skills", "golang-testing"),
+	}, manifest.Dependencies.APM)
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm prune --project " + project.Root,
+	})
 }
 
 func TestApplySkillSelectionRemovesStaleManifestSkillOnConfirm(t *testing.T) {
 	t.Parallel()
 
-	library := createLibrary(t, "docker")
-	project := createProject(t, []string{"docker", "missing"})
-
-	var stdout bytes.Buffer
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		skills: []CatalogEntry{
+			{Type: LibraryTypeSkill, Name: "docker", Path: "docker/SKILL.md"},
+		},
+	})
+	project := createAPMProject(t, APMManifest{
+		Dependencies: APMDependencies{
+			APM: []string{
+				filepath.Join(library, "skills", "docker"),
+				filepath.Join(library, "skills", "missing"),
+			},
+		},
+	})
+	calls := []string{}
 	if err := ApplySkillSelection(SkillSelectionOptions{
 		Project:     project,
 		LibraryPath: library,
 		Skills:      []string{"docker"},
-		Stdout:      &stdout,
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
 	}); err != nil {
 		t.Fatalf("ApplySkillSelection() error = %v", err)
 	}
 
-	manifest, err := ReadManifest(project.ManifestPath)
+	manifest, err := ReadAPMManifest(project.ManifestPath)
 	if err != nil {
-		t.Fatalf("ReadManifest() error = %v", err)
+		t.Fatalf("ReadAPMManifest() error = %v", err)
 	}
-	if got := strings.Join(manifest.Skills, ","); got != "docker" {
-		t.Fatalf("manifest skills = %q, want docker", got)
+	requireEqual(t, []string{filepath.Join(library, "skills", "docker")}, manifest.Dependencies.APM)
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm prune --project " + project.Root,
+	})
+}
+
+func TestRunPickSkillsTUILoadsSelectedSkillsFromAPMManifest(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		skills: []CatalogEntry{
+			{
+				Type: LibraryTypeSkill,
+				Name: "docker",
+				Path: "docker/SKILL.md",
+			},
+			{
+				Type: LibraryTypeSkill,
+				Name: "golang-cli",
+				Path: "golang-cli/SKILL.md",
+			},
+		},
+	})
+	project := createAPMProject(t, APMManifest{
+		Dependencies: APMDependencies{
+			APM: []string{filepath.Join(library, "skills", "docker")},
+		},
+	})
+
+	stdin, err := os.Open(os.DevNull)
+	requireNoError(t, err)
+	t.Cleanup(func() {
+		requireNoError(t, stdin.Close())
+	})
+
+	captured := []string{}
+	calls := []string{}
+	err = RunPickSkillsTUI(PickSkillsTUIOptions{
+		Project:     project,
+		LibraryPath: library,
+		Runner:      recordingRunner(&calls, nil),
+		Stdin:       stdin,
+		Stdout:      ioDiscard(),
+		IsTTY: func(*os.File) bool {
+			return true
+		},
+		SelectSkills: func(_ []string, selected []string, _ *os.File, _ io.Writer) ([]string, bool, error) {
+			captured = append([]string{}, selected...)
+			return nil, false, nil
+		},
+	})
+	requireNoError(t, err)
+	assertCommands(t, calls, []string{"apm --version"})
+	requireEqual(t, []string{"docker"}, captured)
+}
+
+func TestRunPickSkillsTUIStopsBeforeStateWorkWhenAPMUnavailable(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := t.TempDir()
+	stdin, err := os.Open(os.DevNull)
+	requireNoError(t, err)
+	t.Cleanup(func() {
+		requireNoError(t, stdin.Close())
+	})
+
+	calls := []string{}
+	selectCalled := false
+	err = RunPickSkillsTUI(PickSkillsTUIOptions{
+		Project: Project{
+			Root:         projectRoot,
+			ManifestPath: filepath.Join(projectRoot, "apm.yml"),
+		},
+		LibraryPath: t.TempDir(),
+		Runner: func(name string, args ...string) ([]byte, error) {
+			calls = append(calls, strings.TrimSpace(name+" "+strings.Join(args, " ")))
+			return nil, NewExitError(ExitEnvironment, "error: apm missing")
+		},
+		Stdin:  stdin,
+		Stdout: ioDiscard(),
+		Stderr: ioDiscard(),
+		IsTTY: func(*os.File) bool {
+			return true
+		},
+		SelectSkills: func(_ []string, _ []string, _ *os.File, _ io.Writer) ([]string, bool, error) {
+			selectCalled = true
+			return nil, false, nil
+		},
+	})
+	if err == nil {
+		t.Fatal("RunPickSkillsTUI() error = nil, want apm availability failure")
 	}
-	if !strings.Contains(stdout.String(), "removed: missing") {
-		t.Fatalf("stdout = %q, want stale skill removal", stdout.String())
+	if ExitCode(err) != ExitEnvironment {
+		t.Fatalf("ExitCode(err) = %d, want %d", ExitCode(err), ExitEnvironment)
+	}
+	requireEqual(t, []string{"apm --version"}, calls)
+	if selectCalled {
+		t.Fatal("SelectSkills called, want EnsureAPM failure before TUI state work")
 	}
 }
 

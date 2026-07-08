@@ -12,6 +12,21 @@ import (
 func TestResolveLibraryPathUsesEnvironmentFirst(t *testing.T) {
 	library := createLibrary(t, "docker")
 	t.Setenv(envLibraryPath, library)
+	t.Setenv(legacyEnvLibraryPath, "")
+
+	got, err := ResolveLibraryPath(ConfigResolverOptions{})
+	if err != nil {
+		t.Fatalf("ResolveLibraryPath() error = %v", err)
+	}
+	if got != library {
+		t.Fatalf("ResolveLibraryPath() = %q, want %q", got, library)
+	}
+}
+
+func TestResolveLibraryPathUsesLegacyEnvironmentFallback(t *testing.T) {
+	library := createLibrary(t, "docker")
+	t.Setenv(envLibraryPath, "")
+	t.Setenv(legacyEnvLibraryPath, library)
 
 	got, err := ResolveLibraryPath(ConfigResolverOptions{})
 	if err != nil {
@@ -24,6 +39,7 @@ func TestResolveLibraryPathUsesEnvironmentFirst(t *testing.T) {
 
 func TestResolveLibraryPathFailsWithoutTTYOrConfig(t *testing.T) {
 	t.Setenv(envLibraryPath, "")
+	t.Setenv(legacyEnvLibraryPath, "")
 	t.Setenv("HOME", t.TempDir())
 
 	_, err := ResolveLibraryPath(ConfigResolverOptions{})
@@ -39,6 +55,7 @@ func TestResolveLibraryPathReadsConfig(t *testing.T) {
 	library := createLibrary(t, "docker")
 	home := t.TempDir()
 	t.Setenv(envLibraryPath, "")
+	t.Setenv(legacyEnvLibraryPath, "")
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home) // Windows: os.UserHomeDir() reads USERPROFILE, not HOME
 

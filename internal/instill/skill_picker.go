@@ -19,26 +19,39 @@ const (
 	skillPickerSkillsPane
 )
 
-// PickSkillsTUIOptions configures the interactive skill picker.
-type PickSkillsTUIOptions struct {
+// PickTUIOptions configures the interactive typed library picker.
+type PickTUIOptions struct {
 	Project     Project
 	LibraryPath string
+	InitialType LibraryType
 	Stdin       *os.File
 	Stdout      io.Writer
 	Stderr      io.Writer
+	Runner      CommandRunner
 }
 
-// RunPickSkillsTUI lets a user choose project skills interactively.
-func RunPickSkillsTUI(opts PickSkillsTUIOptions) error {
-	if opts.Stdin == nil || !IsTerminal(opts.Stdin) {
-		return NewExitError(ExitEnvironment, "error: pick-skills TUI requires a terminal")
-	}
+// PickSkillsTUIOptions configures the interactive skill picker.
+type PickSkillsTUIOptions struct {
+	Project      Project
+	LibraryPath  string
+	Runner       CommandRunner
+	Stdin        *os.File
+	Stdout       io.Writer
+	Stderr       io.Writer
+	IsTTY        func(*os.File) bool
+	SelectSkills func(available []string, selected []string, stdin *os.File, output io.Writer) ([]string, bool, error)
+}
 
-	librarySkills, err := ListLibrarySkills(opts.LibraryPath, opts.Stderr)
-	if err != nil {
+// RunPickTUI lets a user choose project library entries interactively.
+func RunPickTUI(opts PickTUIOptions) error {
+	if opts.Stdin == nil || !IsTerminal(opts.Stdin) {
+		return NewExitError(ExitEnvironment, "error: pick TUI requires a terminal")
+	}
+	if err := EnsureAPM(opts.Runner); err != nil {
 		return err
 	}
-	manifest, err := ReadManifest(opts.Project.ManifestPath)
+
+	states, err := loadPickTypeStates(opts.Project, opts.LibraryPath)
 	if err != nil {
 		return err
 	}
@@ -47,26 +60,447 @@ func RunPickSkillsTUI(opts PickSkillsTUIOptions) error {
 	if output == nil {
 		output = io.Discard
 	}
-	program := tea.NewProgram(
-		newSkillPickerModel(librarySkills, manifest.Skills),
-		tea.WithInput(opts.Stdin),
-		tea.WithOutput(output),
-	)
-	finalModel, err := program.Run()
+
+	typ, selected, confirmed, err := runPickPickerProgram(states, opts.InitialType, opts.Stdin, output)
+	if err != nil {
+		return NewExitError(ExitGeneral, "error: pick TUI failed: "+err.Error())
+	}
+	if !confirmed {
+		return nil
+	}
+
+	state, ok := pickStateByType(states, typ)
+	if !ok {
+		return NewExitError(ExitGeneral, "error: invalid library type: "+string(typ))
+	}
+	selected = preserveHiddenSelections(state.available, state.selected, selected)
+	add, remove := selectionDiff(state.selected, selected)
+	if len(add) == 0 && len(remove) == 0 {
+		return nil
+	}
+	return Pick(PickOptions{
+		Project:     opts.Project,
+		LibraryPath: opts.LibraryPath,
+		Add:         add,
+		Remove:      remove,
+		Type:        typ,
+		Runner:      opts.Runner,
+		Stdout:      opts.Stdout,
+	})
+}
+
+// RunPickSkillsTUI lets a user choose project skills interactively.
+func RunPickSkillsTUI(opts PickSkillsTUIOptions) error {
+	isTTY := opts.IsTTY
+	if isTTY == nil {
+		isTTY = IsTerminal
+	}
+	if opts.Stdin == nil || !isTTY(opts.Stdin) {
+		return NewExitError(ExitEnvironment, "error: pick-skills TUI requires a terminal")
+	}
+	if err := EnsureAPM(opts.Runner); err != nil {
+		return err
+	}
+
+	librarySkills, err := ListLibrarySkills(opts.LibraryPath, opts.Stderr)
+	if err != nil {
+		return err
+	}
+	selectedSkills, err := currentProjectSkills(opts.Project, opts.LibraryPath)
+	if err != nil {
+		return err
+	}
+
+	output := opts.Stderr
+	if output == nil {
+		output = io.Discard
+	}
+
+	selectSkills := opts.SelectSkills
+	if selectSkills == nil {
+		selectSkills = runSkillPickerProgram
+	}
+	selected, confirmed, err := selectSkills(librarySkills, selectedSkills, opts.Stdin, output)
 	if err != nil {
 		return NewExitError(ExitGeneral, "error: pick-skills TUI failed: "+err.Error())
 	}
-
-	model, ok := finalModel.(skillPickerModel)
-	if !ok || !model.confirmed {
+	if !confirmed {
 		return nil
 	}
 	return ApplySkillSelection(SkillSelectionOptions{
 		Project:     opts.Project,
 		LibraryPath: opts.LibraryPath,
-		Skills:      model.selectedSkills(),
+		Skills:      selected,
+		Runner:      opts.Runner,
 		Stdout:      opts.Stdout,
 	})
+}
+
+type pickTypeState struct {
+	typ       LibraryType
+	available []string
+	selected  []string
+}
+
+type pickPickerModel struct {
+	types      []pickTypeState
+	typeCursor int
+	active     bool
+	items      skillPickerModel
+	confirmed  bool
+	cancelled  bool
+}
+
+func runSkillPickerProgram(available []string, selected []string, stdin *os.File, output io.Writer) ([]string, bool, error) {
+	program := tea.NewProgram(
+		newSkillPickerModel(available, selected),
+		tea.WithInput(stdin),
+		tea.WithOutput(output),
+	)
+	finalModel, err := program.Run()
+	if err != nil {
+		return nil, false, err
+	}
+
+	model, ok := finalModel.(skillPickerModel)
+	if !ok || !model.confirmed {
+		return nil, false, nil
+	}
+	return model.selectedSkills(), true, nil
+}
+
+func runPickPickerProgram(states []pickTypeState, initialType LibraryType, stdin *os.File, output io.Writer) (LibraryType, []string, bool, error) {
+	program := tea.NewProgram(
+		newPickPickerModel(states, initialType),
+		tea.WithInput(stdin),
+		tea.WithOutput(output),
+	)
+	finalModel, err := program.Run()
+	if err != nil {
+		return "", nil, false, err
+	}
+
+	model, ok := finalModel.(pickPickerModel)
+	if !ok || !model.confirmed {
+		return "", nil, false, nil
+	}
+	return model.currentType(), model.items.selectedSkills(), true, nil
+}
+
+func loadPickTypeStates(project Project, libraryPath string) ([]pickTypeState, error) {
+	manifest, err := ReadAPMManifest(project.ManifestPath)
+	if err != nil {
+		return nil, err
+	}
+
+	states := make([]pickTypeState, 0, len(pickLibraryTypes()))
+	for _, typ := range pickLibraryTypes() {
+		entries, err := LoadCatalog(libraryPath, typ)
+		if err != nil {
+			return nil, err
+		}
+		available := catalogEntryNames(entries)
+		selected, err := currentProjectTypeSelection(project, libraryPath, typ, manifest, entries)
+		if err != nil {
+			return nil, err
+		}
+		states = append(states, pickTypeState{
+			typ:       typ,
+			available: available,
+			selected:  selected,
+		})
+	}
+	return states, nil
+}
+
+func currentProjectTypeSelection(project Project, libraryPath string, typ LibraryType, manifest APMManifest, entries []CatalogEntry) ([]string, error) {
+	switch typ {
+	case LibraryTypeSkill:
+		namesByDependency := make(map[string]string, len(entries))
+		for _, entry := range entries {
+			namesByDependency[skillDependencyPath(libraryPath, entry)] = entry.Name
+		}
+
+		selected := make([]string, 0, len(manifest.Dependencies.APM))
+		for _, dependency := range manifest.Dependencies.APM {
+			if name, ok := namesByDependency[dependency]; ok {
+				selected = append(selected, name)
+			}
+		}
+		return normalizeStringSlice(selected), nil
+	case LibraryTypeMCP:
+		selected := make([]string, 0, len(manifest.Dependencies.MCP))
+		for _, dependency := range manifest.Dependencies.MCP {
+			selected = append(selected, dependency.Name)
+		}
+		return normalizeStringSlice(selected), nil
+	case LibraryTypeInstruction, LibraryTypePrompt:
+		namesBySanitized := make(map[string]string, len(entries))
+		for _, entry := range entries {
+			namesBySanitized[sanitizeContentName(entry.Name)] = entry.Name
+		}
+		return listProjectContentNames(project.Root, typ, namesBySanitized)
+	default:
+		return nil, NewExitError(ExitGeneral, "error: invalid library type: "+string(typ))
+	}
+}
+
+func currentProjectSkills(project Project, libraryPath string) ([]string, error) {
+	manifest, err := ReadAPMManifest(project.ManifestPath)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := LoadCatalog(libraryPath, LibraryTypeSkill)
+	if err != nil {
+		return nil, err
+	}
+
+	namesByDependency := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		namesByDependency[skillDependencyPath(libraryPath, entry)] = entry.Name
+	}
+
+	selected := make([]string, 0, len(manifest.Dependencies.APM))
+	for _, dependency := range manifest.Dependencies.APM {
+		if name, ok := namesByDependency[dependency]; ok {
+			selected = append(selected, name)
+		}
+	}
+	return normalizeStringSlice(selected), nil
+}
+
+func newPickPickerModel(states []pickTypeState, initialType LibraryType) pickPickerModel {
+	normalized := normalizePickTypeStates(states)
+	cursor := pickTypeIndex(normalized, initialType)
+	model := pickPickerModel{
+		types:      normalized,
+		typeCursor: cursor,
+	}
+	model.items = model.itemModel()
+	return model
+}
+
+func normalizePickTypeStates(states []pickTypeState) []pickTypeState {
+	byType := make(map[LibraryType]pickTypeState, len(states))
+	for _, state := range states {
+		state.available = normalizeStringSlice(state.available)
+		state.selected = normalizeStringSlice(state.selected)
+		byType[state.typ] = state
+	}
+
+	normalized := make([]pickTypeState, 0, len(pickLibraryTypes()))
+	for _, typ := range pickLibraryTypes() {
+		state := byType[typ]
+		state.typ = typ
+		normalized = append(normalized, state)
+	}
+	return normalized
+}
+
+func (m pickPickerModel) Init() tea.Cmd {
+	return nil
+}
+
+func (m pickPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+
+	if m.active {
+		switch key.Type {
+		case tea.KeyCtrlC:
+			m.cancelled = true
+			return m, tea.Quit
+		case tea.KeyRunes:
+			if !m.items.searchMode && key.String() == "a" {
+				m.confirmed = true
+				return m, tea.Quit
+			}
+		}
+		updated, cmd := m.items.Update(msg)
+		m.items = updated.(skillPickerModel)
+		if m.items.confirmed {
+			m.confirmed = true
+		}
+		if m.items.cancelled {
+			m.cancelled = true
+		}
+		return m, cmd
+	}
+
+	switch key.Type {
+	case tea.KeyCtrlC, tea.KeyEsc:
+		m.cancelled = true
+		return m, tea.Quit
+	case tea.KeyEnter, tea.KeyRight:
+		m.active = true
+		m.items = m.itemModel()
+	case tea.KeyUp:
+		m.moveType(-1)
+	case tea.KeyDown:
+		m.moveType(1)
+	case tea.KeyRunes:
+		switch key.String() {
+		case "q":
+			m.cancelled = true
+			return m, tea.Quit
+		case "j":
+			m.moveType(1)
+		case "k":
+			m.moveType(-1)
+		case "s":
+			m.focusType(LibraryTypeSkill)
+		case "m":
+			m.focusType(LibraryTypeMCP)
+		case "i":
+			m.focusType(LibraryTypeInstruction)
+		case "p":
+			m.focusType(LibraryTypePrompt)
+		}
+	}
+
+	return m, nil
+}
+
+func (m pickPickerModel) View() string {
+	if m.active {
+		var builder strings.Builder
+		builder.WriteString(pickTypeLabel(m.currentType()) + "\n")
+		builder.WriteString(m.items.View())
+		builder.WriteString("a applies selection\n")
+		return builder.String()
+	}
+
+	var builder strings.Builder
+	builder.WriteString("Pick library type\n")
+	for i, state := range m.types {
+		prefix := "  "
+		if i == m.typeCursor {
+			prefix = "▶ "
+		}
+		_, _ = fmt.Fprintf(&builder, "%s%s (%d available, %d installed)\n", prefix, pickTypeLabel(state.typ), len(state.available), len(state.selected))
+	}
+	builder.WriteString("Enter selects type, s/m/i/p jumps, q/Esc cancels\n")
+	return builder.String()
+}
+
+func (m *pickPickerModel) moveType(delta int) {
+	m.typeCursor += delta
+	if m.typeCursor < 0 {
+		m.typeCursor = 0
+	}
+	if m.typeCursor >= len(m.types) {
+		m.typeCursor = len(m.types) - 1
+	}
+}
+
+func (m *pickPickerModel) focusType(typ LibraryType) {
+	m.typeCursor = pickTypeIndex(m.types, typ)
+}
+
+func (m pickPickerModel) currentType() LibraryType {
+	if m.typeCursor < 0 || m.typeCursor >= len(m.types) {
+		return LibraryTypeSkill
+	}
+	return m.types[m.typeCursor].typ
+}
+
+func (m pickPickerModel) currentState() pickTypeState {
+	if m.typeCursor < 0 || m.typeCursor >= len(m.types) {
+		return pickTypeState{typ: LibraryTypeSkill}
+	}
+	return m.types[m.typeCursor]
+}
+
+func (m pickPickerModel) itemModel() skillPickerModel {
+	state := m.currentState()
+	return newSkillPickerModel(state.available, state.selected)
+}
+
+func pickTypeIndex(states []pickTypeState, typ LibraryType) int {
+	for i, state := range states {
+		if state.typ == typ {
+			return i
+		}
+	}
+	return 0
+}
+
+func pickStateByType(states []pickTypeState, typ LibraryType) (pickTypeState, bool) {
+	for _, state := range states {
+		if state.typ == typ {
+			return state, true
+		}
+	}
+	return pickTypeState{}, false
+}
+
+func preserveHiddenSelections(available []string, previous []string, selected []string) []string {
+	availableSet := make(map[string]struct{}, len(available))
+	for _, name := range normalizeStringSlice(available) {
+		availableSet[name] = struct{}{}
+	}
+	next := append([]string{}, selected...)
+	for _, name := range normalizeStringSlice(previous) {
+		if _, visible := availableSet[name]; visible {
+			continue
+		}
+		next = append(next, name)
+	}
+	return normalizeStringSlice(next)
+}
+
+func selectionDiff(previous []string, next []string) ([]string, []string) {
+	previousSet := make(map[string]struct{}, len(previous))
+	for _, name := range normalizeStringSlice(previous) {
+		previousSet[name] = struct{}{}
+	}
+	nextSet := make(map[string]struct{}, len(next))
+	for _, name := range normalizeStringSlice(next) {
+		nextSet[name] = struct{}{}
+	}
+
+	add := make([]string, 0)
+	for name := range nextSet {
+		if _, ok := previousSet[name]; !ok {
+			add = append(add, name)
+		}
+	}
+	remove := make([]string, 0)
+	for name := range previousSet {
+		if _, ok := nextSet[name]; !ok {
+			remove = append(remove, name)
+		}
+	}
+	return normalizeStringSlice(add), normalizeStringSlice(remove)
+}
+
+func catalogEntryNames(entries []CatalogEntry) []string {
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name)
+	}
+	return normalizeStringSlice(names)
+}
+
+func pickLibraryTypes() []LibraryType {
+	return []LibraryType{LibraryTypeSkill, LibraryTypeMCP, LibraryTypeInstruction, LibraryTypePrompt}
+}
+
+func pickTypeLabel(typ LibraryType) string {
+	switch typ {
+	case LibraryTypeSkill:
+		return "Skills"
+	case LibraryTypeMCP:
+		return "MCP Servers"
+	case LibraryTypeInstruction:
+		return "Instructions"
+	case LibraryTypePrompt:
+		return "Prompts"
+	default:
+		return string(typ)
+	}
 }
 
 type skillPickerModel struct {

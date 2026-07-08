@@ -47,6 +47,8 @@ func reconcileSettingsLocalPermissions(path string, previousSkills, finalSkills 
 	return true, nil
 }
 
+// validateSettingsLocalPermissions validates legacy settings.local.json permission reconciliation.
+// Deprecated: supported commands must not use settings.local.json as sync state.
 func validateSettingsLocalPermissions(path string, previousSkills, finalSkills []string) error {
 	settings, _, _, err := readSettingsLocalTree(path)
 	if err != nil {

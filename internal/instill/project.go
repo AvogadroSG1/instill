@@ -27,13 +27,26 @@ type Project struct {
 
 // FindProject walks up from start until it finds a project manifest.
 func FindProject(start string) (Project, bool, error) {
+	return findProject(start, ProjectAPMPath)
+}
+
+// FindLegacyProject walks up from start until it finds a legacy JSON manifest.
+func FindLegacyProject(start string) (Project, bool, error) {
+	return findProject(start, ProjectManifestPath)
+}
+
+func ProjectManifestPath(root string) string {
+	return filepath.Join(root, claudeDirName, manifestFileName)
+}
+
+func findProject(start string, manifestPathForRoot func(string) string) (Project, bool, error) {
 	root, err := filepath.Abs(start)
 	if err != nil {
 		return Project{}, false, NewExitError(ExitGeneral, "error: cannot resolve project path: "+err.Error())
 	}
 
 	for {
-		manifestPath := filepath.Join(root, claudeDirName, manifestFileName)
+		manifestPath := manifestPathForRoot(root)
 		if _, err := os.Stat(manifestPath); err == nil {
 			return Project{
 				Root:             root,

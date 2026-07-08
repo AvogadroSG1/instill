@@ -1,11 +1,12 @@
 # instill
 
-> Curate and sync a project-specific skill library for Claude Code and other AI coding agents.
+> Curate typed library entries and sync project agent state through APM.
 
-`instill` manages a manifest of AI coding skills per project. It creates and
-reconciles symlinks in `.claude/skills/` so that Claude Code can load only the
-skills relevant to the project being worked on, and it reconciles local
-`Skill(name)` permissions in `.claude/settings.local.json`.
+`instill` is a Go CLI for selecting project-specific AI coding support from a
+typed Library catalog. It writes an APM manifest (`apm.yml`), copies selected
+local instructions and prompts into `.apm/`, and delegates install, compile,
+lockfile updates, security scanning, and downstream harness rendering to the
+external `apm` CLI.
 
 ## Module
 
@@ -13,54 +14,67 @@ skills relevant to the project being worked on, and it reconciles local
 
 ## Key Concepts
 
-- **Skill** — a directory in the library containing a `SKILL.md` file. The name
-  is the directory name (e.g. `golang-testing`).
-- **Library** — a directory of skill subdirectories. Configured via
-  `SKILL_LIBRARY_PATH` or `~/.config/instill/config.json`.
-- **Manifest** — `.claude/skill-manifest.json` at the project root. Committed to
-  git. Contains `{"skills": ["skill-a", "skill-b"]}` (always sorted, deduped).
-- **Symlink dir** — `.claude/skills/` — gitignored directory of symlinks managed
-  by `instill`. Each symlink points into the library.
-- **Agent permissions** — local `Skill(name)` entries in
-  `.claude/settings.local.json` under `permissions.allow`. The file is
-  gitignored. Current manifests grant permissions; selection flows use the
-  previous manifest as the ownership boundary for revokes.
-- **Category registry** — optional `.categories.json` at the library root.
-  Groups skills for display in the interactive TUI.
+- **Library catalog** — CSV-backed catalog under the configured library root.
+  Typed entries live under `skills/`, `mcp/`, `instructions/`, and `prompts/`.
+- **Typed library entry** — a skill, MCP server, instruction, or prompt selected
+  from the Library catalog.
+- **APM manifest** — committed `apm.yml` at the project root. This is the
+  durable project contract for selected skill paths and MCP dependencies.
+- **Copied local content** — selected instructions and prompts are copied into
+  `.apm/instructions/` and `.apm/prompts/`; they are not symlinked.
+- **Sync** — `instill sync` runs `apm install` and then `apm compile`, then
+  reports selected skill, MCP, instruction, and prompt counts.
+- **Legacy migration** — old `skill-manifest.json`, `.claude/skills` symlinks,
+  `.agents/skills` symlinks, and `settings.local.json` permission reconciliation
+  are migration concerns only. Hidden legacy commands MUST NOT mutate state.
 
 ## CLI Commands
 
 ```
-instill init-project [--skills name,...] [--force]
-    Initialize .claude/skill-manifest.json and .claude/skills/.
-    Launches interactive TUI unless --skills is given.
+instill init [--skills name,...] [--force]
+    Initialize apm.yml. Launches the unified picker unless --skills is given.
 
-instill pick-skills [name...] [--remove name,...]
-    Add/remove skills. No args = interactive TUI.
+instill pick [--type skill|mcp|instruction|prompt] [name...]
+    Add typed entries by name. No args opens the unified picker.
 
-instill check-skills
-    Reconcile .claude/skills/ symlinks and local Skill permissions with the
-    manifest. Removes stale symlinks; creates missing ones; prunes
-    library-removed skills; grants missing Skill permissions silently.
+instill pick --type <type> --remove name...
+    Remove typed entries by name.
 
-instill pick-skills [name...] [--remove name,...]
-    Add/remove skills and reconcile local permissions with previous-manifest
-    ownership, so removed managed Skill permissions are revoked.
+instill sync
+    Run apm install and apm compile for the current project.
 
-instill show-library [--filter substring]
-    List skills in the configured library.
-    Marks selected skills if run inside a project.
+instill status
+    Show selected typed entries and drift against copied .apm content.
+
+instill library scan
+    Scan the configured Library catalog and write typed CSV catalogs.
+
+instill library show --type <type> [--filter substring]
+    List typed catalog entries.
+
+instill library add --type <type> ...
+    Add a typed catalog entry.
+
+instill import old-instill|graft|claude|directory <path>
+    Import legacy or external state into the Library catalog and apm.yml.
 
 instill add-hooks
-    Add `instill check-skills` as a SessionStart hook to .claude/settings.json.
+    Add `instill sync` as the Claude Code SessionStart hook.
+
+instill bootstrap
+    Ensure the external apm CLI is available.
 ```
+
+Hidden legacy commands such as `check-skills`, `show-library`, and `categorize`
+exist only for migration guidance and MUST NOT mutate project or library state.
 
 ## Configuration
 
 | Source | Key |
 |--------|-----|
-| Env var | `SKILL_LIBRARY_PATH` |
-| File | `~/.config/instill/config.json` → `library_path` |
+| Env var | `INSTILL_LIBRARY_PATH` |
+| File | `~/.config/instill/config.json` -> `library_path` |
+| Env fallback | `SKILL_LIBRARY_PATH` for migration compatibility only |
 | TTY prompt | written to config file on first run |
 
 ## Exit Codes
@@ -69,46 +83,46 @@ instill add-hooks
 |------|---------|
 | 0 | Success |
 | 1 | General error |
-| 2 | Environment error (library not configured/found, no TTY) |
+| 2 | Environment error, including missing APM/bootstrap prerequisites or no TTY |
 | 3 | Filesystem error |
 
 ## Source Layout
 
 ```
 main.go                         entry point; calls cli.Execute()
-internal/cli/                   Cobra command wiring (commandConfig injection)
+internal/cli/                   Cobra command wiring with commandConfig injection
   root.go                       Execute(), newRootCommand()
-  init_project.go               init-project command
-  pick_skills.go                pick-skills command
-  check_skills.go               check-skills command
-  show_library.go               show-library command
+  init_project.go               init command
+  pick_skills.go                pick command
+  sync.go                       sync command
+  status.go                     status command
+  library.go                    library scan/add/show commands
+  import.go                     legacy/external import commands
   add_hooks.go                  add-hooks command
 internal/instill/               pure domain logic
-  project.go                    Project type; FindProject()
-  manifest.go                   Manifest type; ReadManifest(), WriteManifestAtomic()
-  library.go                    SkillExists(), ListLibrarySkills(), FilterSkills()
-  config.go                     ResolveLibraryPath(); config file read/write
-  categories.go                 LoadCategories(); CategoryForSkill()
-  reconcile.go                  ReconcileManifest(); symlink lifecycle
-  settings_local.go             settings.local.json Skill permission lifecycle
-  init_project.go               InitProject(); gitignore management
-  pick_skills.go                PickSkills(); ApplySkillSelection()
-  show_library.go               ShowLibrary()
-  add_hooks.go                  AddHooks(); settings.json hook injection
-  skill_picker.go               RunPickSkillsTUI() — Bubbletea TUI
+  apm_manifest.go               APMManifest, MCPDependency, apm.yml read/write
+  apm_runner.go                 external apm/brew command runner
+  catalog.go                    typed CSV catalog load/write/scan
+  config.go                     ResolveLibraryPath; INSTILL_LIBRARY_PATH precedence
+  init_project.go               InitProject; apm.yml initialization
+  pick_skills.go                Pick; typed add/remove behavior
+  skill_picker.go               RunPickTUI; Bubbletea unified picker
+  sync.go                       SyncProject and status orchestration
+  import.go                     old instill, graft, Claude, directory importers
+  add_hooks.go                  AddHooks; installs instill sync hook
   errors.go                     ExitError; NewExitError(); ExitCode()
   atomic.go                     writeFileAtomic()
 ```
 
 ## Design Notes
 
-- All manifest and config writes use `writeFileAtomic` (write `.tmp`, rename) to
-  prevent partial-write corruption.
-- Selection flows use `ReconcileManifestWithPrevious` so removed managed
-  permissions are revoked while manual `Skill(...)` entries survive.
-- Skill names are validated with `IsValidSkillName` — must be a single, safe
-  path element (no `/`, `..`, absolute paths).
-- The TUI (`RunPickSkillsTUI`) is injected via `commandConfig.pickSkillsTUI` so
-  that CLI commands are fully testable without a terminal.
-- `internal/instill` has no dependency on `os.Std*` — all I/O is passed
-  explicitly so the domain is testable in isolation.
+- instill owns the curated Library catalog and picker UX.
+- APM owns dependency resolution, lockfile updates, security scanning, install,
+  compile, and harness rendering.
+- Library-only commands MUST NOT bootstrap or invoke APM.
+- Project APM commands MUST ensure APM is available before acting.
+- All manifest, config, catalog, and settings writes use atomic writes.
+- `internal/instill` receives paths and `io.Writer`s explicitly; it must not use
+  process-global standard streams.
+- New tests and docs SHOULD use `INSTILL_LIBRARY_PATH`. Use `SKILL_LIBRARY_PATH`
+  only when testing migration fallback behavior.

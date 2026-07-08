@@ -1,0 +1,64 @@
+package instill
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestWriteAPMManifestAtomicWritesYAMLDependencies(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "apm.yml")
+	manifest := APMManifest{Dependencies: APMDependencies{
+		APM: []string{"/library/skills/golang-testing"},
+		MCP: []MCPDependency{{Name: "local-db", Command: "sqlite-mcp", Args: []string{"--db", "dev.db"}}},
+	}}
+
+	err := WriteAPMManifestAtomic(path, manifest)
+
+	requireNoError(t, err)
+	data := readFile(t, path)
+	requireContains(t, data, "dependencies:")
+	requireContains(t, data, "- /library/skills/golang-testing")
+	requireContains(t, data, "name: local-db")
+}
+
+func TestReadAPMManifestNormalizesMissingDependencies(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "apm.yml")
+	requireNoError(t, os.WriteFile(path, []byte("{}\n"), 0o644))
+
+	manifest, err := ReadAPMManifest(path)
+
+	requireNoError(t, err)
+	requireEqual(t, 0, len(manifest.Dependencies.APM))
+	requireEqual(t, 0, len(manifest.Dependencies.MCP))
+}
+
+func TestReadAPMManifestReturnsExitGeneralOnMalformedYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "apm.yml")
+	requireNoError(t, os.WriteFile(path, []byte("dependencies: [\n"), 0o644))
+
+	_, err := ReadAPMManifest(path)
+
+	if err == nil {
+		t.Fatal("ReadAPMManifest() error = nil, want malformed yaml error")
+	}
+	requireEqual(t, ExitGeneral, ExitCode(err))
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	requireNoError(t, err)
+	return string(data)
+}
+
+func requireContains(t *testing.T, got string, want string) {
+	t.Helper()
+	if !strings.Contains(got, want) {
+		t.Fatalf("string %q does not contain %q", got, want)
+	}
+}
