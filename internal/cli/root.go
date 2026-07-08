@@ -18,8 +18,9 @@ type commandConfig struct {
 	stderr        io.Writer
 	args          []string
 	cwd           string
+	runner        instill.CommandRunner
 	isTTY         func(*os.File) bool
-	pickSkillsTUI func(instill.PickSkillsTUIOptions) error
+	pickTUI       func(instill.PickTUIOptions) error
 }
 
 // Execute is the entry point for the instill CLI. It runs the root Cobra
@@ -56,11 +57,22 @@ func newRootCommand(cfg commandConfig) *cobra.Command {
 		root.SetArgs(cfg.args)
 	}
 
-	root.AddCommand(newCheckSkillsCommand(cfg))
 	root.AddCommand(newAddHooksCommand(cfg))
-	root.AddCommand(newCategorizeCommand(cfg))
+	root.AddCommand(newBootstrapCommand(cfg))
+	categorize := newCategorizeCommand(cfg)
+	categorize.Hidden = true
+	root.AddCommand(categorize)
+	root.AddCommand(newImportCommand(cfg))
 	root.AddCommand(newInitProjectCommand(cfg))
+	root.AddCommand(newLibraryCommand(cfg))
 	root.AddCommand(newPickSkillsCommand(cfg))
-	root.AddCommand(newShowLibraryCommand(cfg))
+	root.AddCommand(newSyncCommand(cfg))
+	root.AddCommand(newStatusCommand(cfg))
+	checkSkills := newCheckSkillsCommand(cfg)
+	checkSkills.Hidden = true
+	root.AddCommand(checkSkills)
+	showLibrary := newShowLibraryCommand(cfg)
+	showLibrary.Hidden = true
+	root.AddCommand(showLibrary)
 	return root
 }

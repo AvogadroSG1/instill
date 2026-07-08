@@ -156,3 +156,61 @@ func TestShowLibraryEmptyLibrary(t *testing.T) {
 		t.Fatalf("stdout = %q, want empty footer", stdout.String())
 	}
 }
+
+func TestShowCatalogListsTypedSkillEntries(t *testing.T) {
+	t.Parallel()
+
+	root := createTypedLibrary(t)
+	requireNoError(t, WriteCatalog(root, LibraryTypeSkill, []CatalogEntry{
+		{
+			Type:        LibraryTypeSkill,
+			Name:        "docker",
+			Path:        "docker/SKILL.md",
+			Description: "Container workflow",
+		},
+		{
+			Type:        LibraryTypeSkill,
+			Name:        "cloud/azure/azure-cli",
+			Category:    "cloud/azure",
+			Path:        "cloud/azure/azure-cli/SKILL.md",
+			Description: "Azure CLI helper",
+		},
+	}))
+
+	var stdout bytes.Buffer
+	err := ShowCatalog(root, LibraryTypeSkill, "", &stdout)
+
+	requireNoError(t, err)
+	want := "cloud/azure/azure-cli\ndocker\n2 entries\n"
+	if stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+	}
+}
+
+func TestShowCatalogFiltersCaseInsensitively(t *testing.T) {
+	t.Parallel()
+
+	root := createTypedLibrary(t)
+	requireNoError(t, WriteCatalog(root, LibraryTypePrompt, []CatalogEntry{
+		{
+			Type:        LibraryTypePrompt,
+			Name:        "debug",
+			Path:        "debug/PROMPT.md",
+			Description: "Debug helper",
+		},
+		{
+			Type:        LibraryTypePrompt,
+			Name:        "summarize",
+			Path:        "summarize/PROMPT.md",
+			Description: "Summary helper",
+		},
+	}))
+
+	var stdout bytes.Buffer
+	err := ShowCatalog(root, LibraryTypePrompt, "BUG", &stdout)
+
+	requireNoError(t, err)
+	if stdout.String() != "debug\n1 entries\n" {
+		t.Fatalf("stdout = %q, want filtered prompt output", stdout.String())
+	}
+}

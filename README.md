@@ -4,117 +4,111 @@
 [![License](https://img.shields.io/github/license/AvogadroSg1/instill)](./LICENSE)
 [![Build Status][build-badge]][build-url]
 
-Curate and sync a project-specific skill library for Claude Code and other AI coding agents.
+`instill` curates a typed Library catalog for project-specific AI agent capabilities and delegates dependency resolution, lockfiles, install, and compile work to APM.
 
-`instill` keeps a manifest of the skills your project needs, creates symlinks so
-Claude Code can discover them, grants local Claude skill permissions, and wires
-a session hook that reconciles that local state automatically every time you
-open a session.
+## Model
 
-## Getting Started
+instill is the curated library UX. APM is the sync engine.
 
-**Install:**
+```mermaid
+flowchart LR
+    Library[Library catalog] --> Pick[instill pick]
+    Pick --> Manifest[APM manifest: apm.yml]
+    Manifest --> Sync[instill sync]
+    Sync --> APM[apm install and apm compile]
+    APM --> Project[.apm rendered project content]
+```
+
+- The **Library catalog** lives under `INSTILL_LIBRARY_PATH` and uses typed CSV files for skills, MCP servers, instructions, and prompts.
+- The **APM manifest** is the project-local `apm.yml` file committed with the project.
+- **Sync** means `instill sync` runs `apm install`, then `apm compile`, then reports installed counts.
+- **Typed library entries** let one library manage skills, MCP servers, instructions, and prompts without overloading a skill-only manifest.
+
+## Install
 
 ```bash
-# From source
 go install github.com/AvogadroSg1/instill@latest
 
 # Or build locally
-make install   # installs to ~/.local/bin/instill
+make install
 ```
 
-**Configure your skill library** (one-time setup):
+APM MUST be available for commands that touch project APM state. If `apm` is missing, instill will try to install the configured APM formula with Homebrew.
+
+## Configure The Library
 
 ```bash
-export SKILL_LIBRARY_PATH=~/path/to/skills   # or let instill prompt you
+export INSTILL_LIBRARY_PATH=~/path/to/agent-library
 ```
 
-**Initialize a project:**
+`INSTILL_LIBRARY_PATH` has highest precedence. `~/.config/instill/config.json` is used when the environment variable is absent. `SKILL_LIBRARY_PATH` remains a migration fallback only.
+
+Expected library shape:
+
+```text
+~/path/to/agent-library/
+  skills/catalog.csv
+  skills/golang-testing/SKILL.md
+  mcp/catalog.csv
+  mcp/local-db/config.json
+  instructions/catalog.csv
+  instructions/python-rules/INSTRUCTION.md
+  prompts/catalog.csv
+  prompts/debug/PROMPT.md
+```
+
+Run `instill library scan` to create or refresh catalog CSV files from library content.
+
+## Project Workflow
 
 ```bash
 cd your-project
-instill init        # launches interactive skill picker
-instill init --skills golang-testing,golang-error-handling  # headless
+instill init --skills golang-testing
+instill pick --type instruction python-rules
+instill pick --type prompt debug
+instill sync
+instill add-hooks
 ```
 
-**Result:**
+Project artifacts:
 
-```
-initialized: .claude/skill-manifest.json
-created:     .claude/skills/
-updated:     .gitignore (+.claude/skills/)
-updated:     .gitignore (+.claude/settings.local.json)
-created: golang-testing -> /home/user/skills/golang-testing
-created: golang-error-handling -> /home/user/skills/golang-error-handling
-ok: 2 skills linked
-```
-
-## How It Works
-
-```
-~/.config/instill/config.json       ← library path (or SKILL_LIBRARY_PATH)
-~/skills/
-  golang-testing/SKILL.md           ← skill definition
-  golang-error-handling/SKILL.md
-  ...
-
+```text
 your-project/
-  .claude/
-    skill-manifest.json             ← committed to git: ["golang-testing", ...]
-    settings.local.json             ← gitignored: local Skill(...) permissions
-    skills/                         ← gitignored: symlinks managed by instill
-      golang-testing -> ~/skills/golang-testing
-      golang-error-handling -> ~/skills/golang-error-handling
+  apm.yml                  # committed APM manifest
+  apm.lock.yaml            # APM lockfile when produced by APM
+  .apm/
+    instructions/*.instructions.md
+    prompts/*.prompt.md
+  .claude/settings.json    # SessionStart hook from instill add-hooks
 ```
 
-`instill check-skills` reconciles symlinks and grants missing `Skill(name)`
-permissions for skills in the current manifest. When skills are removed through
-`instill pick-skills` or the interactive picker, instill has the previous
-manifest and can revoke the removed `Skill(name)` permissions while preserving
-manual permissions it never managed. Run `instill add-hooks` once to wire
-`check-skills` as a Claude Code `SessionStart` hook so reconciliation happens
-automatically.
+`instill add-hooks` registers `instill sync` as the Claude Code `SessionStart` hook so each new session refreshes APM-managed project content.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `instill init` | Initialize a manifest in the current project |
-| `instill pick-skills [name...]` | Add or remove skills interactively or by name |
-| `instill check-skills` | Reconcile symlinks and local skill permissions with the manifest |
-| `instill show-library` | List available skills in the configured library |
-| `instill add-hooks` | Register `check-skills` as a Claude Code `SessionStart` hook |
+| `instill init` | Create `apm.yml` for the current project and optionally seed skills |
+| `instill pick [name...]` | Add or remove typed library entries from `apm.yml` or copied `.apm/` content |
+| `instill sync` | Run `apm install`, then `apm compile`, and report synced counts |
+| `instill status` | Compare project APM state with the Library catalog |
+| `instill library scan` | Rebuild typed catalog CSV files from library content |
+| `instill library add` | Add one typed catalog entry |
+| `instill library show` | List typed catalog entries |
+| `instill import` | Import legacy instill, graft, Claude config, or generic directories |
+| `instill bootstrap` | Ensure APM is installed and meets the minimum version |
+| `instill add-hooks` | Register the `instill sync` SessionStart hook |
 
-### `init`
-
-```bash
-instill init                        # interactive TUI skill picker
-instill init --skills foo,bar       # headless: add specific skills
-instill init --force                # overwrite an existing manifest
-```
-
-### `pick-skills`
-
-```bash
-instill pick-skills                         # open interactive TUI
-instill pick-skills foo bar                 # add skills by name
-instill pick-skills --remove foo,bar        # remove skills
-```
-
-### `show-library`
-
-```bash
-instill show-library                        # list all skills
-instill show-library --filter golang        # filter by substring
-```
+Legacy commands such as `instill check-skills` MUST NOT mutate project state. `check-skills` exits with migration guidance naming `instill sync`.
 
 ## Configuration
 
 | Source | Precedence |
-|--------|-----------|
-| `SKILL_LIBRARY_PATH` environment variable | Highest |
-| `~/.config/instill/config.json` | — |
-| Interactive TTY prompt (first run) | Lowest |
+|--------|------------|
+| `INSTILL_LIBRARY_PATH` environment variable | Highest |
+| `SKILL_LIBRARY_PATH` environment variable | Migration fallback |
+| `~/.config/instill/config.json` | Stored default |
+| Interactive TTY prompt | Lowest |
 
 `~/.config/instill/config.json` format:
 
@@ -129,9 +123,9 @@ instill show-library --filter golang        # filter by substring
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | General error (bad args, malformed manifest, unknown skill) |
-| `2` | Environment error (library not found, no TTY) |
-| `3` | Filesystem error (cannot read/write files) |
+| `1` | General error |
+| `2` | Environment error |
+| `3` | Filesystem error |
 
 ## Contributing
 

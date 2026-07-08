@@ -8,7 +8,10 @@ import (
 	"path/filepath"
 )
 
-const hookCommand = "instill check-skills"
+const (
+	hookCommand       = "instill sync"
+	legacyHookCommand = "instill check-skills"
+)
 
 // AddHooks adds the instill SessionStart hook to .claude/settings.json.
 func AddHooks(project Project, stdout io.Writer) error {
@@ -25,18 +28,21 @@ func AddHooks(project Project, stdout io.Writer) error {
 		return writeLine(stdout, "already configured")
 	}
 
-	mergeCommandHook(settings)
+	replaceManagedCommandHook(settings)
 
 	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return NewExitError(ExitGeneral, "error: cannot encode settings: "+err.Error())
 	}
 	data = append(data, '\n')
+	if err := ensureSettingsLocalDir(filepath.Dir(path)); err != nil {
+		return err
+	}
 	if err := writeFileAtomic(path, data, mode); err != nil {
 		return NewExitError(ExitFilesystem, "error: cannot write settings.json: "+err.Error())
 	}
 
-	return writeLine(stdout, "added SessionStart hook: instill check-skills")
+	return writeLine(stdout, "added SessionStart hook: instill sync")
 }
 
 func readSettingsTree(path string) (map[string]any, os.FileMode, error) {
@@ -85,13 +91,25 @@ func hasCommandHook(settings map[string]any, command string) bool {
 	return false
 }
 
-func mergeCommandHook(settings map[string]any) {
+func replaceManagedCommandHook(settings map[string]any) {
 	hooks := hooksMap(settings)
 	matchers := sessionStartMatchers(settings)
 
 	for _, matcher := range matchers {
 		if matcher["matcher"] == "" {
-			matcher["hooks"] = append(hooksSlice(matcher), newCommandHook())
+			filtered := make([]any, 0, len(hooksSlice(matcher))+1)
+			for _, rawHook := range hooksSlice(matcher) {
+				hook, ok := rawHook.(map[string]any)
+				if !ok {
+					filtered = append(filtered, rawHook)
+					continue
+				}
+				if isManagedHookCommand(hook["command"]) {
+					continue
+				}
+				filtered = append(filtered, rawHook)
+			}
+			matcher["hooks"] = append(filtered, newCommandHook())
 			hooks["SessionStart"] = matchers
 			return
 		}
@@ -103,6 +121,11 @@ func mergeCommandHook(settings map[string]any) {
 			newCommandHook(),
 		},
 	})
+}
+
+func isManagedHookCommand(command any) bool {
+	value, _ := command.(string)
+	return value == hookCommand || value == legacyHookCommand
 }
 
 func hooksMap(settings map[string]any) map[string]any {

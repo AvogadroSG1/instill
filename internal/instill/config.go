@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	envLibraryPath = "SKILL_LIBRARY_PATH"
-	configDirName  = "instill"
-	configFileName = "config.json"
+	envLibraryPath       = "INSTILL_LIBRARY_PATH"
+	legacyEnvLibraryPath = "SKILL_LIBRARY_PATH"
+	configDirName        = "instill"
+	configFileName       = "config.json"
 )
 
 type ConfigResolverOptions struct {
@@ -30,6 +31,9 @@ type configFile struct {
 // ResolveLibraryPath resolves and validates the configured skill library path.
 func ResolveLibraryPath(opts ConfigResolverOptions) (string, error) {
 	if value := strings.TrimSpace(os.Getenv(envLibraryPath)); value != "" {
+		return requireLibrary(value)
+	}
+	if value := strings.TrimSpace(os.Getenv(legacyEnvLibraryPath)); value != "" {
 		return requireLibrary(value)
 	}
 
@@ -58,7 +62,7 @@ func ResolveLibraryPath(opts ConfigResolverOptions) (string, error) {
 		return requireLibrary(path)
 	}
 
-	return "", NewExitError(ExitEnvironment, "error: no library path configured; set SKILL_LIBRARY_PATH")
+	return "", NewExitError(ExitEnvironment, "error: no library path configured; set INSTILL_LIBRARY_PATH")
 }
 
 func readConfigLibraryPath(path string) (string, bool, error) {
@@ -76,7 +80,7 @@ func readConfigLibraryPath(path string) (string, bool, error) {
 		return "", false, NewExitError(ExitEnvironment, fmt.Sprintf("error: malformed config: %v", err))
 	}
 	if strings.TrimSpace(config.LibraryPath) == "" {
-		return "", false, NewExitError(ExitEnvironment, "error: no library path configured; set SKILL_LIBRARY_PATH")
+		return "", false, NewExitError(ExitEnvironment, "error: no library path configured; set INSTILL_LIBRARY_PATH")
 	}
 
 	return config.LibraryPath, true, nil

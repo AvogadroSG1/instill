@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestShowLibraryCLIOutsideProject(t *testing.T) {
-	library := createLibrary(t, "docker")
-	t.Setenv("SKILL_LIBRARY_PATH", library)
+func TestLegacyShowLibraryExitsWithLibraryShowGuidance(t *testing.T) {
+	root := createLegacyProject(t, `{"skills":["docker"]}`)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -17,99 +17,33 @@ func TestShowLibraryCLIOutsideProject(t *testing.T) {
 		stdout: &stdout,
 		stderr: &stderr,
 		args:   []string{"show-library"},
-		cwd:    t.TempDir(),
-	})
-
-	if code != 0 {
-		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
-	}
-	if stdout.String() != "docker\n1 skills\n" {
-		t.Fatalf("stdout = %q, want plain library", stdout.String())
-	}
-}
-
-func TestShowLibraryCLIInsideProjectWithFilter(t *testing.T) {
-	library := createLibrary(t, "docker", "golang-cli")
-	root := createProject(t, []string{"golang-cli"})
-	t.Setenv("SKILL_LIBRARY_PATH", library)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := execute(commandConfig{
-		stdout: &stdout,
-		stderr: &stderr,
-		args:   []string{"show-library", "--filter", "go"},
-		cwd:    filepath.Join(root, ".claude"),
-	})
-
-	if code != 0 {
-		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
-	}
-	want := "[✓] golang-cli\n1 skills  (1 selected)\n"
-	if stdout.String() != want {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
-	}
-}
-
-func TestShowLibraryCLIWithCategory(t *testing.T) {
-	library := createLibrary(t, "azure-blob-storage", "docker", "golang-cli")
-	root := createProject(t, []string{"docker", "golang-cli"})
-	writeCategories(t, library, `{
-		"cloud/azure": ["azure-blob-storage"],
-		"cloud": ["docker"],
-		"golang": ["golang-cli"]
-	}`)
-	t.Setenv("SKILL_LIBRARY_PATH", library)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := execute(commandConfig{
-		stdout: &stdout,
-		stderr: &stderr,
-		args:   []string{"show-library", "--category", "cloud"},
 		cwd:    root,
 	})
 
-	if code != 0 {
-		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
+	if code != 1 {
+		t.Fatalf("execute() = %d, want 1; stderr = %q", code, stderr.String())
 	}
-	want := "[ ] azure-blob-storage\n[✓] docker\n2 skills  (1 selected)\n"
-	if stdout.String() != want {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want silence", stdout.String())
 	}
-}
-
-func TestShowLibraryCLIWithCategoryAndMissingRegistryIsSilent(t *testing.T) {
-	library := createLibrary(t, "docker", "golang-cli")
-	t.Setenv("SKILL_LIBRARY_PATH", library)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := execute(commandConfig{
-		stdout: &stdout,
-		stderr: &stderr,
-		args:   []string{"show-library", "--category", "cloud"},
-		cwd:    t.TempDir(),
-	})
-
-	if code != 0 {
-		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
-	}
-	if stdout.String() != "docker\ngolang-cli\n2 skills\n" {
-		t.Fatalf("stdout = %q, want unfiltered library", stdout.String())
-	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want silent missing registry", stderr.String())
+	if !strings.Contains(stderr.String(), "show-library has been replaced by 'instill library show'") {
+		t.Fatalf("stderr = %q, want migration guidance naming instill library show", stderr.String())
 	}
 }
 
-func TestShowLibraryCLIReconcilesMissingManifestSkill(t *testing.T) {
-	library := createLibrary(t, "docker")
-	root := createProject(t, []string{"docker", "missing"})
-	t.Setenv("SKILL_LIBRARY_PATH", library)
-
-	if err := os.Symlink(filepath.Join(library, "missing"), filepath.Join(root, ".claude", "skills", "missing")); err != nil {
-		t.Fatalf("Symlink(missing) error = %v", err)
+func TestLegacyShowLibraryDoesNotMutateProjectState(t *testing.T) {
+	root := createLegacyProject(t, `{"skills":["docker","missing"]}`)
+	skillsDir := filepath.Join(root, ".claude", "skills")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(skills) error = %v", err)
+	}
+	if err := os.Symlink("/legacy/orphan", filepath.Join(skillsDir, "orphan")); err != nil {
+		t.Fatalf("Symlink(orphan) error = %v", err)
+	}
+	manifestPath := filepath.Join(root, ".claude", "skill-manifest.json")
+	beforeManifest, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("ReadFile(manifest) error = %v", err)
 	}
 
 	var stdout bytes.Buffer
@@ -121,22 +55,20 @@ func TestShowLibraryCLIReconcilesMissingManifestSkill(t *testing.T) {
 		cwd:    root,
 	})
 
-	if code != 0 {
-		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
+	if code != 1 {
+		t.Fatalf("execute() = %d, want 1; stderr = %q", code, stderr.String())
 	}
-	want := "removed: missing (no longer in library)\n[✓] docker\n1 skills  (1 selected)\n"
-	if stdout.String() != want {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+	afterManifest, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("ReadFile(manifest after) error = %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(root, ".claude", "skills", "missing")); !os.IsNotExist(err) {
-		t.Fatalf("missing symlink remains; err = %v", err)
+	if string(afterManifest) != string(beforeManifest) {
+		t.Fatalf("manifest changed to %q, want %q", afterManifest, beforeManifest)
 	}
-}
-
-func writeCategories(t *testing.T, library string, contents string) {
-	t.Helper()
-
-	if err := os.WriteFile(filepath.Join(library, ".categories.json"), []byte(contents), 0o600); err != nil {
-		t.Fatalf("WriteFile(.categories.json) error = %v", err)
+	if _, err := os.Lstat(filepath.Join(skillsDir, "docker")); !os.IsNotExist(err) {
+		t.Fatalf("docker symlink exists after legacy command; err = %v", err)
+	}
+	if target, err := os.Readlink(filepath.Join(skillsDir, "orphan")); err != nil || target != "/legacy/orphan" {
+		t.Fatalf("orphan symlink = %q, %v; want unchanged /legacy/orphan", target, err)
 	}
 }

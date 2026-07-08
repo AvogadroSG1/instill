@@ -7,6 +7,9 @@
 .DS_Store
 /dist/
 /instill
+.cache/
+.gocache/
+.superpowers/sdd/
 # instill — managed symlinks, do not commit
 .claude/skills/
 .claude/settings.local.json

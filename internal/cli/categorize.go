@@ -8,22 +8,13 @@ import (
 func newCategorizeCommand(cfg commandConfig) *cobra.Command {
 	return &cobra.Command{
 		Use:   "categorize",
-		Short: "Create or update the skill category registry",
+		Short: "Legacy command replaced by typed library catalogs",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			libraryPath, err := instill.ResolveLibraryPath(instill.ConfigResolverOptions{
-				Stdin:  cfg.stdin,
-				Stderr: cfg.stderr,
-			})
-			if err != nil {
-				return err
-			}
-
-			return instill.CategorizeLibrary(instill.CategorizeOptions{
-				LibraryPath: libraryPath,
-				Stdout:      cfg.stdout,
-				Stderr:      cfg.stderr,
-			})
+			return instill.NewExitError(
+				instill.ExitGeneral,
+				"error: categorize has been replaced by typed library catalogs; run 'instill library scan'",
+			)
 		},
 	}
 }

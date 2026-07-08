@@ -8,261 +8,434 @@ import (
 	"testing"
 )
 
-func TestPickSkillsAddsDeduplicatedSortedSkills(t *testing.T) {
+func TestPickAddsSkillPathAndRunsAPMInstall(t *testing.T) {
 	t.Parallel()
 
-	library := createLibrary(t, "docker", "golang-cli")
-	project := createProject(t, []string{"docker"})
-
-	var stdout bytes.Buffer
-	if err := PickSkills(PickSkillsOptions{
-		Project:     project,
-		LibraryPath: library,
-		Add:         []string{"golang-cli", "docker"},
-		Stdout:      &stdout,
-	}); err != nil {
-		t.Fatalf("PickSkills() error = %v", err)
-	}
-
-	manifest, err := ReadManifest(project.ManifestPath)
-	if err != nil {
-		t.Fatalf("ReadManifest() error = %v", err)
-	}
-	if strings.Join(manifest.Skills, ",") != "docker,golang-cli" {
-		t.Fatalf("manifest skills = %#v, want sorted docker,golang-cli", manifest.Skills)
-	}
-	if !strings.Contains(stdout.String(), "added:   golang-cli") ||
-		!strings.Contains(stdout.String(), "manifest: 2 skills") {
-		t.Fatalf("stdout = %q, want added and manifest lines", stdout.String())
-	}
-}
-
-func TestPickSkillsRemoveDeletesManifestEntryAndSymlink(t *testing.T) {
-	t.Parallel()
-
-	library := createLibrary(t, "docker", "golang-cli")
-	project := createProject(t, []string{"docker", "golang-cli"})
-	if err := os.Symlink(filepath.Join(library, "docker"), filepath.Join(project.SymlinkDir, "docker")); err != nil {
-		t.Fatalf("Symlink(docker) error = %v", err)
-	}
-
-	var stdout bytes.Buffer
-	if err := PickSkills(PickSkillsOptions{
-		Project:     project,
-		LibraryPath: library,
-		Remove:      []string{"docker"},
-		Stdout:      &stdout,
-	}); err != nil {
-		t.Fatalf("PickSkills() error = %v", err)
-	}
-
-	manifest, err := ReadManifest(project.ManifestPath)
-	if err != nil {
-		t.Fatalf("ReadManifest() error = %v", err)
-	}
-	if strings.Join(manifest.Skills, ",") != "golang-cli" {
-		t.Fatalf("manifest skills = %#v, want golang-cli", manifest.Skills)
-	}
-	if _, err := os.Lstat(filepath.Join(project.SymlinkDir, "docker")); !os.IsNotExist(err) {
-		t.Fatalf("docker symlink remains; err = %v", err)
-	}
-	if !strings.Contains(stdout.String(), "removed: docker") {
-		t.Fatalf("stdout = %q, want removed line", stdout.String())
-	}
-}
-
-func TestPickSkillsRemoveRevokesPreviousManifestPermission(t *testing.T) {
-	t.Parallel()
-
-	library := createLibrary(t, "docker", "golang-cli")
-	project := createProject(t, []string{"docker", "golang-cli"})
-	createSkillSymlink(t, project, library, "docker")
-	createSkillSymlink(t, project, library, "golang-cli")
-	writeSettingsLocalForTest(t, project, `{
-  "permissions": {
-    "allow": [
-      "Skill(docker)",
-      "Skill(golang-cli)",
-      "Skill(manual-private)"
-    ]
-  }
-}
-`)
-
-	var stdout bytes.Buffer
-	if err := PickSkills(PickSkillsOptions{
-		Project:     project,
-		LibraryPath: library,
-		Remove:      []string{"docker"},
-		Stdout:      &stdout,
-	}); err != nil {
-		t.Fatalf("PickSkills() error = %v", err)
-	}
-
-	assertSettingsAllow(t, project, []string{"Skill(golang-cli)", "Skill(manual-private)"})
-}
-
-func TestPickSkillsMalformedSettingsLeavesManifestUnchanged(t *testing.T) {
-	t.Parallel()
-
-	library := createLibrary(t, "docker", "golang-cli")
-	project := createProject(t, []string{"docker", "golang-cli"})
-	writeSettingsLocalForTest(t, project, `{"permissions":[]}`)
-
-	var stdout bytes.Buffer
-	err := PickSkills(PickSkillsOptions{
-		Project:     project,
-		LibraryPath: library,
-		Remove:      []string{"docker"},
-		Stdout:      &stdout,
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		skills: []CatalogEntry{{
+			Type: LibraryTypeSkill,
+			Name: "docker",
+			Path: "docker/SKILL.md",
+		}},
 	})
-	if err == nil {
-		t.Fatal("PickSkills() error = nil, want malformed settings error")
-	}
-	if ExitCode(err) != ExitGeneral {
-		t.Fatalf("ExitCode(err) = %d, want %d", ExitCode(err), ExitGeneral)
-	}
+	project := createAPMProject(t, APMManifest{})
+	calls := []string{}
 
-	manifest, readErr := ReadManifest(project.ManifestPath)
-	if readErr != nil {
-		t.Fatalf("ReadManifest() error = %v", readErr)
-	}
-	if strings.Join(manifest.Skills, ",") != "docker,golang-cli" {
-		t.Fatalf("manifest skills = %#v, want unchanged docker,golang-cli", manifest.Skills)
-	}
-}
-
-func TestApplySkillSelectionMalformedSettingsLeavesManifestUnchanged(t *testing.T) {
-	t.Parallel()
-
-	library := createLibrary(t, "docker", "golang-cli")
-	project := createProject(t, []string{"docker", "golang-cli"})
-	writeSettingsLocalForTest(t, project, `{"permissions":{"allow":[42]}}`)
-
-	var stdout bytes.Buffer
-	err := ApplySkillSelection(SkillSelectionOptions{
+	err := Pick(PickOptions{
 		Project:     project,
 		LibraryPath: library,
-		Skills:      []string{"golang-cli"},
-		Stdout:      &stdout,
+		Type:        LibraryTypeSkill,
+		Add:         []string{"docker"},
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
 	})
-	if err == nil {
-		t.Fatal("ApplySkillSelection() error = nil, want malformed settings error")
-	}
-	if ExitCode(err) != ExitGeneral {
-		t.Fatalf("ExitCode(err) = %d, want %d", ExitCode(err), ExitGeneral)
-	}
 
-	manifest, readErr := ReadManifest(project.ManifestPath)
-	if readErr != nil {
-		t.Fatalf("ReadManifest() error = %v", readErr)
-	}
-	if strings.Join(manifest.Skills, ",") != "docker,golang-cli" {
-		t.Fatalf("manifest skills = %#v, want unchanged docker,golang-cli", manifest.Skills)
-	}
+	requireNoError(t, err)
+	manifest, readErr := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, readErr)
+	requireEqual(t, []string{filepath.Join(library, "skills", "docker")}, manifest.Dependencies.APM)
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm install --project " + project.Root,
+	})
 }
 
-func TestPickSkillsUnknownAddMakesNoChanges(t *testing.T) {
+func TestPickUnknownSkillNamesTypedLibraryShowGuidance(t *testing.T) {
 	t.Parallel()
 
-	library := createLibrary(t, "docker")
-	project := createProject(t, []string{"docker"})
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	project := createAPMProject(t, APMManifest{})
 
-	var stdout bytes.Buffer
-	err := PickSkills(PickSkillsOptions{
+	err := Pick(PickOptions{
 		Project:     project,
 		LibraryPath: library,
+		Type:        LibraryTypeSkill,
 		Add:         []string{"missing"},
-		Stdout:      &stdout,
+		Runner:      recordingRunner(nil, nil),
+		Stdout:      &bytes.Buffer{},
 	})
-	if err == nil {
-		t.Fatal("PickSkills() error = nil, want unknown skill")
-	}
 
-	manifest, readErr := ReadManifest(project.ManifestPath)
-	if readErr != nil {
-		t.Fatalf("ReadManifest() error = %v", readErr)
+	if err == nil {
+		t.Fatal("Pick() error = nil, want unknown skill error")
 	}
-	if strings.Join(manifest.Skills, ",") != "docker" {
-		t.Fatalf("manifest skills = %#v, want unchanged docker", manifest.Skills)
+	if !strings.Contains(ErrorMessage(err), "instill library show --type skill") {
+		t.Fatalf("error = %q, want typed library show guidance", ErrorMessage(err))
 	}
 }
 
-func TestPickSkillsUnknownRemoveMakesNoChanges(t *testing.T) {
+func TestPickAddsMCPBlockAndRunsAPMInstall(t *testing.T) {
 	t.Parallel()
 
-	library := createLibrary(t, "docker")
-	project := createProject(t, []string{"docker"})
-	if err := os.Symlink(filepath.Join(library, "docker"), filepath.Join(project.SymlinkDir, "docker")); err != nil {
-		t.Fatalf("Symlink(docker) error = %v", err)
-	}
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		mcp: []CatalogEntry{{
+			Type:      LibraryTypeMCP,
+			Name:      "local-db",
+			Transport: "stdio",
+			Command:   "sqlite-mcp",
+			Args:      []string{"--db", "dev.db"},
+			Env:       []string{"DB_PATH=${DB_PATH}"},
+		}},
+	})
+	project := createAPMProject(t, APMManifest{})
+	calls := []string{}
 
-	var stdout bytes.Buffer
-	err := PickSkills(PickSkillsOptions{
+	err := Pick(PickOptions{
 		Project:     project,
 		LibraryPath: library,
-		Remove:      []string{"docker", "missing"},
-		Stdout:      &stdout,
+		Type:        LibraryTypeMCP,
+		Add:         []string{"local-db"},
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
 	})
-	if err == nil {
-		t.Fatal("PickSkills() error = nil, want unknown remove skill")
-	}
 
-	manifest, readErr := ReadManifest(project.ManifestPath)
-	if readErr != nil {
-		t.Fatalf("ReadManifest() error = %v", readErr)
-	}
-	if strings.Join(manifest.Skills, ",") != "docker" {
-		t.Fatalf("manifest skills = %#v, want unchanged docker", manifest.Skills)
-	}
-	if _, statErr := os.Lstat(filepath.Join(project.SymlinkDir, "docker")); statErr != nil {
-		t.Fatalf("docker symlink changed after failed validation; err = %v", statErr)
-	}
+	requireNoError(t, err)
+	manifest, readErr := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, readErr)
+	requireEqual(t, []MCPDependency{{
+		Name:    "local-db",
+		Command: "sqlite-mcp",
+		Args:    []string{"--db", "dev.db"},
+		Env:     []string{"DB_PATH=${DB_PATH}"},
+	}}, manifest.Dependencies.MCP)
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm install --project " + project.Root,
+	})
 }
 
-func TestPickSkillsMixedUnknownRemoveBlocksAdd(t *testing.T) {
+func TestPickCopiesInstructionAndRunsAPMInstall(t *testing.T) {
 	t.Parallel()
 
-	library := createLibrary(t, "docker", "golang-cli")
-	project := createProject(t, []string{"docker"})
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		instructions: []CatalogEntry{{
+			Type:    LibraryTypeInstruction,
+			Name:    "python-rules",
+			Path:    "python-rules/INSTRUCTION.md",
+			ApplyTo: "**/*.py",
+		}},
+	})
+	project := createAPMProject(t, APMManifest{})
+	calls := []string{}
 
-	var stdout bytes.Buffer
-	err := PickSkills(PickSkillsOptions{
+	err := Pick(PickOptions{
 		Project:     project,
 		LibraryPath: library,
-		Add:         []string{"golang-cli"},
-		Remove:      []string{"missing"},
-		Stdout:      &stdout,
+		Type:        LibraryTypeInstruction,
+		Add:         []string{"python-rules"},
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
 	})
-	if err == nil {
-		t.Fatal("PickSkills() error = nil, want unknown remove skill")
-	}
 
-	manifest, readErr := ReadManifest(project.ManifestPath)
-	if readErr != nil {
-		t.Fatalf("ReadManifest() error = %v", readErr)
-	}
-	if strings.Join(manifest.Skills, ",") != "docker" {
-		t.Fatalf("manifest skills = %#v, want unchanged docker", manifest.Skills)
-	}
+	requireNoError(t, err)
+	got := readFile(t, filepath.Join(project.Root, ".apm", "instructions", "python-rules.instructions.md"))
+	requireContains(t, got, "# instruction python-rules")
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm install --project " + project.Root,
+	})
 }
 
-func TestPickSkillsNoArgsExitsOne(t *testing.T) {
+func TestPickCopiesPromptAndRunsAPMInstall(t *testing.T) {
 	t.Parallel()
 
-	err := PickSkills(PickSkillsOptions{
-		Project:     createProject(t, []string{}),
-		LibraryPath: createLibrary(t, "docker"),
-		Stdout:      ioDiscard(),
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		prompts: []CatalogEntry{{
+			Type: LibraryTypePrompt,
+			Name: "debug",
+			Path: "debug/PROMPT.md",
+		}},
 	})
-	if err == nil {
-		t.Fatal("PickSkills() error = nil, want no skills error")
-	}
-	if ExitCode(err) != ExitGeneral {
-		t.Fatalf("ExitCode(err) = %d, want %d", ExitCode(err), ExitGeneral)
-	}
+	project := createAPMProject(t, APMManifest{})
+	calls := []string{}
+
+	err := Pick(PickOptions{
+		Project:     project,
+		LibraryPath: library,
+		Type:        LibraryTypePrompt,
+		Add:         []string{"debug"},
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
+	})
+
+	requireNoError(t, err)
+	got := readFile(t, filepath.Join(project.Root, ".apm", "prompts", "debug.prompt.md"))
+	requireContains(t, got, "# prompt debug")
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm install --project " + project.Root,
+	})
 }
 
-func ioDiscard() *bytes.Buffer {
-	return &bytes.Buffer{}
+func TestPickRemovalUpdatesManifestAndCallsAPMPrune(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		skills: []CatalogEntry{{
+			Type: LibraryTypeSkill,
+			Name: "docker",
+			Path: "docker/SKILL.md",
+		}},
+	})
+	project := createAPMProject(t, APMManifest{
+		Dependencies: APMDependencies{
+			APM: []string{filepath.Join(library, "skills", "docker")},
+		},
+	})
+	calls := []string{}
+
+	err := Pick(PickOptions{
+		Project:     project,
+		LibraryPath: library,
+		Type:        LibraryTypeSkill,
+		Remove:      []string{"docker"},
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
+	})
+
+	requireNoError(t, err)
+	manifest, readErr := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, readErr)
+	requireEqual(t, 0, len(manifest.Dependencies.APM))
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm prune --project " + project.Root,
+	})
+}
+
+func TestPickMixedAddAndRemoveRunsPruneThenInstall(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		skills: []CatalogEntry{{
+			Type: LibraryTypeSkill,
+			Name: "docker",
+			Path: "docker/SKILL.md",
+		}, {
+			Type: LibraryTypeSkill,
+			Name: "golang",
+			Path: "golang/SKILL.md",
+		}},
+	})
+	project := createAPMProject(t, APMManifest{
+		Dependencies: APMDependencies{
+			APM: []string{filepath.Join(library, "skills", "docker")},
+		},
+	})
+	calls := []string{}
+
+	err := Pick(PickOptions{
+		Project:     project,
+		LibraryPath: library,
+		Type:        LibraryTypeSkill,
+		Add:         []string{"golang"},
+		Remove:      []string{"docker"},
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
+	})
+
+	requireNoError(t, err)
+	manifest, readErr := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, readErr)
+	requireEqual(t, []string{filepath.Join(library, "skills", "golang")}, manifest.Dependencies.APM)
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm prune --project " + project.Root,
+		"apm install --project " + project.Root,
+	})
+}
+
+func TestPickRemovalSupportsNestedSkillNames(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		skills: []CatalogEntry{{
+			Type: LibraryTypeSkill,
+			Name: "cloud/azure/azure-cli",
+			Path: "cloud/azure/azure-cli/SKILL.md",
+		}},
+	})
+	project := createAPMProject(t, APMManifest{
+		Dependencies: APMDependencies{
+			APM: []string{filepath.Join(library, "skills", "cloud", "azure", "azure-cli")},
+		},
+	})
+	calls := []string{}
+
+	err := Pick(PickOptions{
+		Project:     project,
+		LibraryPath: library,
+		Type:        LibraryTypeSkill,
+		Remove:      []string{"cloud/azure/azure-cli"},
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
+	})
+
+	requireNoError(t, err)
+	manifest, readErr := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, readErr)
+	requireEqual(t, 0, len(manifest.Dependencies.APM))
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm prune --project " + project.Root,
+	})
+}
+
+func TestPickRemovalSupportsStaleSkillDependencyMissingFromCatalog(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	project := createAPMProject(t, APMManifest{
+		Dependencies: APMDependencies{
+			APM: []string{filepath.Join(library, "skills", "docker")},
+		},
+	})
+	calls := []string{}
+
+	err := Pick(PickOptions{
+		Project:     project,
+		LibraryPath: library,
+		Type:        LibraryTypeSkill,
+		Remove:      []string{"docker"},
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
+	})
+
+	requireNoError(t, err)
+	manifest, readErr := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, readErr)
+	requireEqual(t, 0, len(manifest.Dependencies.APM))
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm prune --project " + project.Root,
+	})
+}
+
+func TestPickRemovalDeletesCopiedInstruction(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		instructions: []CatalogEntry{{
+			Type: LibraryTypeInstruction,
+			Name: "python-rules",
+			Path: "python-rules/INSTRUCTION.md",
+		}},
+	})
+	project := createAPMProject(t, APMManifest{})
+	requireNoError(t, os.MkdirAll(filepath.Join(project.Root, ".apm", "instructions"), 0o755))
+	requireNoError(t, os.WriteFile(
+		filepath.Join(project.Root, ".apm", "instructions", "python-rules.instructions.md"),
+		[]byte("old"),
+		0o644,
+	))
+	calls := []string{}
+
+	err := Pick(PickOptions{
+		Project:     project,
+		LibraryPath: library,
+		Type:        LibraryTypeInstruction,
+		Remove:      []string{"python-rules"},
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
+	})
+
+	requireNoError(t, err)
+	assertPathMissing(t, filepath.Join(project.Root, ".apm", "instructions", "python-rules.instructions.md"))
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm prune --project " + project.Root,
+	})
+}
+
+func TestPickRemovalDeletesStaleMCPDependencyMissingFromCatalog(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	project := createAPMProject(t, APMManifest{
+		Dependencies: APMDependencies{
+			MCP: []MCPDependency{{
+				Name:    "local-db",
+				Command: "sqlite-mcp",
+				Args:    []string{"--db", "dev.db"},
+			}},
+		},
+	})
+	calls := []string{}
+
+	err := Pick(PickOptions{
+		Project:     project,
+		LibraryPath: library,
+		Type:        LibraryTypeMCP,
+		Remove:      []string{"local-db"},
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
+	})
+
+	requireNoError(t, err)
+	manifest, readErr := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, readErr)
+	requireEqual(t, 0, len(manifest.Dependencies.MCP))
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm prune --project " + project.Root,
+	})
+}
+
+func TestPickRemovalDeletesCopiedInstructionMissingFromCatalog(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	project := createAPMProject(t, APMManifest{})
+	requireNoError(t, os.MkdirAll(filepath.Join(project.Root, ".apm", "instructions"), 0o755))
+	requireNoError(t, os.WriteFile(
+		filepath.Join(project.Root, ".apm", "instructions", "python-rules.instructions.md"),
+		[]byte("old"),
+		0o644,
+	))
+	calls := []string{}
+
+	err := Pick(PickOptions{
+		Project:     project,
+		LibraryPath: library,
+		Type:        LibraryTypeInstruction,
+		Remove:      []string{"python-rules"},
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
+	})
+
+	requireNoError(t, err)
+	assertPathMissing(t, filepath.Join(project.Root, ".apm", "instructions", "python-rules.instructions.md"))
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm prune --project " + project.Root,
+	})
+}
+
+func TestPickRemovalDeletesCopiedPromptMissingFromCatalog(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	project := createAPMProject(t, APMManifest{})
+	requireNoError(t, os.MkdirAll(filepath.Join(project.Root, ".apm", "prompts"), 0o755))
+	requireNoError(t, os.WriteFile(
+		filepath.Join(project.Root, ".apm", "prompts", "debug.prompt.md"),
+		[]byte("old"),
+		0o644,
+	))
+	calls := []string{}
+
+	err := Pick(PickOptions{
+		Project:     project,
+		LibraryPath: library,
+		Type:        LibraryTypePrompt,
+		Remove:      []string{"debug"},
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
+	})
+
+	requireNoError(t, err)
+	assertPathMissing(t, filepath.Join(project.Root, ".apm", "prompts", "debug.prompt.md"))
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm prune --project " + project.Root,
+	})
 }

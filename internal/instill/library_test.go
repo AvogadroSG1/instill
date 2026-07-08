@@ -204,6 +204,71 @@ func TestSkillSourcePathForGroupSkill(t *testing.T) {
 	}
 }
 
+func TestSkillSourcePathUsesTypedSkillsRootWhenPresent(t *testing.T) {
+	t.Parallel()
+
+	library := createTypedLibrary(t)
+
+	got, err := SkillSourcePath(library, "cloud/azure/azure-cli")
+	if err != nil {
+		t.Fatalf("SkillSourcePath(cloud/azure/azure-cli) error = %v", err)
+	}
+	want := filepath.Join(library, "skills", "cloud", "azure", "azure-cli")
+	if got != want {
+		t.Fatalf("SkillSourcePath(cloud/azure/azure-cli) = %q, want %q", got, want)
+	}
+}
+
+func TestListLibrarySkillsReadsTypedSkillsRoot(t *testing.T) {
+	t.Parallel()
+
+	library := createTypedLibrary(t)
+
+	skills, err := ListLibrarySkills(library, nil)
+	if err != nil {
+		t.Fatalf("ListLibrarySkills() error = %v", err)
+	}
+	if got := strings.Join(skills, ","); got != "cloud/azure/azure-cli" {
+		t.Fatalf("skills = %q, want typed skills catalog source", got)
+	}
+}
+
+func TestListLibrarySkillsUsesExistingEmptyCatalogAuthoritatively(t *testing.T) {
+	t.Parallel()
+
+	library := createTypedLibrary(t)
+	requireNoError(t, os.WriteFile(
+		filepath.Join(library, "skills", "catalog.csv"),
+		[]byte("name,category,path,description\n"),
+		0o644,
+	))
+
+	skills, err := ListLibrarySkills(library, nil)
+
+	requireNoError(t, err)
+	if len(skills) != 0 {
+		t.Fatalf("skills = %v, want empty from authoritative catalog", skills)
+	}
+}
+
+func TestListLibrarySkillsSurfacesCatalogErrors(t *testing.T) {
+	t.Parallel()
+
+	library := createTypedLibrary(t)
+	requireNoError(t, os.WriteFile(
+		filepath.Join(library, "skills", "catalog.csv"),
+		[]byte("bad,header\ncloud/azure/azure-cli,cloud/azure,cloud/azure/azure-cli/SKILL.md,Azure CLI helper\n"),
+		0o644,
+	))
+
+	_, err := ListLibrarySkills(library, nil)
+
+	if err == nil {
+		t.Fatal("ListLibrarySkills() error = nil, want malformed catalog failure")
+	}
+	requireEqual(t, ExitGeneral, ExitCode(err))
+}
+
 func TestListLibrarySkillsWarnsOnPermissionDenied(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {

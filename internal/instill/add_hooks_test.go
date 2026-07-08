@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -19,7 +20,7 @@ func TestAddHooksCreatesSettings(t *testing.T) {
 	if err := AddHooks(project, &stdout); err != nil {
 		t.Fatalf("AddHooks() error = %v", err)
 	}
-	if stdout.String() != "added SessionStart hook: instill check-skills\n" {
+	if stdout.String() != "added SessionStart hook: instill sync\n" {
 		t.Fatalf("stdout = %q, want added line", stdout.String())
 	}
 
@@ -38,7 +39,7 @@ func TestAddHooksCreatesSettings(t *testing.T) {
 		t.Fatalf("hooks = %#v, want one hook entry", entries)
 	}
 	hook := entries[0].(map[string]any)
-	if hook["command"] != "instill check-skills" || hook["type"] != "command" {
+	if hook["command"] != "instill sync" || hook["type"] != "command" {
 		t.Fatalf("hook = %#v, want command hook", hook)
 	}
 }
@@ -140,12 +141,12 @@ func TestAddHooksPreservesExistingMode(t *testing.T) {
 	}
 }
 
-func TestAddHooksTreatsCommandOnlyAsAlreadyConfigured(t *testing.T) {
+func TestAddHooksReplacesLegacyManagedHook(t *testing.T) {
 	t.Parallel()
 
 	project := createProject(t, []string{"docker"})
 	settingsPath := filepath.Join(project.Root, ".claude", "settings.json")
-	if err := os.WriteFile(settingsPath, []byte(`{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"command":"instill check-skills"}]}]}}`), 0o600); err != nil {
+	if err := os.WriteFile(settingsPath, []byte(`{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"command":"instill check-skills","type":"command"},{"command":"echo existing","type":"command"}]}]}}`), 0o600); err != nil {
 		t.Fatalf("WriteFile(settings) error = %v", err)
 	}
 
@@ -153,8 +154,22 @@ func TestAddHooksTreatsCommandOnlyAsAlreadyConfigured(t *testing.T) {
 	if err := AddHooks(project, &stdout); err != nil {
 		t.Fatalf("AddHooks() error = %v", err)
 	}
-	if stdout.String() != "already configured\n" {
-		t.Fatalf("stdout = %q, want already configured", stdout.String())
+	if stdout.String() != "added SessionStart hook: instill sync\n" {
+		t.Fatalf("stdout = %q, want replacement message", stdout.String())
+	}
+
+	settings := readSettingsForTest(t, settingsPath)
+	hooks := settings["hooks"].(map[string]any)["SessionStart"].([]any)
+	entries := hooks[0].(map[string]any)["hooks"].([]any)
+	if len(entries) != 2 {
+		t.Fatalf("hooks = %#v, want existing plus replacement", entries)
+	}
+	commands := []string{
+		entries[0].(map[string]any)["command"].(string),
+		entries[1].(map[string]any)["command"].(string),
+	}
+	if slices.Contains(commands, "instill check-skills") {
+		t.Fatalf("commands = %#v, want legacy hook removed", commands)
 	}
 }
 

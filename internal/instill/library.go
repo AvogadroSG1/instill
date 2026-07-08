@@ -17,6 +17,12 @@ func SkillSourcePath(libraryPath string, name string) (string, error) {
 	if !IsValidSkillName(name) {
 		return "", NewExitError(ExitGeneral, "error: invalid skill name: "+name)
 	}
+
+	typedRoot := filepath.Join(libraryPath, "skills")
+	if info, err := os.Stat(typedRoot); err == nil && info.IsDir() {
+		return filepath.Join(typedRoot, filepath.FromSlash(name)), nil
+	}
+
 	return filepath.Join(libraryPath, filepath.FromSlash(name)), nil
 }
 
@@ -51,8 +57,29 @@ const maxSkillDepth = 32
 // When stderr is non-nil, permission errors on subdirectories are reported as
 // warnings instead of being silently skipped.
 func ListLibrarySkills(libraryPath string, stderr io.Writer) ([]string, error) {
+	hasCatalog, err := catalogExists(libraryPath, LibraryTypeSkill)
+	if err != nil {
+		return nil, err
+	}
+	if hasCatalog {
+		entries, err := LoadCatalog(libraryPath, LibraryTypeSkill)
+		if err != nil {
+			return nil, err
+		}
+		skills := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			skills = append(skills, entry.Name)
+		}
+		return skills, nil
+	}
+
+	root := libraryPath
+	if info, err := os.Stat(filepath.Join(libraryPath, "skills")); err == nil && info.IsDir() {
+		root = filepath.Join(libraryPath, "skills")
+	}
+
 	skills := make([]string, 0)
-	if err := walkLibrarySkills(libraryPath, "", &skills, 0, stderr); err != nil {
+	if err := walkLibrarySkills(root, "", &skills, 0, stderr); err != nil {
 		return nil, err
 	}
 	sort.Strings(skills)

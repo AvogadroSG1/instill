@@ -1,9 +1,22 @@
 package instill
 
 import (
-	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 )
+
+// PickOptions configures additive and removal changes for one library type.
+type PickOptions struct {
+	Project     Project
+	LibraryPath string
+	Add         []string
+	Remove      []string
+	Type        LibraryType
+	Runner      CommandRunner
+	Stdout      io.Writer
+}
 
 // PickSkillsOptions configures manifest skill selection changes.
 type PickSkillsOptions struct {
@@ -19,165 +32,292 @@ type SkillSelectionOptions struct {
 	Project     Project
 	LibraryPath string
 	Skills      []string
+	Runner      CommandRunner
 	Stdout      io.Writer
 }
 
-// PickSkills applies additive and removal changes to a project manifest.
-func PickSkills(opts PickSkillsOptions) error {
-	stdout := opts.Stdout
-	if stdout == nil {
-		stdout = io.Discard
-	}
+// Pick applies additive and removal changes for a single library type.
+func Pick(opts PickOptions) error {
 	if len(opts.Add) == 0 && len(opts.Remove) == 0 {
-		return NewExitError(ExitGeneral, "error: no skills specified")
+		return NewExitError(ExitGeneral, "error: no items specified")
 	}
-
-	addSkills := normalizeSkills(opts.Add)
-	removeSkills := normalizeSkills(opts.Remove)
-	if err := ValidateSkillNames(addSkills); err != nil {
-		return err
-	}
-	if err := ValidateSkillNames(removeSkills); err != nil {
-		return err
-	}
-	if err := validateKnownSkills(opts.LibraryPath, append(addSkills, removeSkills...)); err != nil {
+	if err := EnsureAPM(opts.Runner); err != nil {
 		return err
 	}
 
-	manifest, err := ReadManifest(opts.Project.ManifestPath)
+	manifest, err := ReadAPMManifest(opts.Project.ManifestPath)
 	if err != nil {
 		return err
 	}
-
-	current := make(map[string]struct{}, len(manifest.Skills)+len(addSkills))
-	for _, skill := range manifest.Skills {
-		current[skill] = struct{}{}
-	}
-
-	added := []string{}
-	for _, skill := range addSkills {
-		if _, ok := current[skill]; ok {
-			continue
-		}
-		current[skill] = struct{}{}
-		added = append(added, skill)
-	}
-
-	removed := []string{}
-	for _, skill := range removeSkills {
-		if _, ok := current[skill]; !ok {
-			continue
-		}
-		delete(current, skill)
-		removed = append(removed, skill)
-	}
-
-	next := make([]string, 0, len(current))
-	for skill := range current {
-		next = append(next, skill)
-	}
-	next = normalizeSkills(next)
-	updated := Manifest{Skills: next}
-	if err := validateReconcile(opts.Project, manifest, updated); err != nil {
+	entries, err := LoadCatalog(opts.LibraryPath, opts.Type)
+	if err != nil {
 		return err
 	}
-	if err := WriteManifestAtomic(opts.Project.ManifestPath, updated); err != nil {
+	entriesByName := make(map[string]CatalogEntry, len(entries))
+	for _, entry := range entries {
+		entriesByName[entry.Name] = entry
+	}
+
+	switch opts.Type {
+	case LibraryTypeSkill:
+		manifest.Dependencies.APM, err = applySkillPick(manifest.Dependencies.APM, opts.LibraryPath, entriesByName, opts.Add, opts.Remove)
+	case LibraryTypeMCP:
+		manifest.Dependencies.MCP, err = applyMCPPick(manifest.Dependencies.MCP, entriesByName, opts.Add, opts.Remove)
+	case LibraryTypeInstruction:
+		err = applyContentPick(opts.Project.Root, opts.LibraryPath, entriesByName, opts.Add, opts.Remove, LibraryTypeInstruction)
+	case LibraryTypePrompt:
+		err = applyContentPick(opts.Project.Root, opts.LibraryPath, entriesByName, opts.Add, opts.Remove, LibraryTypePrompt)
+	default:
+		err = NewExitError(ExitGeneral, "error: invalid library type: "+string(opts.Type))
+	}
+	if err != nil {
 		return err
 	}
-	for _, skill := range added {
-		if err := writeLine(stdout, "added:   "+skill); err != nil {
+	if err := WriteAPMManifestAtomic(opts.Project.ManifestPath, manifest); err != nil {
+		return err
+	}
+
+	added := len(normalizeSkills(opts.Add)) > 0
+	removed := len(normalizeSkills(opts.Remove)) > 0
+	if removed {
+		if err := RunAPMPrune(opts.Runner, opts.Project.Root); err != nil {
 			return err
 		}
 	}
-	for _, skill := range removed {
-		if err := writeLine(stdout, "removed: "+skill); err != nil {
-			return err
-		}
+	if added {
+		return RunAPMInstall(opts.Runner, opts.Project.Root)
 	}
-	if err := ReconcileManifestWithPrevious(opts.Project, manifest, updated, opts.LibraryPath, stdout); err != nil {
-		return err
-	}
-	return writeLine(stdout, fmt.Sprintf("manifest: %d skills", len(updated.Skills)))
+	return nil
 }
 
-// ApplySkillSelection replaces the manifest with the selected skill set and reconciles symlinks.
+// PickSkills preserves the legacy skill-only entrypoint.
+func PickSkills(opts PickSkillsOptions) error {
+	return Pick(PickOptions{
+		Project:     opts.Project,
+		LibraryPath: opts.LibraryPath,
+		Add:         opts.Add,
+		Remove:      opts.Remove,
+		Type:        LibraryTypeSkill,
+		Stdout:      opts.Stdout,
+	})
+}
+
+// ApplySkillSelection replaces the project skill dependency set.
 func ApplySkillSelection(opts SkillSelectionOptions) error {
-	stdout := opts.Stdout
-	if stdout == nil {
-		stdout = io.Discard
-	}
-
-	selectedSkills := normalizeSkills(opts.Skills)
-	if err := ValidateSkillNames(selectedSkills); err != nil {
-		return err
-	}
-	if err := validateKnownSkills(opts.LibraryPath, selectedSkills); err != nil {
-		return err
-	}
-
-	manifest, err := ReadManifest(opts.Project.ManifestPath)
+	manifest, err := ReadAPMManifest(opts.Project.ManifestPath)
 	if err != nil {
 		return err
 	}
-
-	current := make(map[string]struct{}, len(manifest.Skills))
-	for _, skill := range manifest.Skills {
-		current[skill] = struct{}{}
-	}
-	next := make(map[string]struct{}, len(selectedSkills))
-	for _, skill := range selectedSkills {
-		next[skill] = struct{}{}
-	}
-
-	added := []string{}
-	for _, skill := range selectedSkills {
-		if _, ok := current[skill]; !ok {
-			added = append(added, skill)
-		}
-	}
-
-	removed := []string{}
-	for _, skill := range manifest.Skills {
-		if _, ok := next[skill]; !ok {
-			removed = append(removed, skill)
-		}
-	}
-
-	updated := Manifest{Skills: selectedSkills}
-	if err := validateReconcile(opts.Project, manifest, updated); err != nil {
+	if err := EnsureAPM(opts.Runner); err != nil {
 		return err
 	}
-	if err := WriteManifestAtomic(opts.Project.ManifestPath, updated); err != nil {
+	previous := append([]string{}, manifest.Dependencies.APM...)
+	dependencies, err := resolveSkillDependencies(opts.LibraryPath, opts.Skills)
+	if err != nil {
 		return err
 	}
-	for _, skill := range added {
-		if err := writeLine(stdout, "added:   "+skill); err != nil {
-			return err
-		}
-	}
-	for _, skill := range removed {
-		if err := writeLine(stdout, "removed: "+skill); err != nil {
-			return err
-		}
-	}
-	if err := ReconcileManifestWithPrevious(opts.Project, manifest, updated, opts.LibraryPath, stdout); err != nil {
+	manifest.Dependencies.APM = dependencies
+	if err := WriteAPMManifestAtomic(opts.Project.ManifestPath, manifest); err != nil {
 		return err
 	}
-	return writeLine(stdout, fmt.Sprintf("manifest: %d skills", len(updated.Skills)))
+	if hasRemovedDependencies(previous, dependencies) {
+		return RunAPMPrune(opts.Runner, opts.Project.Root)
+	}
+	return RunAPMInstall(opts.Runner, opts.Project.Root)
 }
 
-func validateKnownSkills(libraryPath string, skills []string) error {
-	for _, skill := range normalizeSkills(skills) {
-		exists, err := SkillExists(libraryPath, skill)
-		if err != nil {
+func hasRemovedDependencies(previous []string, next []string) bool {
+	current := make(map[string]struct{}, len(next))
+	for _, dependency := range next {
+		current[dependency] = struct{}{}
+	}
+	for _, dependency := range previous {
+		if _, ok := current[dependency]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
+func applySkillPick(current []string, libraryPath string, entriesByName map[string]CatalogEntry, add []string, remove []string) ([]string, error) {
+	byName := make(map[string]string, len(current))
+	dependencyToName := make(map[string]string, len(entriesByName))
+	for _, entry := range entriesByName {
+		dependencyToName[filepath.Clean(skillDependencyPath(libraryPath, entry))] = entry.Name
+	}
+	for _, dependency := range current {
+		name, ok := dependencyToName[filepath.Clean(dependency)]
+		if !ok {
+			name = skillDependencyName(libraryPath, dependency)
+		}
+		byName[name] = dependency
+	}
+	for _, name := range normalizeSkills(add) {
+		entry, ok := entriesByName[name]
+		if !ok {
+			return nil, NewExitError(ExitGeneral, "error: unknown skill: "+name+" - run 'instill library show --type skill' to see available skills")
+		}
+		byName[name] = skillDependencyPath(libraryPath, entry)
+	}
+	for _, name := range normalizeSkills(remove) {
+		if _, ok := byName[name]; !ok {
+			if _, ok := entriesByName[name]; !ok {
+				return nil, NewExitError(ExitGeneral, "error: unknown skill: "+name+" - run 'instill library show --type skill' to see available skills")
+			}
+		}
+		delete(byName, name)
+	}
+
+	next := make([]string, 0, len(byName))
+	for _, dependency := range byName {
+		next = append(next, dependency)
+	}
+	return normalizeStringSlice(next), nil
+}
+
+func applyMCPPick(current []MCPDependency, entriesByName map[string]CatalogEntry, add []string, remove []string) ([]MCPDependency, error) {
+	byName := make(map[string]MCPDependency, len(current))
+	for _, dependency := range current {
+		byName[dependency.Name] = dependency
+	}
+	for _, name := range normalizeSkills(add) {
+		entry, ok := entriesByName[name]
+		if !ok {
+			return nil, NewExitError(ExitGeneral, "error: unknown mcp: "+name)
+		}
+		byName[name] = MCPDependency{
+			Name:    entry.Name,
+			Command: entry.Command,
+			Args:    entry.Args,
+			Env:     entry.Env,
+			URL:     entry.URL,
+		}
+	}
+	for _, name := range normalizeSkills(remove) {
+		if _, ok := byName[name]; !ok {
+			if _, ok := entriesByName[name]; !ok {
+				return nil, NewExitError(ExitGeneral, "error: unknown mcp: "+name)
+			}
+		}
+		delete(byName, name)
+	}
+
+	next := make([]MCPDependency, 0, len(byName))
+	for _, dependency := range byName {
+		next = append(next, dependency)
+	}
+	return next, nil
+}
+
+func applyContentPick(projectRoot string, libraryPath string, entriesByName map[string]CatalogEntry, add []string, remove []string, typ LibraryType) error {
+	for _, name := range normalizeSkills(add) {
+		entry, ok := entriesByName[name]
+		if !ok {
+			return NewExitError(ExitGeneral, "error: unknown "+string(typ)+": "+name)
+		}
+		source := filepath.Join(libraryPath, libraryTypeDir(typ), entry.Path)
+		destination := projectContentPath(projectRoot, typ, entry.Name)
+		if err := copyFile(source, destination); err != nil {
 			return err
 		}
-		if !exists {
-			return NewExitError(
-				ExitGeneral,
-				"error: unknown skill: "+skill+" - run 'instill show-library' to see available skills",
-			)
+	}
+	for _, name := range normalizeSkills(remove) {
+		destination := projectContentPath(projectRoot, typ, name)
+		if !projectContentExists(destination) {
+			if _, ok := entriesByName[name]; !ok {
+				return NewExitError(ExitGeneral, "error: unknown "+string(typ)+": "+name)
+			}
+		}
+		if err := os.Remove(destination); err != nil && !os.IsNotExist(err) {
+			return NewExitError(ExitFilesystem, "error: cannot remove project content: "+err.Error())
 		}
 	}
 	return nil
+}
+
+func projectContentExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func resolveSkillDependencies(libraryPath string, names []string) ([]string, error) {
+	entries, err := LoadCatalog(libraryPath, LibraryTypeSkill)
+	if err != nil {
+		return nil, err
+	}
+	entriesByName := make(map[string]CatalogEntry, len(entries))
+	for _, entry := range entries {
+		entriesByName[entry.Name] = entry
+	}
+
+	dependencies := make([]string, 0, len(names))
+	for _, name := range normalizeSkills(names) {
+		entry, ok := entriesByName[name]
+		if !ok {
+			return nil, NewExitError(ExitGeneral, "error: unknown skill: "+name+" - run 'instill library show --type skill' to see available skills")
+		}
+		dependencies = append(dependencies, skillDependencyPath(libraryPath, entry))
+	}
+	return normalizeStringSlice(dependencies), nil
+}
+
+func skillDependencyPath(libraryPath string, entry CatalogEntry) string {
+	return filepath.Join(libraryPath, "skills", filepath.Dir(entry.Path))
+}
+
+func skillDependencyName(libraryPath string, dependency string) string {
+	skillsRoot := filepath.Join(libraryPath, "skills")
+	relative, err := filepath.Rel(skillsRoot, dependency)
+	if err != nil {
+		return filepath.Base(dependency)
+	}
+	relative = filepath.Clean(relative)
+	if relative == "." || strings.HasPrefix(relative, "..") {
+		return filepath.Base(dependency)
+	}
+	return filepath.ToSlash(relative)
+}
+
+func projectContentPath(projectRoot string, typ LibraryType, name string) string {
+	switch typ {
+	case LibraryTypeInstruction:
+		return filepath.Join(projectRoot, ".apm", "instructions", sanitizeContentName(name)+".instructions.md")
+	case LibraryTypePrompt:
+		return filepath.Join(projectRoot, ".apm", "prompts", sanitizeContentName(name)+".prompt.md")
+	default:
+		return ""
+	}
+}
+
+func sanitizeContentName(name string) string {
+	return strings.ReplaceAll(name, "/", "-")
+}
+
+func copyFile(source string, destination string) error {
+	data, err := os.ReadFile(source) //nolint:gosec // Source path is resolved from the trusted library catalog.
+	if err != nil {
+		return NewExitError(ExitFilesystem, "error: cannot read library content: "+err.Error())
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return NewExitError(ExitFilesystem, "error: cannot create project content directory: "+err.Error())
+	}
+	if err := writeFileAtomic(destination, data, 0o644); err != nil {
+		return NewExitError(ExitFilesystem, "error: cannot write project content: "+err.Error())
+	}
+	return nil
+}
+
+func libraryTypeDir(typ LibraryType) string {
+	switch typ {
+	case LibraryTypeSkill:
+		return "skills"
+	case LibraryTypeMCP:
+		return "mcp"
+	case LibraryTypeInstruction:
+		return "instructions"
+	case LibraryTypePrompt:
+		return "prompts"
+	default:
+		return ""
+	}
 }

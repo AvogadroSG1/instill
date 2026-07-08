@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/AvogadroSG1/instill/internal/instill"
 )
 
 func TestAddHooksCLINoTTYIsSilentSuccess(t *testing.T) {
-	root := createProject(t, []string{"docker"})
+	root := createAPMProjectRoot(t, instill.APMManifest{})
 	stdin, err := os.Open(os.DevNull)
 	if err != nil {
 		t.Fatalf("Open(os.DevNull) error = %v", err)
@@ -63,13 +65,36 @@ func TestAddHooksCLINoManifestExitsOneWhenTTY(t *testing.T) {
 	}
 }
 
+func TestAddHooksCLIAPMProjectWritesSyncHookWhenTTY(t *testing.T) {
+	root := createAPMProjectRoot(t, instill.APMManifest{})
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"add-hooks"},
+		cwd:    root,
+		isTTY: func(*os.File) bool {
+			return true
+		},
+	})
+
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(settings.json) error = %v", err)
+	}
+	if !strings.Contains(string(data), "instill sync") {
+		t.Fatalf("settings.json = %q, want instill sync hook", string(data))
+	}
+}
+
 func TestAddHooksCLIMalformedManifestExitsOneWhenTTY(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0o755); err != nil {
-		t.Fatalf("MkdirAll(.claude) error = %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, ".claude", "skill-manifest.json"), []byte("{"), 0o600); err != nil {
-		t.Fatalf("WriteFile(manifest) error = %v", err)
+	if err := os.WriteFile(filepath.Join(root, "apm.yml"), []byte("{"), 0o600); err != nil {
+		t.Fatalf("WriteFile(apm.yml) error = %v", err)
 	}
 
 	var stdout bytes.Buffer
