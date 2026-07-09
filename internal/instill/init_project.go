@@ -33,7 +33,7 @@ func InitProject(opts InitProjectOptions) error {
 		return NewExitError(ExitGeneral, "error: manifest already exists; use --force to reinitialize")
 	}
 
-	manifest := APMManifest{Name: filepath.Base(root)}
+	manifest := APMManifest{Name: filepath.Base(root), Version: "0.1.0"}
 	if len(opts.Skills) > 0 {
 		dependencies, err := resolveSkillDependencies(opts.LibraryPath, opts.Skills)
 		if err != nil {

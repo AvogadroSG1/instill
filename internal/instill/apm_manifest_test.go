@@ -11,7 +11,8 @@ func TestWriteAPMManifestAtomicWritesYAMLDependencies(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "apm.yml")
 	manifest := APMManifest{
-		Name: "my-project",
+		Name:    "my-project",
+		Version: "1.0.0",
 		Dependencies: APMDependencies{
 			APM: []string{"/library/skills/golang-testing"},
 			MCP: []MCPDependency{{Name: "local-db", Command: "sqlite-mcp", Args: []string{"--db", "dev.db"}}},
@@ -23,20 +24,22 @@ func TestWriteAPMManifestAtomicWritesYAMLDependencies(t *testing.T) {
 	requireNoError(t, err)
 	data := readFile(t, path)
 	requireContains(t, data, "name: my-project")
+	requireContains(t, data, "version: 1.0.0")
 	requireContains(t, data, "dependencies:")
 	requireContains(t, data, "- /library/skills/golang-testing")
 	requireContains(t, data, "name: local-db")
 }
 
-func TestReadAPMManifestPreservesNameField(t *testing.T) {
+func TestReadAPMManifestPreservesNameAndVersionFields(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "apm.yml")
-	requireNoError(t, os.WriteFile(path, []byte("name: test-project\ndependencies:\n    apm:\n        - /lib/skills/docker\n"), 0o644))
+	requireNoError(t, os.WriteFile(path, []byte("name: test-project\nversion: 2.3.1\ndependencies:\n    apm:\n        - /lib/skills/docker\n"), 0o644))
 
 	manifest, err := ReadAPMManifest(path)
 
 	requireNoError(t, err)
 	requireEqual(t, "test-project", manifest.Name)
+	requireEqual(t, "2.3.1", manifest.Version)
 	requireEqual(t, 1, len(manifest.Dependencies.APM))
 }
 

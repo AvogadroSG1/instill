@@ -131,6 +131,7 @@ write_legacy_manifest() {
   [ ! -e .claude/skill-manifest.json ]
   [ ! -e .claude/skills/docker ]
   [[ "$(cat apm.yml)" == *"name: project"* ]]
+  [[ "$(cat apm.yml)" == *"version: 0.1.0"* ]]
   [[ "$(cat apm.yml)" == *"dependencies:"* ]]
   [[ "$(cat apm.yml)" == *"$INSTILL_LIBRARY_PATH/skills/docker"* ]]
 }
@@ -252,8 +253,9 @@ write_legacy_manifest() {
   [ -f apm.lock.yaml ]
   [ -d .apm ]
 
-  # Name field preserved through picks
+  # Name and version fields preserved through picks
   [[ "$(cat apm.yml)" == *"name: project"* ]]
+  [[ "$(cat apm.yml)" == *"version: 0.1.0"* ]]
 
   # Remove a skill and verify prune path
   run "$INSTILL_BIN" pick --type skill --remove docker

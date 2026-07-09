@@ -36,6 +36,9 @@ func TestInitProjectCreatesAPMManifestWithoutLegacyFiles(t *testing.T) {
 	if manifest.Name != filepath.Base(root) {
 		t.Fatalf("manifest name = %q, want %q", manifest.Name, filepath.Base(root))
 	}
+	if manifest.Version != "0.1.0" {
+		t.Fatalf("manifest version = %q, want %q", manifest.Version, "0.1.0")
+	}
 	if len(manifest.Dependencies.APM) != 0 {
 		t.Fatalf("manifest dependencies.apm = %#v, want empty", manifest.Dependencies.APM)
 	}
