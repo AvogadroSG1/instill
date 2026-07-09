@@ -34,6 +34,7 @@ func InitProject(opts InitProjectOptions) error {
 	}
 
 	manifest := APMManifest{Name: filepath.Base(root), Version: "0.1.0"}
+	manifest.Targets = DetectHarnessTargets(root)
 	if len(opts.Skills) > 0 {
 		dependencies, err := resolveSkillDependencies(opts.LibraryPath, opts.Skills)
 		if err != nil {

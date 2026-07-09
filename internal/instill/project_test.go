@@ -20,6 +20,45 @@ func TestFindProjectFindsAPMManifestAtProjectRoot(t *testing.T) {
 	requireEqual(t, filepath.Join(root, "apm.yml"), project.ManifestPath)
 }
 
+func TestDetectHarnessTargetsReturnsNilForEmptyDir(t *testing.T) {
+	root := t.TempDir()
+	targets := DetectHarnessTargets(root)
+	requireEqual(t, 0, len(targets))
+}
+
+func TestDetectHarnessTargetsReturnsSingleHarness(t *testing.T) {
+	root := t.TempDir()
+	requireNoError(t, os.MkdirAll(filepath.Join(root, ".claude"), 0o755))
+
+	targets := DetectHarnessTargets(root)
+
+	requireEqual(t, 1, len(targets))
+	requireEqual(t, "claude", targets[0])
+}
+
+func TestDetectHarnessTargetsReturnsMultipleHarnessesSorted(t *testing.T) {
+	root := t.TempDir()
+	requireNoError(t, os.MkdirAll(filepath.Join(root, ".codex"), 0o755))
+	requireNoError(t, os.MkdirAll(filepath.Join(root, ".claude"), 0o755))
+	requireNoError(t, os.MkdirAll(filepath.Join(root, ".gemini"), 0o755))
+
+	targets := DetectHarnessTargets(root)
+
+	requireEqual(t, 3, len(targets))
+	requireEqual(t, "claude", targets[0])
+	requireEqual(t, "codex", targets[1])
+	requireEqual(t, "gemini", targets[2])
+}
+
+func TestDetectHarnessTargetsIgnoresFiles(t *testing.T) {
+	root := t.TempDir()
+	requireNoError(t, os.WriteFile(filepath.Join(root, ".claude"), []byte("not a dir"), 0o644))
+
+	targets := DetectHarnessTargets(root)
+
+	requireEqual(t, 0, len(targets))
+}
+
 func TestFindLegacyProjectFindsJSONManifestAtProjectRoot(t *testing.T) {
 	root := t.TempDir()
 	nested := filepath.Join(root, "pkg", "feature")

@@ -520,3 +520,66 @@ FIXTURE
   assert_both_harnesses_installed
   assert_both_harnesses_compiled
 }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Targets: init writes targets when multiple harnesses detected
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "init writes targets when multiple harnesses detected" {
+  make_skill docker
+  make_project
+  scan_library
+
+  mkdir -p .claude .codex
+
+  run "$INSTILL_BIN" init --skills docker
+  [ "$status" -eq 0 ]
+  [ -f apm.yml ]
+
+  [[ "$(cat apm.yml)" == *"targets:"* ]]
+  [[ "$(cat apm.yml)" == *"claude"* ]]
+  [[ "$(cat apm.yml)" == *"codex"* ]]
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Targets: sync adds targets to existing manifest missing them
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "sync adds targets to existing manifest missing them" {
+  make_skill docker
+  make_project
+  scan_library
+
+  mkdir -p .claude .codex
+
+  printf 'name: project\nversion: 0.1.0\ndependencies:\n    apm:\n        - %s/skills/docker\n' "$INSTILL_LIBRARY_PATH" > apm.yml
+
+  [[ "$(cat apm.yml)" != *"targets:"* ]]
+
+  run "$INSTILL_BIN" sync
+  [ "$status" -eq 0 ]
+
+  [[ "$(cat apm.yml)" == *"targets:"* ]]
+  [[ "$(cat apm.yml)" == *"claude"* ]]
+  [[ "$(cat apm.yml)" == *"codex"* ]]
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Targets: strict APM rejects missing targets, instill prevents failure
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "sync with strict APM succeeds because instill writes targets first" {
+  make_skill docker
+  make_project
+  scan_library
+
+  mkdir -p .claude .codex
+  install_fake_apm_strict
+
+  run "$INSTILL_BIN" init --skills docker
+  [ "$status" -eq 0 ]
+
+  run "$INSTILL_BIN" sync
+  [ "$status" -eq 0 ]
+  [[ "$(cat apm.yml)" == *"targets:"* ]]
+}

@@ -34,6 +34,9 @@ func SyncProject(opts SyncOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := ensureTargets(opts.Project, &manifest); err != nil {
+		return err
+	}
 	if err := RunAPMInstall(opts.Runner, opts.Project.Root); err != nil {
 		return err
 	}
@@ -97,6 +100,18 @@ func ProjectStatus(opts StatusOptions) error {
 		return err
 	}
 	return reportContentStatus(opts.Stdout, opts.Project.Root, opts.LibraryPath, LibraryTypePrompt, promptCatalog, lock.Prompts)
+}
+
+func ensureTargets(project Project, manifest *APMManifest) error {
+	if len(manifest.Targets) > 0 {
+		return nil
+	}
+	targets := DetectHarnessTargets(project.Root)
+	if len(targets) == 0 {
+		return nil
+	}
+	manifest.Targets = targets
+	return WriteAPMManifestAtomic(project.ManifestPath, *manifest)
 }
 
 func countProjectContent(dir string, pattern string) (int, error) {
