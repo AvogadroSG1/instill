@@ -31,7 +31,7 @@ set -euo pipefail
 project_arg() {
   local previous=""
   for value in "$@"; do
-    if [ "$previous" = "--project" ]; then
+    if [ "$previous" = "--root" ]; then
       printf '%s\n' "$value"
       return 0
     fi
@@ -130,6 +130,7 @@ write_legacy_manifest() {
   [ -f apm.yml ]
   [ ! -e .claude/skill-manifest.json ]
   [ ! -e .claude/skills/docker ]
+  [[ "$(cat apm.yml)" == *"name: project"* ]]
   [[ "$(cat apm.yml)" == *"dependencies:"* ]]
   [[ "$(cat apm.yml)" == *"$INSTILL_LIBRARY_PATH/skills/docker"* ]]
 }
@@ -204,4 +205,59 @@ write_legacy_manifest() {
   [ "$(cat .claude/skill-manifest.json)" = "$before" ]
   [ ! -e .claude/skills/docker ]
   [ "$(readlink .claude/skills/orphan)" = "/legacy/orphan" ]
+}
+
+@test "full init pick sync flow creates all expected artifacts" {
+  make_skill docker
+  make_skill golang-testing
+  make_mcp local-db
+  make_instruction python-rules
+  make_prompt debug
+  make_project
+  scan_library
+
+  # Init with one skill
+  run "$INSTILL_BIN" init --skills docker
+  [ "$status" -eq 0 ]
+  [ -f apm.yml ]
+  [[ "$(cat apm.yml)" == *"name: project"* ]]
+  [[ "$(cat apm.yml)" == *"docker"* ]]
+
+  # Pick additional skill
+  run "$INSTILL_BIN" pick --type skill golang-testing
+  [ "$status" -eq 0 ]
+  [[ "$(cat apm.yml)" == *"golang-testing"* ]]
+
+  # Pick MCP server
+  run "$INSTILL_BIN" pick --type mcp local-db
+  [ "$status" -eq 0 ]
+  [[ "$(cat apm.yml)" == *"local-db"* ]]
+
+  # Pick instruction
+  run "$INSTILL_BIN" pick --type instruction python-rules
+  [ "$status" -eq 0 ]
+  [ -f .apm/instructions/python-rules.instructions.md ]
+
+  # Pick prompt
+  run "$INSTILL_BIN" pick --type prompt debug
+  [ "$status" -eq 0 ]
+  [ -f .apm/prompts/debug.prompt.md ]
+
+  # Sync exercises apm install + compile
+  run "$INSTILL_BIN" sync
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ok: synced"* ]]
+
+  # Verify APM artifacts created by fake apm
+  [ -f apm.lock.yaml ]
+  [ -d .apm ]
+
+  # Name field preserved through picks
+  [[ "$(cat apm.yml)" == *"name: project"* ]]
+
+  # Remove a skill and verify prune path
+  run "$INSTILL_BIN" pick --type skill --remove docker
+  [ "$status" -eq 0 ]
+  [[ "$(cat apm.yml)" != *"docker"* ]]
+  [[ "$(cat apm.yml)" == *"golang-testing"* ]]
 }

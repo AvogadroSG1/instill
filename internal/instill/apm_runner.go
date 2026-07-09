@@ -49,7 +49,7 @@ func RunAPMInstall(runner CommandRunner, root string) error {
 	if runner == nil {
 		runner = defaultCommandRunner
 	}
-	if err := runCommand(runner, "apm", "install", "--project", root); err != nil {
+	if err := runCommand(runner, "apm", "install", "--root", root); err != nil {
 		return wrapCommandError("apm", err)
 	}
 	return nil
@@ -59,7 +59,7 @@ func RunAPMCompile(runner CommandRunner, root string) error {
 	if runner == nil {
 		runner = defaultCommandRunner
 	}
-	if err := runCommand(runner, "apm", "compile", "--project", root); err != nil {
+	if err := runCommand(runner, "apm", "compile", "--root", root); err != nil {
 		return wrapCommandError("apm", err)
 	}
 	return nil
@@ -69,7 +69,7 @@ func RunAPMPrune(runner CommandRunner, root string) error {
 	if runner == nil {
 		runner = defaultCommandRunner
 	}
-	if err := runCommand(runner, "apm", "prune", "--project", root); err != nil {
+	if err := runCommand(runner, "apm", "prune", "--root", root); err != nil {
 		return wrapCommandError("apm", err)
 	}
 	return nil

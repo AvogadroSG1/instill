@@ -24,6 +24,7 @@ type APMDependencies struct {
 }
 
 type APMManifest struct {
+	Name         string          `yaml:"name"`
 	Dependencies APMDependencies `yaml:"dependencies"`
 }
 

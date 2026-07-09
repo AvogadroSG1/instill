@@ -33,6 +33,9 @@ func TestInitProjectCreatesAPMManifestWithoutLegacyFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadAPMManifest() error = %v", err)
 	}
+	if manifest.Name != filepath.Base(root) {
+		t.Fatalf("manifest name = %q, want %q", manifest.Name, filepath.Base(root))
+	}
 	if len(manifest.Dependencies.APM) != 0 {
 		t.Fatalf("manifest dependencies.apm = %#v, want empty", manifest.Dependencies.APM)
 	}
@@ -75,7 +78,7 @@ func TestInitProjectWithSkillsWritesSkillPathsAndRunsAPMInstall(t *testing.T) {
 	}
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --project " + root,
+		"apm install --root " + root,
 	})
 }
 
