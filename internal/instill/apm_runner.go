@@ -104,9 +104,21 @@ func apmVersion(runner CommandRunner) (string, error) {
 }
 
 func runCommand(runner CommandRunner, name string, args ...string) error {
-	_, err := runner(name, args...)
-	return err
+	output, err := runner(name, args...)
+	if err != nil {
+		return &commandError{name: name, err: err, output: output}
+	}
+	return nil
 }
+
+type commandError struct {
+	name   string
+	err    error
+	output []byte
+}
+
+func (e *commandError) Error() string { return e.err.Error() }
+func (e *commandError) Unwrap() error { return e.err }
 
 func wrapCommandError(name string, err error) error {
 	if err == nil {
@@ -115,7 +127,13 @@ func wrapCommandError(name string, err error) error {
 	if isCommandMissing(err) && name == "brew" {
 		return NewExitError(ExitEnvironment, "error: brew required to install apm; install from https://brew.sh")
 	}
-	return NewExitError(ExitGeneral, fmt.Sprintf("error: %s command failed: %v", name, err))
+	msg := fmt.Sprintf("error: %s command failed: %v", name, err)
+	if cmdErr, ok := errors.AsType[*commandError](err); ok {
+		if trimmed := strings.TrimSpace(string(cmdErr.output)); trimmed != "" {
+			msg += "\n" + trimmed
+		}
+	}
+	return NewExitError(ExitGeneral, msg)
 }
 
 func wrapAPMEnvironmentError(err error) error {

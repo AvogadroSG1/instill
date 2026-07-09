@@ -103,6 +103,60 @@ func TestEnsureAPMReturnsExitEnvironmentWhenVersionCheckFailsForOtherReason(t *t
 	requireEqual(t, "error: apm command failed: permission denied", ErrorMessage(err))
 }
 
+func TestRunAPMInstallIncludesOutputOnFailure(t *testing.T) {
+	runner := func(name string, args ...string) ([]byte, error) {
+		return []byte("error: unresolved dependency 'foo/bar'\n"), errors.New("exit status 2")
+	}
+
+	err := RunAPMInstall(runner, "/tmp/project")
+
+	if err == nil {
+		t.Fatal("RunAPMInstall() error = nil, want error")
+	}
+	msg := ErrorMessage(err)
+	if !strings.Contains(msg, "apm command failed") {
+		t.Fatalf("error message missing 'apm command failed': %s", msg)
+	}
+	if !strings.Contains(msg, "unresolved dependency 'foo/bar'") {
+		t.Fatalf("error message missing apm output: %s", msg)
+	}
+}
+
+func TestRunAPMInstallEmptyOutputStillReportsExitCode(t *testing.T) {
+	runner := func(name string, args ...string) ([]byte, error) {
+		return nil, errors.New("exit status 1")
+	}
+
+	err := RunAPMInstall(runner, "/tmp/project")
+
+	if err == nil {
+		t.Fatal("RunAPMInstall() error = nil, want error")
+	}
+	msg := ErrorMessage(err)
+	if !strings.Contains(msg, "exit status 1") {
+		t.Fatalf("error message missing exit code: %s", msg)
+	}
+	if strings.Contains(msg, "\n") {
+		t.Fatalf("error message should not have trailing output section: %s", msg)
+	}
+}
+
+func TestRunAPMCompileIncludesOutputOnFailure(t *testing.T) {
+	runner := func(name string, args ...string) ([]byte, error) {
+		return []byte("compile error: invalid skill reference\n"), errors.New("exit status 2")
+	}
+
+	err := RunAPMCompile(runner, "/tmp/project")
+
+	if err == nil {
+		t.Fatal("RunAPMCompile() error = nil, want error")
+	}
+	msg := ErrorMessage(err)
+	if !strings.Contains(msg, "invalid skill reference") {
+		t.Fatalf("error message missing apm output: %s", msg)
+	}
+}
+
 func requireNoError(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
