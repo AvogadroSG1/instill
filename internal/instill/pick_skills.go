@@ -204,11 +204,21 @@ func applyMCPPick(current []MCPDependency, entriesByName map[string]CatalogEntry
 }
 
 func mcpDependencyFromCatalog(entry CatalogEntry) MCPDependency {
-	registry := false
 	return MCPDependency{
-		Name: entry.Name, Transport: entry.Transport, Registry: &registry,
-		Command: entry.Command, Args: entry.Args, Env: entry.Env, URL: entry.URL,
+		Name: entry.Name, Transport: entry.Transport, Registry: false,
+		Command: entry.Command, Args: entry.Args, Env: mcpEnvironment(entry.Env), URL: entry.URL,
 	}
+}
+
+func mcpEnvironment(entries []string) map[string]string {
+	environment := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok {
+			environment[key] = value
+		}
+	}
+	return environment
 }
 
 func applyContentPick(projectRoot string, libraryPath string, entriesByName map[string]CatalogEntry, add []string, remove []string, typ LibraryType) error {

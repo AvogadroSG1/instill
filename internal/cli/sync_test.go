@@ -81,9 +81,8 @@ func TestSyncCLIRepairsMCPFromConfiguredLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadAPMManifest() error = %v", err)
 	}
-	registry := false
-	want := instill.MCPDependency{Name: "local-http", Transport: "http", Registry: &registry, URL: "https://example.test/mcp"}
-	if len(manifest.Dependencies.MCP) != 1 || manifest.Dependencies.MCP[0].Name != want.Name || manifest.Dependencies.MCP[0].Transport != want.Transport || manifest.Dependencies.MCP[0].Registry == nil || *manifest.Dependencies.MCP[0].Registry != *want.Registry || manifest.Dependencies.MCP[0].URL != want.URL {
+	want := instill.MCPDependency{Name: "local-http", Transport: "http", Registry: false, URL: "https://example.test/mcp"}
+	if len(manifest.Dependencies.MCP) != 1 || manifest.Dependencies.MCP[0].Name != want.Name || manifest.Dependencies.MCP[0].Transport != want.Transport || manifest.Dependencies.MCP[0].Registry != want.Registry || manifest.Dependencies.MCP[0].URL != want.URL {
 		t.Fatalf("manifest MCP = %#v, want %#v", manifest.Dependencies.MCP, []instill.MCPDependency{want})
 	}
 }

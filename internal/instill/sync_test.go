@@ -51,7 +51,18 @@ func TestSyncProjectRepairsCatalogMCPAndPreservesRegistryDependency(t *testing.T
 	})
 	project := createAPMProject(t, APMManifest{
 		Dependencies: APMDependencies{
-			MCP: []MCPDependency{{Name: "local"}, {Name: "io.example/public-server"}},
+			MCP: []MCPDependency{
+				{Name: "local"},
+				{
+					Name: "io.example/public-server", Registry: "https://registry.example.test",
+					Extra: map[string]any{
+						"headers": map[string]any{"Authorization": "${TOKEN}"},
+						"version": "2.4.1", "package": "@example/server",
+						"tools": []any{"search", "fetch"}, "x-owner": "platform",
+					},
+				},
+				{Name: "Local"},
+			},
 		},
 	})
 
@@ -66,10 +77,17 @@ func TestSyncProjectRepairsCatalogMCPAndPreservesRegistryDependency(t *testing.T
 	requireNoError(t, err)
 	manifest, readErr := ReadAPMManifest(project.ManifestPath)
 	requireNoError(t, readErr)
-	registry := false
 	requireEqual(t, []MCPDependency{
-		{Name: "local", Transport: "http", Registry: &registry, URL: "https://example.test/mcp"},
-		{Name: "io.example/public-server"},
+		{Name: "local", Transport: "http", Registry: false, URL: "https://example.test/mcp"},
+		{
+			Name: "io.example/public-server", Registry: "https://registry.example.test",
+			Extra: map[string]any{
+				"headers": map[string]any{"Authorization": "${TOKEN}"},
+				"version": "2.4.1", "package": "@example/server",
+				"tools": []any{"search", "fetch"}, "x-owner": "platform",
+			},
+		},
+		{Name: "Local"},
 	}, manifest.Dependencies.MCP)
 	assertCommands(t, calls, []string{
 		"apm --version",

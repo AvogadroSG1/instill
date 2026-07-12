@@ -10,14 +10,13 @@ import (
 func TestWriteAPMManifestAtomicWritesYAMLDependencies(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "apm.yml")
-	registry := false
 	manifest := APMManifest{
 		Name:    "my-project",
 		Version: "1.0.0",
 		Dependencies: APMDependencies{
 			APM: []string{"/library/skills/golang-testing"},
 			MCP: []MCPDependency{{
-				Name: "local-db", Transport: "stdio", Registry: &registry,
+				Name: "local-db", Transport: "stdio", Registry: false,
 				Command: "sqlite-mcp", Args: []string{"--db", "dev.db"},
 			}},
 		},
@@ -46,12 +45,45 @@ func TestReadAPMManifestPreservesOmittedAndFalseMCPRegistry(t *testing.T) {
 	requireNoError(t, err)
 	requireEqual(t, 2, len(manifest.Dependencies.MCP))
 	if manifest.Dependencies.MCP[0].Registry != nil {
-		t.Fatalf("first Registry = %v, want nil", *manifest.Dependencies.MCP[0].Registry)
+		t.Fatalf("first Registry = %v, want nil", manifest.Dependencies.MCP[0].Registry)
 	}
 	if manifest.Dependencies.MCP[1].Registry == nil {
 		t.Fatal("second Registry = nil, want pointer to false")
 	}
-	requireEqual(t, false, *manifest.Dependencies.MCP[1].Registry)
+	requireEqual(t, false, manifest.Dependencies.MCP[1].Registry)
+}
+
+func TestAPMManifestRoundTripPreservesUnmatchedMCPDependencyFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "apm.yml")
+	requireNoError(t, os.WriteFile(path, []byte(`name: preservation
+version: 1.0.0
+dependencies:
+  mcp:
+    - name: io.example/custom
+      registry: https://registry.example.test
+      headers:
+        Authorization: ${TOKEN}
+      version: 2.4.1
+      package: '@example/server'
+      tools: [search, fetch]
+      x-owner: platform
+`), 0o644))
+
+	manifest, err := ReadAPMManifest(path)
+	requireNoError(t, err)
+	requireNoError(t, WriteAPMManifestAtomic(path, manifest))
+	roundTripped, err := ReadAPMManifest(path)
+	requireNoError(t, err)
+	requireEqual(t, manifest.Dependencies.MCP, roundTripped.Dependencies.MCP)
+
+	data := readFile(t, path)
+	requireContains(t, data, "registry: https://registry.example.test")
+	requireContains(t, data, "Authorization: ${TOKEN}")
+	requireContains(t, data, "version: 2.4.1")
+	requireContains(t, data, "package: '@example/server'")
+	requireContains(t, data, "- search")
+	requireContains(t, data, "x-owner: platform")
 }
 
 func TestReadAPMManifestPreservesNameAndVersionFields(t *testing.T) {

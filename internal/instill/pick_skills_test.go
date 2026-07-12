@@ -91,19 +91,39 @@ func TestPickAddsMCPBlockAndRunsAPMInstall(t *testing.T) {
 	requireNoError(t, err)
 	manifest, readErr := ReadAPMManifest(project.ManifestPath)
 	requireNoError(t, readErr)
-	registry := false
 	requireEqual(t, []MCPDependency{{
 		Name:      "local-db",
 		Transport: "stdio",
-		Registry:  &registry,
+		Registry:  false,
 		Command:   "sqlite-mcp",
 		Args:      []string{"--db", "dev.db"},
-		Env:       []string{"DB_PATH=${DB_PATH}"},
+		Env:       map[string]string{"DB_PATH": "${DB_PATH}"},
 	}}, manifest.Dependencies.MCP)
 	assertCommands(t, calls, []string{
 		"apm --version",
 		"apm install --root " + project.Root,
 	})
+}
+
+func TestPickSerializesMCPEnvironmentAsMappingAndSplitsFirstEquals(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		mcp: []CatalogEntry{{
+			Type: LibraryTypeMCP, Name: "local-db", Transport: "stdio", Command: "sqlite-mcp",
+			Env: []string{"TOKEN=${TOKEN}", "DSN=scheme://host?a=b"},
+		}},
+	})
+	project := createAPMProject(t, APMManifest{})
+
+	err := Pick(PickOptions{
+		Project: project, LibraryPath: library, Type: LibraryTypeMCP, Add: []string{"local-db"},
+		Runner: recordingRunner(nil, nil), Stdout: &bytes.Buffer{},
+	})
+
+	requireNoError(t, err)
+	data := readFile(t, project.ManifestPath)
+	requireContains(t, data, "env:\n            DSN: scheme://host?a=b\n            TOKEN: ${TOKEN}")
 }
 
 func TestPickAddsSelfDefinedHTTPMCPDependency(t *testing.T) {
@@ -126,8 +146,7 @@ func TestPickAddsSelfDefinedHTTPMCPDependency(t *testing.T) {
 	requireNoError(t, err)
 	manifest, readErr := ReadAPMManifest(project.ManifestPath)
 	requireNoError(t, readErr)
-	registry := false
-	requireEqual(t, []MCPDependency{{Name: "remote", Transport: "http", Registry: &registry, URL: "https://example.test/mcp"}}, manifest.Dependencies.MCP)
+	requireEqual(t, []MCPDependency{{Name: "remote", Transport: "http", Registry: false, URL: "https://example.test/mcp"}}, manifest.Dependencies.MCP)
 }
 
 func TestPickCopiesInstructionAndRunsAPMInstall(t *testing.T) {
