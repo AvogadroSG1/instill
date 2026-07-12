@@ -14,9 +14,15 @@
 - New dependencies MUST include the catalog transport and `registry: false`.
 - Sync MUST repair dependencies only when their names match Library catalog entries.
 - Sync MUST preserve unmatched dependencies unchanged.
+- Unmatched dependencies MUST retain custom registry URLs, headers, version, package, tools, and passthrough fields across a manifest rewrite.
 - Catalog connection fields MUST remain authoritative for matching dependencies.
+- Catalog `KEY=VALUE` environment entries MUST serialize as an APM `env` mapping and MUST split only on the first equals sign.
 - The implementation MUST NOT rename MCP Servers, infer ownership from spelling, modify the Library catalog, or change skill, instruction, prompt, install, or compile semantics.
 - Every production change MUST begin with a failing BDD regression test and complete a red-green-refactor cycle.
+
+### Approved schema correction
+
+The Task 1 examples below record the original RED-GREEN sequence and MUST NOT be treated as the final data model. The final model MUST accept boolean and custom-URL registry values, MUST preserve uninterpreted dependency fields, and MUST serialize environment values as a mapping. Task 3 supersedes the earlier `Registry *bool` and `Env []string` production examples.
 
 ---
 
@@ -274,3 +280,43 @@ Stage only `internal/instill/sync.go` and `internal/instill/sync_test.go`. Commi
 
 Close implementation Beads issues, run `bd dolt push`, push the feature branch, and verify `git status --short --branch` reports synchronization with its upstream. Unrelated untracked files MUST NOT be committed.
 
+### Task 3: Correct the complete APM schema boundary and commit metadata
+
+**Files:**
+- Modify: `internal/instill/apm_manifest.go`
+- Modify: `internal/instill/apm_manifest_test.go`
+- Modify: `internal/instill/pick_skills.go`
+- Modify: affected MCP construction tests in `internal/instill` and `internal/cli`
+- Rewrite: branch commits whose co-author trailers contain a literal `\\n`
+
+**Interfaces:**
+- Consumes: `CatalogEntry.Env []string` and arbitrary APM MCP dependency YAML.
+- Produces: lossless unmatched dependency rewrites, APM mapping-shaped environment variables, and valid separate co-author trailers.
+
+- [ ] **Step 1: Write RED coverage for custom registries and unknown fields**
+
+Add a manifest round-trip test containing a custom registry URL, headers, version, package, tools, and a passthrough field. Force a write and second read. Expected: current code fails to decode the URL-valued registry or drops fields.
+
+- [ ] **Step 2: Write RED coverage for environment mappings**
+
+Use catalog entries `TOKEN=${TOKEN}` and `DSN=scheme://host?a=b`. Assert serialized YAML contains an `env` mapping and preserves each value after only the first equals-sign split. Expected: current code emits a sequence.
+
+- [ ] **Step 3: Implement the smallest schema adapter**
+
+Use a flexible registry value, mapping-shaped environment values, and inline preservation for fields Instill does not interpret. Catalog conversion MUST use `strings.Cut(entry, "=")`; invalid entries MUST remain governed by existing catalog validation.
+
+- [ ] **Step 4: Run focused and full GREEN gates**
+
+Run manifest, pick, sync, CLI, and import coverage followed by `go test ./... -count=1`, `go vet ./...`, and `git diff --check`.
+
+- [ ] **Step 5: Re-run the retained real APM fixture**
+
+The rooted install snapshot MUST include stdio and HTTP entries, mapping-shaped environment values, and `registry: false`. APM MUST avoid registry lookup and advance to compile.
+
+- [ ] **Step 6: Correct malformed commit trailers**
+
+Rewrite the affected documentation commits so Peter and Codex appear as separate valid `Co-Authored-By` trailers. Preserve content and commit ordering.
+
+- [ ] **Step 7: Request final review before publication**
+
+The final reviewer MUST inspect the complete rewritten branch and retained live evidence. The branch MUST NOT be published until that review is clean.

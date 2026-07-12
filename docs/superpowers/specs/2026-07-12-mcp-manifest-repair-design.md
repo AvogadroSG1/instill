@@ -23,9 +23,9 @@ flowchart LR
 
 ## Data Model
 
-`MCPDependency` MUST represent `transport` and `registry` in addition to its existing fields. The representation MUST distinguish an omitted registry value from an explicit `false`, because unmatched registry dependencies MUST round-trip without being reclassified.
+`MCPDependency` MUST represent `transport` and the complete APM `registry` value in addition to its existing fields. `registry` MUST accept an omitted value, a boolean, or a custom registry URL. The representation MUST preserve supported, unknown, and passthrough MCP fields so rewriting one matched dependency does not discard fields from unmatched dependencies.
 
-Catalog entries are authoritative for matched self-defined dependencies. Reconciliation MUST copy `name`, `transport`, `command`, `args`, `env`, and `url` from the catalog and MUST explicitly set `registry: false`.
+Catalog entries are authoritative for matched self-defined dependencies. Reconciliation MUST copy `name`, `transport`, `command`, `args`, `env`, and `url` from the catalog and MUST explicitly set `registry: false`. Instill's `KEY=VALUE` catalog environment entries MUST serialize to APM's `env` mapping without altering content after the first equals sign.
 
 ## Sync Behavior
 
@@ -45,7 +45,9 @@ A malformed catalog MUST fail with the existing actionable catalog error before 
 - A new HTTP MCP Server pick MUST emit `transport: http` and `registry: false`.
 - Sync MUST repair an incomplete dependency whose name matches the Library catalog.
 - Sync MUST preserve an unmatched registry dependency.
+- Sync MUST preserve custom registry URLs, headers, version, package, tools, and passthrough fields on unmatched dependencies.
 - Reconciliation MUST preserve the catalog's command, arguments, environment references, and URL.
+- Catalog environment references MUST serialize as an APM mapping.
 - The resulting self-defined dependency shape MUST satisfy APM's documented manifest contract.
 
 ## Scope

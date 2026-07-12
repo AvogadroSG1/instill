@@ -15,6 +15,7 @@ Existing manifests may already contain this incomplete shape. Instill also needs
 - Catalog-defined MCP Servers MUST install without a public registry lookup.
 - Existing incomplete catalog-backed dependencies MUST be repaired automatically.
 - Legitimate unmatched registry dependencies MUST remain unchanged.
+- Supported and passthrough fields on unmatched dependencies MUST survive any manifest rewrite.
 - The Library catalog MUST remain the authoritative connection definition for Library-owned MCP Servers.
 
 ## Considered Options
@@ -37,11 +38,14 @@ Chosen option: **Option A: repair dependencies matched by Library catalog name**
 
 Instill MUST treat a catalog name match as the ownership boundary. It MUST copy the catalog definition and emit an explicit non-registry dependency. It MUST preserve unmatched dependencies.
 
+The manifest adapter MUST accept boolean and URL-valued registry selectors, MUST retain MCP fields that Instill does not interpret, and MUST render catalog environment entries as the mapping required by APM.
+
 ## Consequences
 
 - `instill sync` gains a deterministic manifest-reconciliation step before APM execution.
 - Catalog changes intentionally update matching project dependencies on the next sync.
 - A renamed catalog entry does not silently claim or rewrite the old manifest entry.
+- Unmatched dependencies retain custom registry URLs and uninterpreted fields.
 - Tests MUST cover new selection, existing-manifest repair, and unmatched dependency preservation.
 
 ## Confirmation
