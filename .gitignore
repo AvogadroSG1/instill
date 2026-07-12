@@ -10,6 +10,7 @@
 .cache/
 .gocache/
 .superpowers/sdd/
+.worktrees/
 # instill — managed symlinks, do not commit
 .claude/skills/
 .claude/settings.local.json
