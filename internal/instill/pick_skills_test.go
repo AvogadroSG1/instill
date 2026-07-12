@@ -91,16 +91,43 @@ func TestPickAddsMCPBlockAndRunsAPMInstall(t *testing.T) {
 	requireNoError(t, err)
 	manifest, readErr := ReadAPMManifest(project.ManifestPath)
 	requireNoError(t, readErr)
+	registry := false
 	requireEqual(t, []MCPDependency{{
-		Name:    "local-db",
-		Command: "sqlite-mcp",
-		Args:    []string{"--db", "dev.db"},
-		Env:     []string{"DB_PATH=${DB_PATH}"},
+		Name:      "local-db",
+		Transport: "stdio",
+		Registry:  &registry,
+		Command:   "sqlite-mcp",
+		Args:      []string{"--db", "dev.db"},
+		Env:       []string{"DB_PATH=${DB_PATH}"},
 	}}, manifest.Dependencies.MCP)
 	assertCommands(t, calls, []string{
 		"apm --version",
 		"apm install --root " + project.Root,
 	})
+}
+
+func TestPickAddsSelfDefinedHTTPMCPDependency(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		mcp: []CatalogEntry{{Type: LibraryTypeMCP, Name: "remote", Transport: "http", URL: "https://example.test/mcp"}},
+	})
+	project := createAPMProject(t, APMManifest{})
+
+	err := Pick(PickOptions{
+		Project:     project,
+		LibraryPath: library,
+		Type:        LibraryTypeMCP,
+		Add:         []string{"remote"},
+		Runner:      recordingRunner(nil, nil),
+		Stdout:      &bytes.Buffer{},
+	})
+
+	requireNoError(t, err)
+	manifest, readErr := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, readErr)
+	registry := false
+	requireEqual(t, []MCPDependency{{Name: "remote", Transport: "http", Registry: &registry, URL: "https://example.test/mcp"}}, manifest.Dependencies.MCP)
 }
 
 func TestPickCopiesInstructionAndRunsAPMInstall(t *testing.T) {
