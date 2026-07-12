@@ -185,13 +185,7 @@ func applyMCPPick(current []MCPDependency, entriesByName map[string]CatalogEntry
 		if !ok {
 			return nil, NewExitError(ExitGeneral, "error: unknown mcp: "+name)
 		}
-		byName[name] = MCPDependency{
-			Name:    entry.Name,
-			Command: entry.Command,
-			Args:    entry.Args,
-			Env:     entry.Env,
-			URL:     entry.URL,
-		}
+		byName[name] = mcpDependencyFromCatalog(entry)
 	}
 	for _, name := range normalizeSkills(remove) {
 		if _, ok := byName[name]; !ok {
@@ -207,6 +201,24 @@ func applyMCPPick(current []MCPDependency, entriesByName map[string]CatalogEntry
 		next = append(next, dependency)
 	}
 	return next, nil
+}
+
+func mcpDependencyFromCatalog(entry CatalogEntry) MCPDependency {
+	return MCPDependency{
+		Name: entry.Name, Transport: entry.Transport, Registry: false,
+		Command: entry.Command, Args: entry.Args, Env: mcpEnvironment(entry.Env), URL: entry.URL,
+	}
+}
+
+func mcpEnvironment(entries []string) map[string]string {
+	environment := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok {
+			environment[key] = value
+		}
+	}
+	return environment
 }
 
 func applyContentPick(projectRoot string, libraryPath string, entriesByName map[string]CatalogEntry, add []string, remove []string, typ LibraryType) error {

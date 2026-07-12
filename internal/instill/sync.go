@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -37,6 +38,17 @@ func SyncProject(opts SyncOptions) error {
 	if err := ensureTargets(opts.Project, &manifest); err != nil {
 		return err
 	}
+	mcpCatalog, err := LoadCatalog(opts.LibraryPath, LibraryTypeMCP)
+	if err != nil {
+		return err
+	}
+	dependencies, changed := reconcileMCPDependencies(manifest.Dependencies.MCP, mcpCatalog)
+	if changed {
+		manifest.Dependencies.MCP = dependencies
+		if err := WriteAPMManifestAtomic(opts.Project.ManifestPath, manifest); err != nil {
+			return err
+		}
+	}
 	if err := RunAPMInstall(opts.Runner, opts.Project.Root); err != nil {
 		return err
 	}
@@ -59,6 +71,28 @@ func SyncProject(opts SyncOptions) error {
 		instructions,
 		prompts,
 	))
+}
+
+func reconcileMCPDependencies(current []MCPDependency, catalog []CatalogEntry) ([]MCPDependency, bool) {
+	byName := make(map[string]CatalogEntry, len(catalog))
+	for _, entry := range catalog {
+		byName[entry.Name] = entry
+	}
+	next := append([]MCPDependency{}, current...)
+	changed := false
+	for i, dependency := range next {
+		entry, ok := byName[dependency.Name]
+		if !ok {
+			continue
+		}
+		reconciled := mcpDependencyFromCatalog(entry)
+		if reflect.DeepEqual(dependency, reconciled) {
+			continue
+		}
+		next[i] = reconciled
+		changed = true
+	}
+	return next, changed
 }
 
 func ProjectStatus(opts StatusOptions) error {

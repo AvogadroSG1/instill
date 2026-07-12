@@ -11,11 +11,14 @@ import (
 const apmManifestFileName = "apm.yml"
 
 type MCPDependency struct {
-	Name    string   `yaml:"name,omitempty"`
-	Command string   `yaml:"command,omitempty"`
-	Args    []string `yaml:"args,omitempty"`
-	Env     []string `yaml:"env,omitempty"`
-	URL     string   `yaml:"url,omitempty"`
+	Name      string            `yaml:"name,omitempty"`
+	Transport string            `yaml:"transport,omitempty"`
+	Registry  any               `yaml:"registry,omitempty"`
+	Command   string            `yaml:"command,omitempty"`
+	Args      []string          `yaml:"args,omitempty"`
+	Env       map[string]string `yaml:"env,omitempty"`
+	URL       string            `yaml:"url,omitempty"`
+	Extra     map[string]any    `yaml:",inline"`
 }
 
 type APMDependencies struct {

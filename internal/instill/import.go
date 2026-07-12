@@ -151,7 +151,7 @@ func ImportGraft(opts ImportOptions) error {
 			Name:    entry.Name,
 			Command: entry.Command,
 			Args:    entry.Args,
-			Env:     entry.Env,
+			Env:     mcpEnvironment(entry.Env),
 			URL:     entry.URL,
 		})
 		imported[name] = struct{}{}
