@@ -172,6 +172,92 @@ func TestImportGraftWritesMCPCatalogAndManifestAndPreservesUnmanagedServers(t *t
 	}
 }
 
+func TestImportGraftImportsCurrentLockAndManagedUnlockedServers(t *testing.T) {
+	library := t.TempDir()
+	root := t.TempDir()
+	requireNoError(t, os.WriteFile(filepath.Join(root, "graft.lock"), []byte(`{
+  "libraries": [{"name":"peter_mcps","url":"/cache/peter_mcps"}],
+  "mcps": [
+    {"name":"Stack Internal","library":"peter_mcps","version":"0.1.0","target":"both"},
+    {"name":"serena","library":"peter_mcps","version":"0.1.0","target":"both"}
+  ]
+}`), 0o644))
+	requireNoError(t, os.WriteFile(filepath.Join(root, ".mcp.json"), []byte(`{
+  "mcpServers": {
+    "Stack Internal": {"_graft_managed":true,"command":"npx","args":["mcp-remote","https://stackinternal.stackenterprise.co/mcp"]},
+    "markitdown": {"_graft_managed":true,"command":"uvx","args":["markitdown-mcp"]},
+    "serena": {"_graft_managed":true,"command":"uvx","args":["serena","start-mcp-server"],"env":{"SSL_CERT_FILE":"${SSL_CERT_FILE}"}},
+    "manual": {"command":"manual-mcp"}
+  }
+}`), 0o644))
+
+	err := ImportGraft(ImportOptions{
+		Project:     Project{Root: root, ManifestPath: ProjectAPMPath(root)},
+		LibraryPath: library,
+	})
+	requireNoError(t, err)
+
+	entries, err := LoadCatalog(library, LibraryTypeMCP)
+	requireNoError(t, err)
+	if len(entries) != 3 {
+		t.Fatalf("mcp catalog = %#v, want exactly three Graft-managed entries", entries)
+	}
+	byName := catalogEntriesByNameForTest(entries)
+	if byName["Stack Internal"].Command != "npx" || !slices.Equal(byName["Stack Internal"].Args, []string{"mcp-remote", "https://stackinternal.stackenterprise.co/mcp"}) {
+		t.Fatalf("Stack Internal = %#v, want preserved command and args", byName["Stack Internal"])
+	}
+	if byName["markitdown"].Command != "uvx" || !slices.Equal(byName["markitdown"].Args, []string{"markitdown-mcp"}) {
+		t.Fatalf("markitdown = %#v, want managed unlocked entry", byName["markitdown"])
+	}
+	if got := byName["serena"].Env; !slices.Equal(got, []string{"SSL_CERT_FILE=${SSL_CERT_FILE}"}) {
+		t.Fatalf("serena env = %#v, want preserved environment reference", got)
+	}
+	if _, ok := byName["manual"]; ok {
+		t.Fatalf("mcp catalog = %#v, want unmanaged unlocked manual excluded", entries)
+	}
+
+	manifest, err := ReadAPMManifest(ProjectAPMPath(root))
+	requireNoError(t, err)
+	if manifest.Name != filepath.Base(root) || manifest.Version != "0.1.0" {
+		t.Fatalf("manifest identity = %q %q, want %q 0.1.0", manifest.Name, manifest.Version, filepath.Base(root))
+	}
+	if len(manifest.Dependencies.MCP) != 3 {
+		t.Fatalf("manifest mcp = %#v, want exactly three dependencies", manifest.Dependencies.MCP)
+	}
+}
+
+func TestImportGraftRejectsEmptySelectionWithoutMutation(t *testing.T) {
+	library := t.TempDir()
+	root := t.TempDir()
+	lockPath := filepath.Join(root, "graft.lock")
+	mcpPath := filepath.Join(root, ".mcp.json")
+	lockData := []byte("{}\n")
+	mcpData := []byte(`{"mcpServers":{"manual":{"command":"manual-mcp"}}}`)
+	requireNoError(t, os.WriteFile(lockPath, lockData, 0o644))
+	requireNoError(t, os.WriteFile(mcpPath, mcpData, 0o644))
+
+	err := ImportGraft(ImportOptions{
+		Project:     Project{Root: root, ManifestPath: ProjectAPMPath(root)},
+		LibraryPath: library,
+	})
+	if err == nil || !strings.Contains(ErrorMessage(err), "no Graft-managed MCP servers found") {
+		t.Fatalf("ImportGraft() error = %v, want empty-selection error", err)
+	}
+	gotLock, readErr := os.ReadFile(lockPath)
+	requireNoError(t, readErr)
+	gotMCP, readErr := os.ReadFile(mcpPath)
+	requireNoError(t, readErr)
+	if !slices.Equal(gotLock, lockData) || !slices.Equal(gotMCP, mcpData) {
+		t.Fatalf("migration inputs mutated: lock=%q mcp=%q", gotLock, gotMCP)
+	}
+	if _, statErr := os.Stat(filepath.Join(library, "mcp", "catalog.csv")); !os.IsNotExist(statErr) {
+		t.Fatalf("catalog stat error = %v, want no catalog", statErr)
+	}
+	if _, statErr := os.Stat(ProjectAPMPath(root)); !os.IsNotExist(statErr) {
+		t.Fatalf("manifest stat error = %v, want no manifest", statErr)
+	}
+}
+
 func TestImportGraftKeepsLockWhenMCPJSONCleanupFails(t *testing.T) {
 	library := t.TempDir()
 	root := t.TempDir()
