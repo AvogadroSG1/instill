@@ -41,6 +41,83 @@ func TestSyncProjectRunsInstallThenCompileAndReportsSummary(t *testing.T) {
 	requireContains(t, stdout.String(), "ok: synced 1 skills, 1 mcp servers, 1 instructions, 1 prompts")
 }
 
+func TestSyncProjectRepairsCatalogMCPAndPreservesRegistryDependency(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		mcp: []CatalogEntry{{
+			Type: LibraryTypeMCP, Name: "local", Transport: "http", URL: "https://example.test/mcp",
+		}},
+	})
+	project := createAPMProject(t, APMManifest{
+		Dependencies: APMDependencies{
+			MCP: []MCPDependency{
+				{Name: "local"},
+				{
+					Name: "io.example/public-server", Registry: "https://registry.example.test",
+					Extra: map[string]any{
+						"headers": map[string]any{"Authorization": "${TOKEN}"},
+						"version": "2.4.1", "package": "@example/server",
+						"tools": []any{"search", "fetch"}, "x-owner": "platform",
+					},
+				},
+				{Name: "Local"},
+			},
+		},
+	})
+
+	calls := []string{}
+	err := SyncProject(SyncOptions{
+		Project:     project,
+		LibraryPath: library,
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      ioDiscard(),
+	})
+
+	requireNoError(t, err)
+	manifest, readErr := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, readErr)
+	requireEqual(t, []MCPDependency{
+		{Name: "local", Transport: "http", Registry: false, URL: "https://example.test/mcp"},
+		{
+			Name: "io.example/public-server", Registry: "https://registry.example.test",
+			Extra: map[string]any{
+				"headers": map[string]any{"Authorization": "${TOKEN}"},
+				"version": "2.4.1", "package": "@example/server",
+				"tools": []any{"search", "fetch"}, "x-owner": "platform",
+			},
+		},
+		{Name: "Local"},
+	}, manifest.Dependencies.MCP)
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm install --root " + project.Root,
+		"apm compile --root " + project.Root,
+	})
+}
+
+func TestSyncProjectRejectsMalformedMCPCatalogBeforeAPMInstall(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	requireNoError(t, os.WriteFile(filepath.Join(library, "mcp", "catalog.csv"), []byte("wrong,header\n"), 0o644))
+	project := createAPMProject(t, APMManifest{})
+
+	calls := []string{}
+	err := SyncProject(SyncOptions{
+		Project:     project,
+		LibraryPath: library,
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      ioDiscard(),
+	})
+
+	if err == nil {
+		t.Fatal("SyncProject() error = nil, want malformed catalog error")
+	}
+	requireEqual(t, "error: malformed catalog: invalid header", err.Error())
+	assertCommands(t, calls, []string{"apm --version"})
+}
+
 func TestProjectStatusReportsRemovedAvailableAndHashMismatch(t *testing.T) {
 	t.Parallel()
 
