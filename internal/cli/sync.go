@@ -15,6 +15,13 @@ func newSyncCommand(cfg commandConfig) *cobra.Command {
 			if cwd == "" {
 				cwd = "."
 			}
+			libraryPath, err := instill.ResolveLibraryPath(instill.ConfigResolverOptions{
+				Stdin:  cfg.stdin,
+				Stderr: cfg.stderr,
+			})
+			if err != nil {
+				return err
+			}
 			project, found, err := instill.FindProject(cwd)
 			if err != nil {
 				return err
@@ -23,9 +30,10 @@ func newSyncCommand(cfg commandConfig) *cobra.Command {
 				return instill.NewExitError(instill.ExitGeneral, "error: no manifest found — run 'instill init' first")
 			}
 			return instill.SyncProject(instill.SyncOptions{
-				Project: project,
-				Runner:  cfg.runner,
-				Stdout:  cfg.stdout,
+				Project:     project,
+				LibraryPath: libraryPath,
+				Runner:      cfg.runner,
+				Stdout:      cfg.stdout,
 			})
 		},
 	}
