@@ -47,26 +47,6 @@ func reconcileSettingsLocalPermissions(path string, previousSkills, finalSkills 
 	return true, nil
 }
 
-// validateSettingsLocalPermissions validates legacy settings.local.json permission reconciliation.
-// Deprecated: supported commands must not use settings.local.json as sync state.
-func validateSettingsLocalPermissions(path string, previousSkills, finalSkills []string) error {
-	settings, _, _, err := readSettingsLocalTree(path)
-	if err != nil {
-		return err
-	}
-
-	permissions, ok := settings["permissions"].(map[string]any)
-	if !ok {
-		if _, exists := settings["permissions"]; exists {
-			return NewExitError(ExitGeneral, "error: malformed settings.local.json: permissions must be an object")
-		}
-		return nil
-	}
-
-	_, err = reconcileAllowPermissions(permissions["allow"], previousSkills, finalSkills)
-	return err
-}
-
 func readSettingsLocalTree(path string) (map[string]any, os.FileMode, []byte, error) {
 	mode := os.FileMode(0o644)
 	info, err := os.Lstat(path) //nolint:gosec // Settings path is constrained to the selected project root.

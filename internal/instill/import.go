@@ -358,28 +358,11 @@ func copyDirectoryTree(source string, target string) error {
 		if err != nil {
 			return err
 		}
-		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
 			return err
 		}
 		return writeFileAtomic(targetPath, data, info.Mode().Perm())
 	})
-}
-
-func readOrEmptyAPMManifest(path string) (APMManifest, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // Manifest path is discovered under the selected project root.
-	if err != nil {
-		if os.IsNotExist(err) {
-			return APMManifest{}, nil
-		}
-		return APMManifest{}, NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot read manifest: %v", err))
-	}
-
-	var manifest APMManifest
-	if err := yaml.Unmarshal(data, &manifest); err != nil {
-		return APMManifest{}, NewExitError(ExitGeneral, fmt.Sprintf("error: malformed manifest: %v", err))
-	}
-	normalizeAPMManifest(&manifest)
-	return manifest, nil
 }
 
 func readAPMManifestDocument(path string) (*yaml.Node, APMManifest, error) {
@@ -700,10 +683,6 @@ type mcpJSONFile struct {
 	MCPServers map[string]mcpServer `json:"mcpServers"`
 }
 
-type mcpJSONRawFile struct {
-	MCPServers map[string]json.RawMessage `json:"mcpServers"`
-}
-
 type mcpServer struct {
 	Type      string            `json:"type"`
 	Transport string            `json:"transport"`
@@ -723,14 +702,6 @@ func readMCPJSON(path string) (map[string]mcpServer, error) {
 		return nil, NewExitError(ExitGeneral, fmt.Sprintf("error: malformed .mcp.json: %v", err))
 	}
 	return config.MCPServers, nil
-}
-
-func readMCPJSONRaw(path string) (map[string]json.RawMessage, error) {
-	document, err := readMCPJSONRawDocument(path)
-	if err != nil {
-		return nil, err
-	}
-	return rawMCPServers(document)
 }
 
 func readMCPJSONRawDocument(path string) (map[string]json.RawMessage, error) {
@@ -845,7 +816,7 @@ func writeMCPConfigMarker(libraryPath string, entry CatalogEntry) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(markerPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(markerPath), 0o750); err != nil {
 		return NewExitError(ExitFilesystem, "error: cannot write mcp config: "+err.Error())
 	}
 

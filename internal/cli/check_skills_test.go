@@ -102,27 +102,3 @@ func createLibrary(t *testing.T, names ...string) string {
 	}
 	return root
 }
-
-func createProject(t *testing.T, skills []string) string {
-	t.Helper()
-
-	root := createLegacyProject(t, legacyManifest(skills))
-	if err := os.MkdirAll(filepath.Join(root, ".claude", "skills"), 0o755); err != nil {
-		t.Fatalf("MkdirAll(.claude/skills) error = %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, ".agents", "skills"), 0o755); err != nil {
-		t.Fatalf("MkdirAll(.agents/skills) error = %v", err)
-	}
-	return root
-}
-
-func legacyManifest(skills []string) string {
-	manifest := `{"skills":[`
-	for i, skill := range skills {
-		if i > 0 {
-			manifest += ","
-		}
-		manifest += `"` + skill + `"`
-	}
-	return manifest + `]}`
-}
