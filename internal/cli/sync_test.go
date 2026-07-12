@@ -11,6 +11,9 @@ import (
 )
 
 func TestSyncCLIReportsSummary(t *testing.T) {
+	library := createCatalogLibrary(t, cliCatalogLibrarySeed{})
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
+
 	root := createAPMProjectRoot(t, instill.APMManifest{
 		Dependencies: instill.APMDependencies{
 			APM: []string{"/library/skills/docker"},
