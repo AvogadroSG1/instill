@@ -298,7 +298,7 @@ func copyFile(source string, destination string) error {
 	if err != nil {
 		return NewExitError(ExitFilesystem, "error: cannot read library content: "+err.Error())
 	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(destination), 0o750); err != nil {
 		return NewExitError(ExitFilesystem, "error: cannot create project content directory: "+err.Error())
 	}
 	if err := writeFileAtomic(destination, data, 0o644); err != nil {
