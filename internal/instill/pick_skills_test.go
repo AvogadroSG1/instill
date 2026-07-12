@@ -36,7 +36,7 @@ func TestPickAddsSkillPathAndRunsAPMInstall(t *testing.T) {
 	requireEqual(t, []string{filepath.Join(library, "skills", "docker")}, manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --project " + project.Root,
+		"apm install --root " + project.Root,
 	})
 }
 
@@ -99,7 +99,7 @@ func TestPickAddsMCPBlockAndRunsAPMInstall(t *testing.T) {
 	}}, manifest.Dependencies.MCP)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --project " + project.Root,
+		"apm install --root " + project.Root,
 	})
 }
 
@@ -131,7 +131,7 @@ func TestPickCopiesInstructionAndRunsAPMInstall(t *testing.T) {
 	requireContains(t, got, "# instruction python-rules")
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --project " + project.Root,
+		"apm install --root " + project.Root,
 	})
 }
 
@@ -162,7 +162,7 @@ func TestPickCopiesPromptAndRunsAPMInstall(t *testing.T) {
 	requireContains(t, got, "# prompt debug")
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --project " + project.Root,
+		"apm install --root " + project.Root,
 	})
 }
 
@@ -198,7 +198,7 @@ func TestPickRemovalUpdatesManifestAndCallsAPMPrune(t *testing.T) {
 	requireEqual(t, 0, len(manifest.Dependencies.APM))
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm prune --project " + project.Root,
+		"apm prune --root " + project.Root,
 	})
 }
 
@@ -239,8 +239,8 @@ func TestPickMixedAddAndRemoveRunsPruneThenInstall(t *testing.T) {
 	requireEqual(t, []string{filepath.Join(library, "skills", "golang")}, manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm prune --project " + project.Root,
-		"apm install --project " + project.Root,
+		"apm prune --root " + project.Root,
+		"apm install --root " + project.Root,
 	})
 }
 
@@ -276,7 +276,7 @@ func TestPickRemovalSupportsNestedSkillNames(t *testing.T) {
 	requireEqual(t, 0, len(manifest.Dependencies.APM))
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm prune --project " + project.Root,
+		"apm prune --root " + project.Root,
 	})
 }
 
@@ -306,7 +306,7 @@ func TestPickRemovalSupportsStaleSkillDependencyMissingFromCatalog(t *testing.T)
 	requireEqual(t, 0, len(manifest.Dependencies.APM))
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm prune --project " + project.Root,
+		"apm prune --root " + project.Root,
 	})
 }
 
@@ -342,7 +342,7 @@ func TestPickRemovalDeletesCopiedInstruction(t *testing.T) {
 	assertPathMissing(t, filepath.Join(project.Root, ".apm", "instructions", "python-rules.instructions.md"))
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm prune --project " + project.Root,
+		"apm prune --root " + project.Root,
 	})
 }
 
@@ -376,7 +376,7 @@ func TestPickRemovalDeletesStaleMCPDependencyMissingFromCatalog(t *testing.T) {
 	requireEqual(t, 0, len(manifest.Dependencies.MCP))
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm prune --project " + project.Root,
+		"apm prune --root " + project.Root,
 	})
 }
 
@@ -406,7 +406,7 @@ func TestPickRemovalDeletesCopiedInstructionMissingFromCatalog(t *testing.T) {
 	assertPathMissing(t, filepath.Join(project.Root, ".apm", "instructions", "python-rules.instructions.md"))
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm prune --project " + project.Root,
+		"apm prune --root " + project.Root,
 	})
 }
 
@@ -436,6 +436,6 @@ func TestPickRemovalDeletesCopiedPromptMissingFromCatalog(t *testing.T) {
 	assertPathMissing(t, filepath.Join(project.Root, ".apm", "prompts", "debug.prompt.md"))
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm prune --project " + project.Root,
+		"apm prune --root " + project.Root,
 	})
 }
