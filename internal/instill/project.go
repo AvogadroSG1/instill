@@ -8,6 +8,7 @@ package instill
 import (
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 const (
@@ -17,6 +18,33 @@ const (
 	settingsLocalFileName = "settings.local.json"
 	skillsDirName         = "skills"
 )
+
+var harnessDetection = []struct {
+	dir    string
+	target string
+}{
+	{".claude", "claude"},
+	{".codex", "codex"},
+	{".cursor", "cursor"},
+	{".gemini", "gemini"},
+	{".kiro", "kiro"},
+	{".opencode", "opencode"},
+	{".windsurf", "windsurf"},
+}
+
+// DetectHarnessTargets scans root for harness directories and returns the
+// corresponding APM target names. Returns nil when no harnesses are detected.
+func DetectHarnessTargets(root string) []string {
+	var targets []string
+	for _, h := range harnessDetection {
+		info, err := os.Stat(filepath.Join(root, h.dir))
+		if err == nil && info.IsDir() {
+			targets = append(targets, h.target)
+		}
+	}
+	sort.Strings(targets)
+	return targets
+}
 
 type Project struct {
 	Root             string

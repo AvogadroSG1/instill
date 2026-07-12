@@ -108,6 +108,10 @@ func ImportGraft(opts ImportOptions) error {
 	if err != nil {
 		return err
 	}
+	names, err = selectedGraftServers(names, rawServers)
+	if err != nil {
+		return err
+	}
 	if missing := missingGraftServers(names, rawServers); len(missing) > 0 {
 		return NewExitError(ExitGeneral, "error: graft.lock references missing .mcp.json servers: "+strings.Join(missing, ", "))
 	}
@@ -123,6 +127,9 @@ func ImportGraft(opts ImportOptions) error {
 
 	document, manifest, err := readAPMManifestDocument(opts.Project.ManifestPath)
 	if err != nil {
+		return err
+	}
+	if err := ensureAPMManifestIdentity(document, opts.Project.Root); err != nil {
 		return err
 	}
 	dependencies := make([]MCPDependency, 0, len(names))
@@ -351,28 +358,11 @@ func copyDirectoryTree(source string, target string) error {
 		if err != nil {
 			return err
 		}
-		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
 			return err
 		}
 		return writeFileAtomic(targetPath, data, info.Mode().Perm())
 	})
-}
-
-func readOrEmptyAPMManifest(path string) (APMManifest, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // Manifest path is discovered under the selected project root.
-	if err != nil {
-		if os.IsNotExist(err) {
-			return APMManifest{}, nil
-		}
-		return APMManifest{}, NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot read manifest: %v", err))
-	}
-
-	var manifest APMManifest
-	if err := yaml.Unmarshal(data, &manifest); err != nil {
-		return APMManifest{}, NewExitError(ExitGeneral, fmt.Sprintf("error: malformed manifest: %v", err))
-	}
-	normalizeAPMManifest(&manifest)
-	return manifest, nil
 }
 
 func readAPMManifestDocument(path string) (*yaml.Node, APMManifest, error) {
@@ -468,6 +458,29 @@ func apmManifestMapping(document *yaml.Node) (*yaml.Node, error) {
 		return nil, NewExitError(ExitGeneral, "error: malformed manifest: expected mapping")
 	}
 	return document.Content[0], nil
+}
+
+func ensureAPMManifestIdentity(document *yaml.Node, root string) error {
+	mapping, err := apmManifestMapping(document)
+	if err != nil {
+		return err
+	}
+	if mappingValue(mapping, "name") == nil {
+		setMappingValue(mapping, "name", scalarNode(filepath.Base(root)))
+	}
+	if mappingValue(mapping, "version") == nil {
+		setMappingValue(mapping, "version", scalarNode("0.1.0"))
+	}
+	return nil
+}
+
+func mappingValue(mapping *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			return mapping.Content[i+1]
+		}
+	}
+	return nil
 }
 
 func ensureMappingNode(mapping *yaml.Node, key string) (*yaml.Node, error) {
@@ -616,8 +629,13 @@ func removeManagedSettingsLocal(path string, skills []string) error {
 	return nil
 }
 
+type graftLockMCP struct {
+	Name string `yaml:"name"`
+}
+
 type graftLockFile struct {
-	Servers []string `yaml:"servers"`
+	Servers []string       `yaml:"servers"`
+	MCPs    []graftLockMCP `yaml:"mcps"`
 }
 
 func readGraftLock(path string) ([]string, error) {
@@ -629,15 +647,40 @@ func readGraftLock(path string) ([]string, error) {
 	if err := yaml.Unmarshal(data, &lock); err != nil {
 		return nil, NewExitError(ExitGeneral, fmt.Sprintf("error: malformed graft.lock: %v", err))
 	}
-	return normalizeStringSlice(lock.Servers), nil
+	names := append([]string{}, lock.Servers...)
+	for _, mcp := range lock.MCPs {
+		if strings.TrimSpace(mcp.Name) != "" {
+			names = append(names, mcp.Name)
+		}
+	}
+	return normalizeStringSlice(names), nil
+}
+
+type graftManagedMarker struct {
+	Managed bool `json:"_graft_managed"`
+}
+
+func selectedGraftServers(locked []string, servers map[string]json.RawMessage) ([]string, error) {
+	names := append([]string{}, locked...)
+	for name, raw := range servers {
+		var marker graftManagedMarker
+		if err := json.Unmarshal(raw, &marker); err != nil {
+			return nil, NewExitError(ExitGeneral, fmt.Sprintf("error: malformed .mcp.json server %q: %v", name, err))
+		}
+		if marker.Managed {
+			names = append(names, name)
+		}
+	}
+	names = normalizeStringSlice(names)
+	sort.Strings(names)
+	if len(names) == 0 {
+		return nil, NewExitError(ExitGeneral, "error: no Graft-managed MCP servers found in graft.lock or .mcp.json")
+	}
+	return names, nil
 }
 
 type mcpJSONFile struct {
 	MCPServers map[string]mcpServer `json:"mcpServers"`
-}
-
-type mcpJSONRawFile struct {
-	MCPServers map[string]json.RawMessage `json:"mcpServers"`
 }
 
 type mcpServer struct {
@@ -659,14 +702,6 @@ func readMCPJSON(path string) (map[string]mcpServer, error) {
 		return nil, NewExitError(ExitGeneral, fmt.Sprintf("error: malformed .mcp.json: %v", err))
 	}
 	return config.MCPServers, nil
-}
-
-func readMCPJSONRaw(path string) (map[string]json.RawMessage, error) {
-	document, err := readMCPJSONRawDocument(path)
-	if err != nil {
-		return nil, err
-	}
-	return rawMCPServers(document)
 }
 
 func readMCPJSONRawDocument(path string) (map[string]json.RawMessage, error) {
@@ -781,7 +816,7 @@ func writeMCPConfigMarker(libraryPath string, entry CatalogEntry) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(markerPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(markerPath), 0o750); err != nil {
 		return NewExitError(ExitFilesystem, "error: cannot write mcp config: "+err.Error())
 	}
 

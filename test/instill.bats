@@ -1,5 +1,9 @@
 #!/usr/bin/env bats
 
+load test_helper/common
+load test_helper/fake_apm
+load test_helper/harness
+
 setup_file() {
   export REPO_ROOT
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
@@ -19,87 +23,6 @@ setup() {
   export INSTILL_LIBRARY_PATH="$BATS_TEST_TMPDIR/library"
   mkdir -p "$INSTILL_LIBRARY_PATH"
   install_fake_apm
-}
-
-install_fake_apm() {
-  mkdir -p "$BATS_TEST_TMPDIR/bin"
-  export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
-  cat > "$BATS_TEST_TMPDIR/bin/apm" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-project_arg() {
-  local previous=""
-  for value in "$@"; do
-    if [ "$previous" = "--project" ]; then
-      printf '%s\n' "$value"
-      return 0
-    fi
-    previous="$value"
-  done
-  return 1
-}
-
-case "${1:-}" in
-  --version)
-    printf 'apm 0.1.0\n'
-    ;;
-  install)
-    project="$(project_arg "$@")"
-    mkdir -p "$project/.apm"
-    touch "$project/apm.lock.yaml"
-    ;;
-  compile)
-    project="$(project_arg "$@")"
-    mkdir -p "$project/.apm"
-    ;;
-  prune)
-    project="$(project_arg "$@")"
-    mkdir -p "$project/.apm"
-    ;;
-  *)
-    printf 'unexpected apm command: %s\n' "$*" >&2
-    exit 1
-    ;;
-esac
-EOF
-  chmod +x "$BATS_TEST_TMPDIR/bin/apm"
-}
-
-make_project() {
-  PROJECT="$BATS_TEST_TMPDIR/project"
-  mkdir -p "$PROJECT"
-  cd "$PROJECT"
-}
-
-make_skill() {
-  mkdir -p "$INSTILL_LIBRARY_PATH/skills/$1"
-  printf '# %s\n' "$1" > "$INSTILL_LIBRARY_PATH/skills/$1/SKILL.md"
-}
-
-make_instruction() {
-  mkdir -p "$INSTILL_LIBRARY_PATH/instructions/$1"
-  printf '# %s instruction\n' "$1" > "$INSTILL_LIBRARY_PATH/instructions/$1/INSTRUCTION.md"
-}
-
-make_prompt() {
-  mkdir -p "$INSTILL_LIBRARY_PATH/prompts/$1"
-  printf '# %s prompt\n' "$1" > "$INSTILL_LIBRARY_PATH/prompts/$1/PROMPT.md"
-}
-
-make_mcp() {
-  mkdir -p "$INSTILL_LIBRARY_PATH/mcp/$1"
-  printf '{"transport":"stdio","command":"%s-mcp","args":["--dev"],"env":["DEV=true"]}\n' "$1" > "$INSTILL_LIBRARY_PATH/mcp/$1/config.json"
-}
-
-scan_library() {
-  run "$INSTILL_BIN" library scan
-  [ "$status" -eq 0 ]
-}
-
-write_legacy_manifest() {
-  mkdir -p .claude/skills
-  printf '%s\n' "$1" > .claude/skill-manifest.json
 }
 
 @test "library scan creates typed catalogs" {
@@ -130,6 +53,8 @@ write_legacy_manifest() {
   [ -f apm.yml ]
   [ ! -e .claude/skill-manifest.json ]
   [ ! -e .claude/skills/docker ]
+  [[ "$(cat apm.yml)" == *"name: project"* ]]
+  [[ "$(cat apm.yml)" == *"version: 0.1.0"* ]]
   [[ "$(cat apm.yml)" == *"dependencies:"* ]]
   [[ "$(cat apm.yml)" == *"$INSTILL_LIBRARY_PATH/skills/docker"* ]]
 }
@@ -204,4 +129,457 @@ write_legacy_manifest() {
   [ "$(cat .claude/skill-manifest.json)" = "$before" ]
   [ ! -e .claude/skills/docker ]
   [ "$(readlink .claude/skills/orphan)" = "/legacy/orphan" ]
+}
+
+@test "full init pick sync flow creates all expected artifacts" {
+  make_skill docker
+  make_skill golang-testing
+  make_mcp local-db
+  make_instruction python-rules
+  make_prompt debug
+  make_project
+  scan_library
+
+  # Init with one skill
+  run "$INSTILL_BIN" init --skills docker
+  [ "$status" -eq 0 ]
+  [ -f apm.yml ]
+  [[ "$(cat apm.yml)" == *"name: project"* ]]
+  [[ "$(cat apm.yml)" == *"docker"* ]]
+
+  # Pick additional skill
+  run "$INSTILL_BIN" pick --type skill golang-testing
+  [ "$status" -eq 0 ]
+  [[ "$(cat apm.yml)" == *"golang-testing"* ]]
+
+  # Pick MCP server
+  run "$INSTILL_BIN" pick --type mcp local-db
+  [ "$status" -eq 0 ]
+  [[ "$(cat apm.yml)" == *"local-db"* ]]
+
+  # Pick instruction
+  run "$INSTILL_BIN" pick --type instruction python-rules
+  [ "$status" -eq 0 ]
+  [ -f .apm/instructions/python-rules.instructions.md ]
+
+  # Pick prompt
+  run "$INSTILL_BIN" pick --type prompt debug
+  [ "$status" -eq 0 ]
+  [ -f .apm/prompts/debug.prompt.md ]
+
+  # Sync exercises apm install + compile
+  run "$INSTILL_BIN" sync
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ok: synced"* ]]
+
+  # Verify APM artifacts created by fake apm
+  [ -f apm.lock.yaml ]
+  [ -d .apm ]
+
+  # Name and version fields preserved through picks
+  [[ "$(cat apm.yml)" == *"name: project"* ]]
+  [[ "$(cat apm.yml)" == *"version: 0.1.0"* ]]
+
+  # Remove a skill and verify prune path
+  run "$INSTILL_BIN" pick --type skill --remove docker
+  [ "$status" -eq 0 ]
+  [[ "$(cat apm.yml)" != *"docker"* ]]
+  [[ "$(cat apm.yml)" == *"golang-testing"* ]]
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# E2E: init with all four types creates complete project state
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "init with all four types creates complete project state" {
+  make_skill docker
+  make_mcp local-db
+  make_instruction python-rules
+  make_prompt debug
+  make_project
+  scan_library
+
+  # Init with one skill via non-interactive flag
+  run "$INSTILL_BIN" init --skills docker
+  [ "$status" -eq 0 ]
+  [ -f apm.yml ]
+  [[ "$(cat apm.yml)" == *"name: project"* ]]
+  [[ "$(cat apm.yml)" == *"version: 0.1.0"* ]]
+  [[ "$(cat apm.yml)" == *"$INSTILL_LIBRARY_PATH/skills/docker"* ]]
+
+  # Pick one MCP server
+  run "$INSTILL_BIN" pick --type mcp local-db
+  [ "$status" -eq 0 ]
+  [[ "$(cat apm.yml)" == *"name: local-db"* ]]
+  [[ "$(cat apm.yml)" == *"command: local-db-mcp"* ]]
+
+  # Pick one instruction
+  run "$INSTILL_BIN" pick --type instruction python-rules
+  [ "$status" -eq 0 ]
+  [ -f .apm/instructions/python-rules.instructions.md ]
+  [[ "$(cat .apm/instructions/python-rules.instructions.md)" == *"python-rules"* ]]
+
+  # Pick one prompt
+  run "$INSTILL_BIN" pick --type prompt debug
+  [ "$status" -eq 0 ]
+  [ -f .apm/prompts/debug.prompt.md ]
+  [[ "$(cat .apm/prompts/debug.prompt.md)" == *"debug"* ]]
+
+  # Sync exercises apm install + compile
+  run "$INSTILL_BIN" sync
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ok: synced"* ]]
+
+  # Verify all artifacts present
+  [ -f apm.lock.yaml ]
+  [ -d .apm ]
+  [[ "$(cat apm.yml)" == *"$INSTILL_LIBRARY_PATH/skills/docker"* ]]
+  [[ "$(cat apm.yml)" == *"name: local-db"* ]]
+  [[ "$(cat apm.yml)" == *"name: project"* ]]
+  [[ "$(cat apm.yml)" == *"version: 0.1.0"* ]]
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# E2E: import old-instill migrates legacy manifest and removes artifacts
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "import old-instill migrates legacy manifest and removes artifacts" {
+  make_skill docker
+  make_project
+  scan_library
+
+  # Set up legacy state: manifest + symlink + settings.local.json
+  mkdir -p .claude/skills
+  printf '{"skills":["docker"]}\n' > .claude/skill-manifest.json
+  ln -s "$INSTILL_LIBRARY_PATH/skills/docker" .claude/skills/docker
+  printf '{"permissions":{"allow":["Skill(docker)"]}}\n' > .claude/settings.local.json
+
+  run "$INSTILL_BIN" import old-instill
+  [ "$status" -eq 0 ]
+
+  # Catalog updated with skill entry
+  [ -f "$INSTILL_LIBRARY_PATH/skills/catalog.csv" ]
+  [[ "$(cat "$INSTILL_LIBRARY_PATH/skills/catalog.csv")" == *"docker"* ]]
+
+  # apm.yml created with skill dependency
+  [ -f apm.yml ]
+  [[ "$(cat apm.yml)" == *"$INSTILL_LIBRARY_PATH/skills/docker"* ]]
+
+  # Legacy artifacts removed
+  [ ! -e .claude/skill-manifest.json ]
+  [ ! -e .claude/skills/docker ]
+  [ ! -e .claude/settings.local.json ]
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# E2E: import graft migrates mcp servers and removes graft.lock
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "import graft migrates mcp servers and removes graft.lock" {
+  make_project
+
+  # Set up graft state
+  printf 'servers:\n  - local-db\n' > graft.lock
+  printf '{"mcpServers":{"local-db":{"command":"sqlite-mcp","args":["--db","dev.db"]}}}\n' > .mcp.json
+
+  run "$INSTILL_BIN" import graft
+  [ "$status" -eq 0 ]
+
+  # MCP catalog created in library
+  [ -f "$INSTILL_LIBRARY_PATH/mcp/catalog.csv" ]
+  [[ "$(cat "$INSTILL_LIBRARY_PATH/mcp/catalog.csv")" == *"local-db"* ]]
+  [[ "$(cat "$INSTILL_LIBRARY_PATH/mcp/catalog.csv")" == *"sqlite-mcp"* ]]
+
+  # Marker file created in library
+  [ -f "$INSTILL_LIBRARY_PATH/mcp/local-db/config.json" ]
+  [[ "$(cat "$INSTILL_LIBRARY_PATH/mcp/local-db/config.json")" == *"sqlite-mcp"* ]]
+
+  # apm.yml created with MCP dependency
+  [ -f apm.yml ]
+  [[ "$(cat apm.yml)" == *"name: local-db"* ]]
+  [[ "$(cat apm.yml)" == *"command: sqlite-mcp"* ]]
+  [[ "$(cat apm.yml)" == *"--db"* ]]
+
+  # graft.lock removed
+  [ ! -e graft.lock ]
+
+  # .mcp.json removed (all servers imported)
+  [ ! -e .mcp.json ]
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# E2E: import claude imports mcp servers with redacted env
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "import claude imports mcp servers from claude config with redacted env" {
+  make_project
+
+  # Use CLAUDE_CONFIG_DIR to provide a test fixture
+  export CLAUDE_CONFIG_DIR="$BATS_TEST_TMPDIR/claude-config"
+  mkdir -p "$CLAUDE_CONFIG_DIR"
+  cat > "$CLAUDE_CONFIG_DIR/claude.json" <<'FIXTURE'
+{
+  "mcpServers": {
+    "docs-search": {
+      "command": "docs-mcp",
+      "args": ["serve"],
+      "env": {"API_KEY": "secret-key-123", "REGION": "us-east-1"}
+    }
+  },
+  "projects": {
+    "/tmp/example": {
+      "mcpServers": {
+        "project-db": {"command": "sqlite-mcp", "args": ["--db", "app.db"]}
+      }
+    }
+  }
+}
+FIXTURE
+
+  run "$INSTILL_BIN" import claude
+  [ "$status" -eq 0 ]
+
+  # MCP catalog created with both servers
+  [ -f "$INSTILL_LIBRARY_PATH/mcp/catalog.csv" ]
+  [[ "$(cat "$INSTILL_LIBRARY_PATH/mcp/catalog.csv")" == *"docs-search"* ]]
+  [[ "$(cat "$INSTILL_LIBRARY_PATH/mcp/catalog.csv")" == *"project-db"* ]]
+
+  # Env values are redacted (placeholder form, not actual secrets)
+  [[ "$(cat "$INSTILL_LIBRARY_PATH/mcp/catalog.csv")" == *'${API_KEY}'* ]]
+  [[ "$(cat "$INSTILL_LIBRARY_PATH/mcp/catalog.csv")" == *'${REGION}'* ]]
+  [[ "$(cat "$INSTILL_LIBRARY_PATH/mcp/catalog.csv")" != *"secret-key-123"* ]]
+
+  # Marker files created for each server
+  [ -f "$INSTILL_LIBRARY_PATH/mcp/docs-search/config.json" ]
+  [ -f "$INSTILL_LIBRARY_PATH/mcp/project-db/config.json" ]
+  [[ "$(cat "$INSTILL_LIBRARY_PATH/mcp/docs-search/config.json")" == *"docs-mcp"* ]]
+  [[ "$(cat "$INSTILL_LIBRARY_PATH/mcp/project-db/config.json")" == *"sqlite-mcp"* ]]
+
+  # Does NOT create apm.yml (library-only operation)
+  [ ! -e apm.yml ]
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# E2E: import directory copies typed content and rebuilds all catalogs
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "import directory copies typed content and rebuilds all catalogs" {
+  make_project
+
+  # Create a source directory with one of each type
+  SOURCE="$BATS_TEST_TMPDIR/source"
+  mkdir -p "$SOURCE/my-skill"
+  printf '# my-skill\n' > "$SOURCE/my-skill/SKILL.md"
+
+  mkdir -p "$SOURCE/my-mcp"
+  printf '{"transport":"stdio","command":"my-mcp-server","args":["--port","3000"]}\n' > "$SOURCE/my-mcp/config.json"
+
+  mkdir -p "$SOURCE/my-instruction"
+  printf '# Follow these rules\n' > "$SOURCE/my-instruction/INSTRUCTION.md"
+
+  mkdir -p "$SOURCE/my-prompt"
+  printf '# Debug prompt\n' > "$SOURCE/my-prompt/PROMPT.md"
+
+  run "$INSTILL_BIN" import directory "$SOURCE"
+  [ "$status" -eq 0 ]
+
+  # Content copied into library subdirectories
+  [ -f "$INSTILL_LIBRARY_PATH/skills/my-skill/SKILL.md" ]
+  [ -f "$INSTILL_LIBRARY_PATH/mcp/my-mcp/config.json" ]
+  [ -f "$INSTILL_LIBRARY_PATH/instructions/my-instruction/INSTRUCTION.md" ]
+  [ -f "$INSTILL_LIBRARY_PATH/prompts/my-prompt/PROMPT.md" ]
+
+  # All four catalogs rebuilt
+  [ -f "$INSTILL_LIBRARY_PATH/skills/catalog.csv" ]
+  [ -f "$INSTILL_LIBRARY_PATH/mcp/catalog.csv" ]
+  [ -f "$INSTILL_LIBRARY_PATH/instructions/catalog.csv" ]
+  [ -f "$INSTILL_LIBRARY_PATH/prompts/catalog.csv" ]
+
+  # Catalog contents reference the imported entries
+  [[ "$(cat "$INSTILL_LIBRARY_PATH/skills/catalog.csv")" == *"my-skill"* ]]
+  [[ "$(cat "$INSTILL_LIBRARY_PATH/mcp/catalog.csv")" == *"my-mcp"* ]]
+  [[ "$(cat "$INSTILL_LIBRARY_PATH/mcp/catalog.csv")" == *"my-mcp-server"* ]]
+  [[ "$(cat "$INSTILL_LIBRARY_PATH/instructions/catalog.csv")" == *"my-instruction"* ]]
+  [[ "$(cat "$INSTILL_LIBRARY_PATH/prompts/catalog.csv")" == *"my-prompt"* ]]
+
+  # Does NOT create apm.yml (library-only operation)
+  [ ! -e apm.yml ]
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Multi-harness: sync produces artifacts for both .claude/ and .agents/
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "sync produces artifacts for both harnesses" {
+  make_skill docker
+  make_project
+  scan_library
+
+  run "$INSTILL_BIN" init --skills docker
+  [ "$status" -eq 0 ]
+
+  run "$INSTILL_BIN" sync
+  [ "$status" -eq 0 ]
+
+  assert_both_harnesses_installed
+  assert_both_harnesses_compiled
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Multi-harness: sync with only Claude harness present
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "sync works when only .claude/ harness exists" {
+  make_skill docker
+  make_project
+  scan_library
+
+  install_fake_apm_claude_only
+
+  run "$INSTILL_BIN" init --skills docker
+  [ "$status" -eq 0 ]
+
+  run "$INSTILL_BIN" sync
+  [ "$status" -eq 0 ]
+
+  [ -f .claude/.apm-compiled ]
+  [ ! -f .agents/.apm-installed ]
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Multi-harness: import old-instill removes symlinks from both harness dirs
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "import old-instill removes symlinks from both harness directories" {
+  make_skill docker
+  make_project
+  scan_library
+
+  write_legacy_manifest '{"skills":["docker"]}'
+  setup_dual_harness_legacy docker
+  printf '{"permissions":{"allow":["Skill(docker)"]}}\n' > .claude/settings.local.json
+
+  run "$INSTILL_BIN" import old-instill
+  [ "$status" -eq 0 ]
+
+  [ ! -e .claude/skills/docker ]
+  [ ! -e .agents/skills/docker ]
+  assert_no_legacy_symlinks .claude/skills
+  assert_no_legacy_symlinks .agents/skills
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Multi-harness: import handles missing .agents/skills gracefully
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "import old-instill handles missing .agents/skills gracefully" {
+  make_skill docker
+  make_project
+  scan_library
+
+  write_legacy_manifest '{"skills":["docker"]}'
+  mkdir -p .claude/skills
+  ln -s "$INSTILL_LIBRARY_PATH/skills/docker" .claude/skills/docker
+  printf '{"permissions":{"allow":["Skill(docker)"]}}\n' > .claude/settings.local.json
+
+  run "$INSTILL_BIN" import old-instill
+  [ "$status" -eq 0 ]
+
+  [ ! -e .claude/skills/docker ]
+  [ ! -d .agents/skills ]
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Multi-harness: init and pick work with both harness directories present
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "init and pick work with both harness directories present" {
+  make_skill docker
+  make_skill golang-testing
+  make_mcp local-db
+  make_project
+  scan_library
+
+  mkdir -p .claude .agents
+
+  run "$INSTILL_BIN" init --skills docker
+  [ "$status" -eq 0 ]
+  [ -f apm.yml ]
+
+  run "$INSTILL_BIN" pick --type skill golang-testing
+  [ "$status" -eq 0 ]
+  [[ "$(cat apm.yml)" == *"golang-testing"* ]]
+
+  run "$INSTILL_BIN" pick --type mcp local-db
+  [ "$status" -eq 0 ]
+  [[ "$(cat apm.yml)" == *"local-db"* ]]
+
+  run "$INSTILL_BIN" sync
+  [ "$status" -eq 0 ]
+
+  assert_both_harnesses_installed
+  assert_both_harnesses_compiled
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Targets: init writes targets when multiple harnesses detected
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "init writes targets when multiple harnesses detected" {
+  make_skill docker
+  make_project
+  scan_library
+
+  mkdir -p .claude .codex
+
+  run "$INSTILL_BIN" init --skills docker
+  [ "$status" -eq 0 ]
+  [ -f apm.yml ]
+
+  [[ "$(cat apm.yml)" == *"targets:"* ]]
+  [[ "$(cat apm.yml)" == *"claude"* ]]
+  [[ "$(cat apm.yml)" == *"codex"* ]]
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Targets: sync adds targets to existing manifest missing them
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "sync adds targets to existing manifest missing them" {
+  make_skill docker
+  make_project
+  scan_library
+
+  mkdir -p .claude .codex
+
+  printf 'name: project\nversion: 0.1.0\ndependencies:\n    apm:\n        - %s/skills/docker\n' "$INSTILL_LIBRARY_PATH" > apm.yml
+
+  [[ "$(cat apm.yml)" != *"targets:"* ]]
+
+  run "$INSTILL_BIN" sync
+  [ "$status" -eq 0 ]
+
+  [[ "$(cat apm.yml)" == *"targets:"* ]]
+  [[ "$(cat apm.yml)" == *"claude"* ]]
+  [[ "$(cat apm.yml)" == *"codex"* ]]
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Targets: strict APM rejects missing targets, instill prevents failure
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "sync with strict APM succeeds because instill writes targets first" {
+  make_skill docker
+  make_project
+  scan_library
+
+  mkdir -p .claude .codex
+  install_fake_apm_strict
+
+  run "$INSTILL_BIN" init --skills docker
+  [ "$status" -eq 0 ]
+
+  run "$INSTILL_BIN" sync
+  [ "$status" -eq 0 ]
+  [[ "$(cat apm.yml)" == *"targets:"* ]]
 }

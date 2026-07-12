@@ -94,7 +94,7 @@ func WriteCatalog(root string, typ LibraryType, entries []CatalogEntry) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot write catalog: %v", err))
 	}
 

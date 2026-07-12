@@ -35,8 +35,8 @@ func TestSyncProjectRunsInstallThenCompileAndReportsSummary(t *testing.T) {
 	requireNoError(t, err)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --project " + project.Root,
-		"apm compile --project " + project.Root,
+		"apm install --root " + project.Root,
+		"apm compile --root " + project.Root,
 	})
 	requireContains(t, stdout.String(), "ok: synced 1 skills, 1 mcp servers, 1 instructions, 1 prompts")
 }

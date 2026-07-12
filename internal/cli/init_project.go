@@ -20,6 +20,9 @@ func newInitProjectCommand(cfg commandConfig) *cobra.Command {
 			if cwd == "" {
 				cwd = "."
 			}
+			if instill.HasAPMManifest(cwd) && !force {
+				return instill.NewExitError(instill.ExitGeneral, "error: manifest already exists; use --force to reinitialize")
+			}
 
 			libraryPath, err := instill.ResolveLibraryPath(instill.ConfigResolverOptions{
 				Stdin:  cfg.stdin,

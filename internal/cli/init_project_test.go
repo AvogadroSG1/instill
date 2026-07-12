@@ -82,6 +82,9 @@ func TestInitProjectCLIUsesUnifiedPicker(t *testing.T) {
 }
 
 func TestInitProjectCLIExistingAPMManifestDoesNotRequireTTY(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("INSTILL_LIBRARY_PATH", "")
+	t.Setenv("SKILL_LIBRARY_PATH", "")
 	root := createAPMProjectRoot(t, instill.APMManifest{})
 	stdin, err := os.Open(os.DevNull)
 	if err != nil {

@@ -171,15 +171,6 @@ func ensureReconcileDirs(project Project) error {
 	return nil
 }
 
-func validateReconcile(project Project, previousManifest, manifest Manifest) error {
-	if err := ensureReconcileDirs(project); err != nil {
-		return err
-	}
-
-	settingsLocalPath := filepath.Join(project.Root, claudeDirName, settingsLocalFileName)
-	return validateSettingsLocalPermissions(settingsLocalPath, previousManifest.Skills, manifest.Skills)
-}
-
 func ensureRealDirectory(path, label string) error {
 	//nolint:gosec // Project metadata directories must be user-accessible in the repository.
 	if err := os.MkdirAll(path, 0o755); err != nil {

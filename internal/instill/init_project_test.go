@@ -33,6 +33,12 @@ func TestInitProjectCreatesAPMManifestWithoutLegacyFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadAPMManifest() error = %v", err)
 	}
+	if manifest.Name != filepath.Base(root) {
+		t.Fatalf("manifest name = %q, want %q", manifest.Name, filepath.Base(root))
+	}
+	if manifest.Version != "0.1.0" {
+		t.Fatalf("manifest version = %q, want %q", manifest.Version, "0.1.0")
+	}
 	if len(manifest.Dependencies.APM) != 0 {
 		t.Fatalf("manifest dependencies.apm = %#v, want empty", manifest.Dependencies.APM)
 	}
@@ -75,8 +81,44 @@ func TestInitProjectWithSkillsWritesSkillPathsAndRunsAPMInstall(t *testing.T) {
 	}
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --project " + root,
+		"apm install --root " + root,
 	})
+}
+
+func TestInitProjectWritesTargetsWhenMultipleHarnessesDetected(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	requireNoError(t, os.MkdirAll(filepath.Join(root, ".claude"), 0o755))
+	requireNoError(t, os.MkdirAll(filepath.Join(root, ".codex"), 0o755))
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		skills: []CatalogEntry{{
+			Type: LibraryTypeSkill,
+			Name: "docker",
+			Path: "docker/SKILL.md",
+		}},
+	})
+
+	if err := InitProject(InitProjectOptions{
+		Root:        root,
+		LibraryPath: library,
+		Skills:      []string{"docker"},
+		Runner:      recordingRunner(nil, nil),
+		Stdout:      &bytes.Buffer{},
+	}); err != nil {
+		t.Fatalf("InitProject() error = %v", err)
+	}
+
+	manifest, err := ReadAPMManifest(filepath.Join(root, "apm.yml"))
+	if err != nil {
+		t.Fatalf("ReadAPMManifest() error = %v", err)
+	}
+	if len(manifest.Targets) != 2 {
+		t.Fatalf("manifest targets = %#v, want 2 entries", manifest.Targets)
+	}
+	requireEqual(t, "claude", manifest.Targets[0])
+	requireEqual(t, "codex", manifest.Targets[1])
 }
 
 func assertPathMissing(t *testing.T, path string) {
