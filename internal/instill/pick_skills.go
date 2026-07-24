@@ -79,13 +79,13 @@ func Pick(opts PickOptions) error {
 
 	added := len(normalizeSkills(opts.Add)) > 0
 	removed := len(normalizeSkills(opts.Remove)) > 0
-	if removed {
-		if err := RunAPMPrune(opts.Runner, opts.Project.Root); err != nil {
+	if added {
+		if err := RunAPMInstall(opts.Runner, opts.Project.Root); err != nil {
 			return err
 		}
 	}
-	if added {
-		return RunAPMInstall(opts.Runner, opts.Project.Root)
+	if removed {
+		return RunAPMPrune(opts.Runner, opts.Project.Root)
 	}
 	return nil
 }
@@ -120,10 +120,19 @@ func ApplySkillSelection(opts SkillSelectionOptions) error {
 	if err := WriteAPMManifestAtomic(opts.Project.ManifestPath, manifest); err != nil {
 		return err
 	}
+	if hasAddedDependencies(previous, dependencies) {
+		if err := RunAPMInstall(opts.Runner, opts.Project.Root); err != nil {
+			return err
+		}
+	}
 	if hasRemovedDependencies(previous, dependencies) {
 		return RunAPMPrune(opts.Runner, opts.Project.Root)
 	}
-	return RunAPMInstall(opts.Runner, opts.Project.Root)
+	return nil
+}
+
+func hasAddedDependencies(previous []string, next []string) bool {
+	return hasRemovedDependencies(next, previous)
 }
 
 func hasRemovedDependencies(previous []string, next []string) bool {

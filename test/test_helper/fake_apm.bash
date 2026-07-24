@@ -41,7 +41,7 @@ case "${1:-}" in
     done
     ;;
   prune)
-    project="$(project_arg "$@")"
+    project="$(pwd)"
     mkdir -p "$project/.apm"
     ;;
   *)
@@ -104,7 +104,7 @@ case "${1:-}" in
     done
     ;;
   prune)
-    project="$(project_arg "$@")"
+    project="$(pwd)"
     mkdir -p "$project/.apm"
     ;;
   *)
@@ -153,7 +153,7 @@ case "${1:-}" in
     printf 'compiled\n' > "$project/.claude/.apm-compiled"
     ;;
   prune)
-    project="$(project_arg "$@")"
+    project="$(pwd)"
     mkdir -p "$project/.apm"
     ;;
   *)

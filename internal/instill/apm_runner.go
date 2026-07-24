@@ -66,10 +66,13 @@ func RunAPMCompile(runner CommandRunner, root string) error {
 }
 
 func RunAPMPrune(runner CommandRunner, root string) error {
+	var err error
 	if runner == nil {
-		runner = defaultCommandRunner
+		err = runCommandInDir(root, "apm", "prune")
+	} else {
+		err = runCommand(runner, "apm", "prune")
 	}
-	if err := runCommand(runner, "apm", "prune", "--root", root); err != nil {
+	if err != nil {
 		return wrapCommandError("apm", err)
 	}
 	return nil
@@ -77,6 +80,16 @@ func RunAPMPrune(runner CommandRunner, root string) error {
 
 func defaultCommandRunner(name string, args ...string) ([]byte, error) {
 	return exec.Command(name, args...).CombinedOutput() //nolint:gosec // Command names are fixed and args are controlled by the caller.
+}
+
+func runCommandInDir(root string, name string, args ...string) error {
+	command := exec.Command(name, args...) //nolint:gosec // Command names are fixed and args are controlled by the caller.
+	command.Dir = root
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return &commandError{name: name, err: err, output: output}
+	}
+	return nil
 }
 
 func ensureBrew(runner CommandRunner) error {

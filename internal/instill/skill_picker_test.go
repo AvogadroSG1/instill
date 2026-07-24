@@ -567,7 +567,8 @@ func TestApplySkillSelectionWritesDiffAndReconciles(t *testing.T) {
 	}, manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm prune --root " + project.Root,
+		"apm install --root " + project.Root,
+		"apm prune",
 	})
 }
 
@@ -620,7 +621,8 @@ func TestApplySkillSelectionWritesAPMManifestAndRunsAPMPruneOnRemoval(t *testing
 	}, manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm prune --root " + project.Root,
+		"apm install --root " + project.Root,
+		"apm prune",
 	})
 }
 
@@ -658,7 +660,7 @@ func TestApplySkillSelectionRemovesStaleManifestSkillOnConfirm(t *testing.T) {
 	requireEqual(t, []string{filepath.Join(library, "skills", "docker")}, manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm prune --root " + project.Root,
+		"apm prune",
 	})
 }
 
