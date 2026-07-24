@@ -2,7 +2,9 @@ package instill
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -155,6 +157,24 @@ func TestRunAPMCompileIncludesOutputOnFailure(t *testing.T) {
 	if !strings.Contains(msg, "invalid skill reference") {
 		t.Fatalf("error message missing apm output: %s", msg)
 	}
+}
+
+func TestRunAPMPruneRunsFromProjectRootWithoutRootOption(t *testing.T) {
+	projectRoot := t.TempDir()
+	binDir := t.TempDir()
+	cwdFile := filepath.Join(t.TempDir(), "cwd")
+	apmPath := filepath.Join(binDir, "apm")
+	script := "#!/bin/sh\npwd > \"$APM_TEST_CWD_FILE\"\n"
+	requireNoError(t, os.WriteFile(apmPath, []byte(script), 0o755))
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("APM_TEST_CWD_FILE", cwdFile)
+
+	err := RunAPMPrune(nil, projectRoot)
+
+	requireNoError(t, err)
+	cwd, readErr := os.ReadFile(cwdFile)
+	requireNoError(t, readErr)
+	requireEqual(t, projectRoot, strings.TrimSpace(string(cwd)))
 }
 
 func requireNoError(t *testing.T, err error) {
