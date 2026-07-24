@@ -83,6 +83,23 @@ func TestEnsureAPMUpgradesWhenVersionOutdated(t *testing.T) {
 	requireEqual(t, []string{"apm --version", "brew upgrade apm", "apm --version"}, calls)
 }
 
+func TestEnsureAPMAcceptsDescriptiveVersionOutput(t *testing.T) {
+	calls := []string{}
+	runner := func(name string, args ...string) ([]byte, error) {
+		command := strings.TrimSpace(name + " " + strings.Join(args, " "))
+		calls = append(calls, command)
+		if command != "apm --version" {
+			t.Fatalf("unexpected command: %s", command)
+		}
+		return []byte("Agent Package Manager (APM) CLI version 0.26.0 (64a7fb5)\n"), nil
+	}
+
+	err := EnsureAPM(runner)
+
+	requireNoError(t, err)
+	requireEqual(t, []string{"apm --version"}, calls)
+}
+
 func TestEnsureAPMReturnsExitEnvironmentWhenVersionCheckFailsForOtherReason(t *testing.T) {
 	want := errors.New("permission denied")
 	runner := func(name string, args ...string) ([]byte, error) {
