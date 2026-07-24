@@ -113,7 +113,27 @@ func apmVersion(runner CommandRunner) (string, error) {
 		return "", NewExitError(ExitGeneral, "error: apm --version returned empty output")
 	}
 
-	return strings.TrimPrefix(fields[len(fields)-1], "v"), nil
+	for idx := len(fields) - 1; idx >= 0; idx-- {
+		candidate := strings.TrimPrefix(fields[idx], "v")
+		if isDottedNumericVersion(candidate) {
+			return candidate, nil
+		}
+	}
+
+	return "", NewExitError(ExitGeneral, "error: apm --version did not contain a semantic version")
+}
+
+func isDottedNumericVersion(value string) bool {
+	parts := strings.Split(value, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	for _, part := range parts {
+		if _, err := strconv.Atoi(part); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func runCommand(runner CommandRunner, name string, args ...string) error {
