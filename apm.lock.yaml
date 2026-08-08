@@ -1,0 +1,99 @@
+lockfile_version: '1'
+generated_at: '2026-07-24T16:26:23.129106+00:00'
+apm_version: 0.26.0
+dependencies:
+- repo_url: _local/git-pushing
+  name: git-pushing
+  version: 0.0.0
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/git-pushing
+  - .agents/skills/git-pushing/.DS_Store
+  - .agents/skills/git-pushing/SKILL.md
+  - .agents/skills/git-pushing/scripts/smart_commit.sh
+  - .claude/skills/git-pushing
+  - .claude/skills/git-pushing/.DS_Store
+  - .claude/skills/git-pushing/SKILL.md
+  - .claude/skills/git-pushing/scripts/smart_commit.sh
+  deployed_file_hashes:
+    .agents/skills/git-pushing/.DS_Store: sha256:642b51f2351f471bc31851a11c01f71649e9f5d75ca435d9aeda9936c4bf8d9b
+    .agents/skills/git-pushing/SKILL.md: sha256:dee8ccd555c16e042e7cf31d0e7cd20ffd82c8421a36349c287bb29117d39710
+    .agents/skills/git-pushing/scripts/smart_commit.sh: sha256:1d2520bfd9f3b03112eb3961cf6bcf17ed3e4397484bda119656e878e3d7975f
+    .claude/skills/git-pushing/.DS_Store: sha256:642b51f2351f471bc31851a11c01f71649e9f5d75ca435d9aeda9936c4bf8d9b
+    .claude/skills/git-pushing/SKILL.md: sha256:dee8ccd555c16e042e7cf31d0e7cd20ffd82c8421a36349c287bb29117d39710
+    .claude/skills/git-pushing/scripts/smart_commit.sh: sha256:1d2520bfd9f3b03112eb3961cf6bcf17ed3e4397484bda119656e878e3d7975f
+  source: local
+  local_path: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+deployments:
+- kind: project-relative
+  target: claude
+  value: .claude/skills/git-pushing
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/git-pushing/.DS_Store
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:642b51f2351f471bc31851a11c01f71649e9f5d75ca435d9aeda9936c4bf8d9b
+- kind: project-relative
+  target: claude
+  value: .claude/skills/git-pushing/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:dee8ccd555c16e042e7cf31d0e7cd20ffd82c8421a36349c287bb29117d39710
+- kind: project-relative
+  target: claude
+  value: .claude/skills/git-pushing/scripts/smart_commit.sh
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:1d2520bfd9f3b03112eb3961cf6bcf17ed3e4397484bda119656e878e3d7975f
+- kind: project-relative
+  target: codex
+  value: .agents/skills/git-pushing
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: null
+- kind: project-relative
+  target: codex
+  value: .agents/skills/git-pushing/.DS_Store
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:642b51f2351f471bc31851a11c01f71649e9f5d75ca435d9aeda9936c4bf8d9b
+- kind: project-relative
+  target: codex
+  value: .agents/skills/git-pushing/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:dee8ccd555c16e042e7cf31d0e7cd20ffd82c8421a36349c287bb29117d39710
+- kind: project-relative
+  target: codex
+  value: .agents/skills/git-pushing/scripts/smart_commit.sh
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:1d2520bfd9f3b03112eb3961cf6bcf17ed3e4397484bda119656e878e3d7975f

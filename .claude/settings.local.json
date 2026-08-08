@@ -21,7 +21,8 @@
       "Skill(workflow:git-advanced-workflows)",
       "WebFetch(domain:developers.openai.com)",
       "Bash(/usr/bin/find ~/peter_code/ai_support/skills -type d ! -perm -u=x)",
-      "Bash(rtk make *)"
+      "Bash(rtk make *)",
+      "WebFetch(domain:internal-sofa.main-prod.int.gcp.stackoverflow.net)"
     ]
   }
 }
