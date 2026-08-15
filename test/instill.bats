@@ -583,3 +583,52 @@ FIXTURE
   [ "$status" -eq 0 ]
   [[ "$(cat apm.yml)" == *"targets:"* ]]
 }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Targets: init with explicit --targets sets targets in manifest
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "init with explicit targets flag sets targets in apm.yml" {
+  make_skill docker
+  make_project
+  scan_library
+
+  run "$INSTILL_BIN" init --targets codex,opencode,hermes,pi,claude,antigravity --skills docker
+  [ "$status" -eq 0 ]
+  [ -f apm.yml ]
+
+  [[ "$(cat apm.yml)" == *"targets:"* ]]
+  [[ "$(cat apm.yml)" == *"codex"* ]]
+  [[ "$(cat apm.yml)" == *"opencode"* ]]
+  [[ "$(cat apm.yml)" == *"hermes"* ]]
+  [[ "$(cat apm.yml)" == *"pi"* ]]
+  [[ "$(cat apm.yml)" == *"claude"* ]]
+  [[ "$(cat apm.yml)" == *"antigravity"* ]]
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Targets: targets command updates and lists targets
+# ──────────────────────────────────────────────────────────────────────────────
+
+@test "targets command updates targets in apm.yml and lists them" {
+  make_skill docker
+  make_project
+  scan_library
+
+  run "$INSTILL_BIN" init --targets claude --skills docker
+  [ "$status" -eq 0 ]
+
+  run "$INSTILL_BIN" targets codex opencode hermes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ok: targets set to codex, opencode, hermes"* ]]
+
+  [[ "$(cat apm.yml)" == *"codex"* ]]
+  [[ "$(cat apm.yml)" == *"opencode"* ]]
+  [[ "$(cat apm.yml)" == *"hermes"* ]]
+
+  run "$INSTILL_BIN" targets
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"codex"* ]]
+  [[ "$output" == *"opencode"* ]]
+  [[ "$output" == *"hermes"* ]]
+}

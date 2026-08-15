@@ -23,12 +23,15 @@ var harnessDetection = []struct {
 	dir    string
 	target string
 }{
+	{".antigravity", "antigravity"},
 	{".claude", "claude"},
 	{".codex", "codex"},
 	{".cursor", "cursor"},
 	{".gemini", "gemini"},
+	{".hermes", "hermes"},
 	{".kiro", "kiro"},
 	{".opencode", "opencode"},
+	{".pi", "pi"},
 	{".windsurf", "windsurf"},
 }
 

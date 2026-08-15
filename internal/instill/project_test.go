@@ -41,13 +41,21 @@ func TestDetectHarnessTargetsReturnsMultipleHarnessesSorted(t *testing.T) {
 	requireNoError(t, os.MkdirAll(filepath.Join(root, ".codex"), 0o755))
 	requireNoError(t, os.MkdirAll(filepath.Join(root, ".claude"), 0o755))
 	requireNoError(t, os.MkdirAll(filepath.Join(root, ".gemini"), 0o755))
+	requireNoError(t, os.MkdirAll(filepath.Join(root, ".hermes"), 0o755))
+	requireNoError(t, os.MkdirAll(filepath.Join(root, ".pi"), 0o755))
+	requireNoError(t, os.MkdirAll(filepath.Join(root, ".antigravity"), 0o755))
+	requireNoError(t, os.MkdirAll(filepath.Join(root, ".opencode"), 0o755))
 
 	targets := DetectHarnessTargets(root)
 
-	requireEqual(t, 3, len(targets))
-	requireEqual(t, "claude", targets[0])
-	requireEqual(t, "codex", targets[1])
-	requireEqual(t, "gemini", targets[2])
+	requireEqual(t, 7, len(targets))
+	requireEqual(t, "antigravity", targets[0])
+	requireEqual(t, "claude", targets[1])
+	requireEqual(t, "codex", targets[2])
+	requireEqual(t, "gemini", targets[3])
+	requireEqual(t, "hermes", targets[4])
+	requireEqual(t, "opencode", targets[5])
+	requireEqual(t, "pi", targets[6])
 }
 
 func TestDetectHarnessTargetsIgnoresFiles(t *testing.T) {

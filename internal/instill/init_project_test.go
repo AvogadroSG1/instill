@@ -121,6 +121,88 @@ func TestInitProjectWritesTargetsWhenMultipleHarnessesDetected(t *testing.T) {
 	requireEqual(t, "codex", manifest.Targets[1])
 }
 
+func TestInitProjectWithExplicitTargets(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+
+	if err := InitProject(InitProjectOptions{
+		Root:        root,
+		LibraryPath: library,
+		Targets:     []string{"opencode", "hermes"},
+		TargetsSet:  true,
+		Runner:      recordingRunner(nil, nil),
+		Stdout:      &bytes.Buffer{},
+	}); err != nil {
+		t.Fatalf("InitProject() error = %v", err)
+	}
+
+	manifest, err := ReadAPMManifest(filepath.Join(root, "apm.yml"))
+	if err != nil {
+		t.Fatalf("ReadAPMManifest() error = %v", err)
+	}
+	if len(manifest.Targets) != 2 || manifest.Targets[0] != "opencode" || manifest.Targets[1] != "hermes" {
+		t.Fatalf("manifest targets = %#v, want [opencode, hermes]", manifest.Targets)
+	}
+}
+
+func TestInitProjectWithSelectTargetsCallback(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	requireNoError(t, os.MkdirAll(filepath.Join(root, ".claude"), 0o755))
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+
+	var receivedDetected []string
+	if err := InitProject(InitProjectOptions{
+		Root:        root,
+		LibraryPath: library,
+		Runner:      recordingRunner(nil, nil),
+		Stdout:      &bytes.Buffer{},
+		SelectTargets: func(detected []string) ([]string, error) {
+			receivedDetected = detected
+			return []string{"codex", "pi", "antigravity"}, nil
+		},
+	}); err != nil {
+		t.Fatalf("InitProject() error = %v", err)
+	}
+
+	if len(receivedDetected) != 1 || receivedDetected[0] != "claude" {
+		t.Fatalf("receivedDetected = %#v, want [claude]", receivedDetected)
+	}
+
+	manifest, err := ReadAPMManifest(filepath.Join(root, "apm.yml"))
+	if err != nil {
+		t.Fatalf("ReadAPMManifest() error = %v", err)
+	}
+	if len(manifest.Targets) != 3 || manifest.Targets[0] != "codex" || manifest.Targets[1] != "pi" || manifest.Targets[2] != "antigravity" {
+		t.Fatalf("manifest targets = %#v, want [codex, pi, antigravity]", manifest.Targets)
+	}
+}
+
+func TestInitProjectWithSelectTargetsErrorAborts(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+
+	err := InitProject(InitProjectOptions{
+		Root:        root,
+		LibraryPath: library,
+		Runner:      recordingRunner(nil, nil),
+		Stdout:      &bytes.Buffer{},
+		SelectTargets: func(detected []string) ([]string, error) {
+			return nil, NewExitError(ExitGeneral, "initialization cancelled")
+		},
+	})
+
+	if err == nil {
+		t.Fatal("InitProject() expected error, got nil")
+	}
+	assertPathMissing(t, filepath.Join(root, "apm.yml"))
+}
+
 func assertPathMissing(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Stat(path); !os.IsNotExist(err) {

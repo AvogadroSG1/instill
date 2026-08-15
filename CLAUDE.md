@@ -107,6 +107,7 @@ flowchart TD
 | Command | Domain entry | Purpose |
 |---------|--------------|---------|
 | `instill init` | `InitProject` | Create the APM manifest and optionally seed skill dependencies |
+| `instill targets` | `SetProjectTargets` | View or configure project target agents |
 | `instill pick` | `Pick` / `RunPickTUI` | Add or remove typed library entries |
 | `instill sync` | `SyncProject` | Run `apm install`, `apm compile`, then report counts |
 | `instill status` | `ProjectStatus` | Compare project APM state with the Library catalog |

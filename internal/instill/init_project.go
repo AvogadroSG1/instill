@@ -7,13 +7,16 @@ import (
 
 // InitProjectOptions configures project initialization.
 type InitProjectOptions struct {
-	Root         string
-	LibraryPath  string
-	Skills       []string
-	Force        bool
-	Runner       CommandRunner
-	Stdout       io.Writer
-	SelectSkills func(Project) error
+	Root          string
+	LibraryPath   string
+	Skills        []string
+	Targets       []string
+	TargetsSet    bool
+	Force         bool
+	Runner        CommandRunner
+	Stdout        io.Writer
+	SelectTargets func(detected []string) ([]string, error)
+	SelectSkills  func(Project) error
 }
 
 // InitProject initializes apm.yml for the selected project.
@@ -34,7 +37,17 @@ func InitProject(opts InitProjectOptions) error {
 	}
 
 	manifest := APMManifest{Name: filepath.Base(root), Version: "0.1.0"}
-	manifest.Targets = DetectHarnessTargets(root)
+	if opts.TargetsSet || len(opts.Targets) > 0 {
+		manifest.Targets = normalizeStringSlice(opts.Targets)
+	} else if opts.SelectTargets != nil {
+		selected, err := opts.SelectTargets(DetectHarnessTargets(root))
+		if err != nil {
+			return err
+		}
+		manifest.Targets = normalizeStringSlice(selected)
+	} else {
+		manifest.Targets = DetectHarnessTargets(root)
+	}
 	if len(opts.Skills) > 0 {
 		dependencies, err := resolveSkillDependencies(opts.LibraryPath, opts.Skills)
 		if err != nil {

@@ -13,14 +13,15 @@ import (
 )
 
 type commandConfig struct {
-	stdin   *os.File
-	stdout  io.Writer
-	stderr  io.Writer
-	args    []string
-	cwd     string
-	runner  instill.CommandRunner
-	isTTY   func(*os.File) bool
-	pickTUI func(instill.PickTUIOptions) error
+	stdin        *os.File
+	stdout       io.Writer
+	stderr       io.Writer
+	args         []string
+	cwd          string
+	runner       instill.CommandRunner
+	isTTY        func(*os.File) bool
+	pickTUI      func(instill.PickTUIOptions) error
+	targetPicker func(instill.TargetPickerOptions) ([]string, bool, error)
 }
 
 // Execute is the entry point for the instill CLI. It runs the root Cobra
@@ -68,6 +69,7 @@ func newRootCommand(cfg commandConfig) *cobra.Command {
 	root.AddCommand(newPickSkillsCommand(cfg))
 	root.AddCommand(newSyncCommand(cfg))
 	root.AddCommand(newStatusCommand(cfg))
+	root.AddCommand(newTargetsCommand(cfg))
 	checkSkills := newCheckSkillsCommand(cfg)
 	checkSkills.Hidden = true
 	root.AddCommand(checkSkills)

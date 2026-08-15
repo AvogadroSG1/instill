@@ -89,6 +89,7 @@ your-project/
 | Command | Description |
 |---------|-------------|
 | `instill init` | Create `apm.yml` for the current project and optionally seed skills |
+| `instill targets` | View or configure target agents for compilation |
 | `instill pick [name...]` | Add or remove typed library entries from `apm.yml` or copied `.apm/` content |
 | `instill sync` | Run `apm install`, then `apm compile`, and report synced counts |
 | `instill status` | Compare project APM state with the Library catalog |
