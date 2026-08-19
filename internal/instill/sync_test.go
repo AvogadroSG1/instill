@@ -35,7 +35,7 @@ func TestSyncProjectRunsInstallThenCompileAndReportsSummary(t *testing.T) {
 	requireNoError(t, err)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --root " + project.Root,
+		"apm install --legacy-skill-paths --root " + project.Root,
 		"apm compile --root " + project.Root,
 	})
 	requireContains(t, stdout.String(), "ok: synced 1 skills, 1 mcp servers, 1 instructions, 1 prompts")
@@ -91,7 +91,7 @@ func TestSyncProjectRepairsCatalogMCPAndPreservesRegistryDependency(t *testing.T
 	}, manifest.Dependencies.MCP)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --root " + project.Root,
+		"apm install --legacy-skill-paths --root " + project.Root,
 		"apm compile --root " + project.Root,
 	})
 }
@@ -180,6 +180,10 @@ func TestProjectStatusSupportsNestedSkillsAndMultiTypeDrift(t *testing.T) {
 			{Type: LibraryTypeSkill, Name: "cloud/azure/azure-cli", Path: "cloud/azure/azure-cli/SKILL.md"},
 			{Type: LibraryTypeSkill, Name: "golang-cli", Path: "golang-cli/SKILL.md"},
 		},
+		plugins: []CatalogEntry{
+			{Type: LibraryTypePlugin, Name: "shortcuts-playground/claude", Path: "shortcuts-playground/claude/.claude-plugin/plugin.json"},
+			{Type: LibraryTypePlugin, Name: "available-plugin", Path: "available-plugin/plugin.json"},
+		},
 		mcp: []CatalogEntry{
 			{Type: LibraryTypeMCP, Name: "current-mcp", Transport: "stdio", Command: "current-mcp"},
 			{Type: LibraryTypeMCP, Name: "available-mcp", Transport: "stdio", Command: "available-mcp"},
@@ -198,6 +202,8 @@ func TestProjectStatusSupportsNestedSkillsAndMultiTypeDrift(t *testing.T) {
 			APM: []string{
 				filepath.Join(library, "skills", "cloud", "azure", "azure-cli"),
 				filepath.Join(library, "skills", "missing", "skill"),
+				filepath.Join(library, "plugins", "shortcuts-playground", "claude"),
+				filepath.Join(library, "plugins", "missing-plugin"),
 			},
 			MCP: []MCPDependency{
 				{Name: "current-mcp", Command: "current-mcp"},
@@ -250,6 +256,9 @@ func TestProjectStatusSupportsNestedSkillsAndMultiTypeDrift(t *testing.T) {
 	requireNotContains(t, got, "available in library: skill cloud/azure/azure-cli")
 	requireContains(t, got, "removed from library: skill missing/skill")
 	requireContains(t, got, "available in library: skill golang-cli")
+	requireNotContains(t, got, "available in library: plugin shortcuts-playground/claude")
+	requireContains(t, got, "removed from library: plugin missing-plugin")
+	requireContains(t, got, "available in library: plugin available-plugin")
 	requireContains(t, got, "removed from library: mcp missing-mcp")
 	requireContains(t, got, "available in library: mcp available-mcp")
 	requireContains(t, got, "available in library: instruction available-instruction")
@@ -322,6 +331,7 @@ func TestProjectStatusReportsOrphanedCopiedContentWithoutLockData(t *testing.T) 
 
 type catalogLibrarySeed struct {
 	skills       []CatalogEntry
+	plugins      []CatalogEntry
 	mcp          []CatalogEntry
 	instructions []CatalogEntry
 	prompts      []CatalogEntry
@@ -332,6 +342,7 @@ func createCatalogLibrary(t *testing.T, seed catalogLibrarySeed) string {
 
 	root := t.TempDir()
 	writeCatalogFixtures(t, root, LibraryTypeSkill, seed.skills)
+	writeCatalogFixtures(t, root, LibraryTypePlugin, seed.plugins)
 	writeCatalogFixtures(t, root, LibraryTypeMCP, seed.mcp)
 	writeCatalogFixtures(t, root, LibraryTypeInstruction, seed.instructions)
 	writeCatalogFixtures(t, root, LibraryTypePrompt, seed.prompts)
@@ -405,6 +416,8 @@ func projectLibraryTypeDir(typ LibraryType) string {
 	switch typ {
 	case LibraryTypeSkill:
 		return "skills"
+	case LibraryTypePlugin:
+		return "plugins"
 	case LibraryTypeMCP:
 		return "mcp"
 	case LibraryTypeInstruction:
@@ -418,7 +431,7 @@ func projectLibraryTypeDir(typ LibraryType) string {
 
 func catalogContentRelativePath(entry CatalogEntry) string {
 	switch entry.Type {
-	case LibraryTypeSkill, LibraryTypeInstruction, LibraryTypePrompt:
+	case LibraryTypeSkill, LibraryTypePlugin, LibraryTypeInstruction, LibraryTypePrompt:
 		return entry.Path
 	default:
 		return ""
@@ -429,6 +442,8 @@ func catalogContent(entry CatalogEntry) string {
 	switch entry.Type {
 	case LibraryTypeSkill:
 		return "# skill " + entry.Name + "\n"
+	case LibraryTypePlugin:
+		return "{\"name\":\"" + entry.Name + "\"}\n"
 	case LibraryTypeInstruction:
 		return "# instruction " + entry.Name + "\n"
 	case LibraryTypePrompt:

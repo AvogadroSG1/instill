@@ -310,7 +310,7 @@ func importDirectoryContent(source string, libraryPath string) error {
 }
 
 func libraryTypeForMarker(name string) (LibraryType, bool) {
-	for _, typ := range []LibraryType{LibraryTypeSkill, LibraryTypeMCP, LibraryTypeInstruction, LibraryTypePrompt} {
+	for _, typ := range []LibraryType{LibraryTypeSkill, LibraryTypePlugin, LibraryTypeMCP, LibraryTypeInstruction, LibraryTypePrompt} {
 		if name == catalogMarkerFileName(typ) {
 			return typ, true
 		}
@@ -322,6 +322,8 @@ func librarySubdirName(typ LibraryType) string {
 	switch typ {
 	case LibraryTypeSkill:
 		return "skills"
+	case LibraryTypePlugin:
+		return "plugins"
 	case LibraryTypeMCP:
 		return "mcp"
 	case LibraryTypeInstruction:

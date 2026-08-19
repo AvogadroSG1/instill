@@ -1,8 +1,9 @@
 name: instill
 version: 0.1.0
 targets:
-    - claude
     - codex
+    - opencode
+    - claude
 dependencies:
     apm:
         - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing

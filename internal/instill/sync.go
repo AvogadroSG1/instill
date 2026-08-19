@@ -110,6 +110,13 @@ func ProjectStatus(opts StatusOptions) error {
 	if err := reportSkillStatus(opts.Stdout, opts.LibraryPath, manifest.Dependencies.APM, skillCatalog); err != nil {
 		return err
 	}
+	pluginCatalog, err := LoadCatalog(opts.LibraryPath, LibraryTypePlugin)
+	if err != nil {
+		return err
+	}
+	if err := reportPluginStatus(opts.Stdout, opts.LibraryPath, manifest.Dependencies.APM, pluginCatalog); err != nil {
+		return err
+	}
 	mcpCatalog, err := LoadCatalog(opts.LibraryPath, LibraryTypeMCP)
 	if err != nil {
 		return err
@@ -201,10 +208,14 @@ func reportSkillStatus(stdout io.Writer, libraryPath string, dependencies []stri
 		dependencyToName[filepath.Clean(skillDependencyPath(libraryPath, entry))] = entry.Name
 	}
 
+	pluginsRoot := filepath.Join(libraryPath, "plugins")
 	projectSkills := make(map[string]struct{}, len(dependencies))
 	for _, dependency := range dependencies {
 		name, ok := dependencyToName[filepath.Clean(dependency)]
 		if !ok {
+			if isUnderDir(pluginsRoot, dependency) {
+				continue
+			}
 			name = skillDependencyName(libraryPath, dependency)
 		}
 		projectSkills[name] = struct{}{}
@@ -223,6 +234,54 @@ func reportSkillStatus(stdout io.Writer, libraryPath string, dependencies []stri
 		}
 	}
 	return nil
+}
+
+func reportPluginStatus(stdout io.Writer, libraryPath string, dependencies []string, catalog []CatalogEntry) error {
+	if len(catalog) == 0 {
+		return nil
+	}
+	libraryPlugins := make(map[string]CatalogEntry, len(catalog))
+	dependencyToName := make(map[string]string, len(catalog))
+	for _, entry := range catalog {
+		libraryPlugins[entry.Name] = entry
+		dependencyToName[filepath.Clean(pluginDependencyPath(libraryPath, entry))] = entry.Name
+	}
+
+	pluginsRoot := filepath.Join(libraryPath, "plugins")
+	projectPlugins := make(map[string]struct{}, len(dependencies))
+	for _, dependency := range dependencies {
+		name, ok := dependencyToName[filepath.Clean(dependency)]
+		if !ok {
+			if !isUnderDir(pluginsRoot, dependency) {
+				continue
+			}
+			name = pluginDependencyName(libraryPath, dependency)
+		}
+		projectPlugins[name] = struct{}{}
+		if _, ok := libraryPlugins[name]; !ok {
+			if err := writeLine(stdout, "removed from library: plugin "+name); err != nil {
+				return err
+			}
+		}
+	}
+	for _, entry := range catalog {
+		if _, ok := projectPlugins[entry.Name]; ok {
+			continue
+		}
+		if err := writeLine(stdout, "available in library: plugin "+entry.Name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func isUnderDir(parent string, child string) bool {
+	rel, err := filepath.Rel(filepath.Clean(parent), filepath.Clean(child))
+	if err != nil {
+		return false
+	}
+	rel = filepath.Clean(rel)
+	return rel != "." && !strings.HasPrefix(rel, "..")
 }
 
 func reportMCPStatus(stdout io.Writer, dependencies []MCPDependency, catalog []CatalogEntry) error {

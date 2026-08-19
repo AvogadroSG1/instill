@@ -49,7 +49,7 @@ func RunAPMInstall(runner CommandRunner, root string) error {
 	if runner == nil {
 		runner = defaultCommandRunner
 	}
-	if err := runCommand(runner, "apm", "install", "--root", root); err != nil {
+	if err := runCommand(runner, "apm", "install", "--legacy-skill-paths", "--root", root); err != nil {
 		return wrapCommandError("apm", err)
 	}
 	return nil

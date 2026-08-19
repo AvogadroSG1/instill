@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-24T16:26:23.129106+00:00'
+generated_at: '2026-08-18T16:58:28.788544+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/git-pushing
@@ -8,20 +8,48 @@ dependencies:
   package_type: claude_skill
   deployed_files:
   - .agents/skills/git-pushing
-  - .agents/skills/git-pushing/.DS_Store
   - .agents/skills/git-pushing/SKILL.md
-  - .agents/skills/git-pushing/scripts/smart_commit.sh
   - .claude/skills/git-pushing
   - .claude/skills/git-pushing/.DS_Store
+  - .claude/skills/git-pushing/.opencode/commands/telemetry-inspect.md
+  - .claude/skills/git-pushing/.opencode/commands/telemetry-report.md
   - .claude/skills/git-pushing/SKILL.md
   - .claude/skills/git-pushing/scripts/smart_commit.sh
+  - .claude/skills/git-pushing/skillrun.yaml
+  - .codex/skills/git-pushing
+  - .codex/skills/git-pushing/.DS_Store
+  - .codex/skills/git-pushing/.opencode/commands/telemetry-inspect.md
+  - .codex/skills/git-pushing/.opencode/commands/telemetry-report.md
+  - .codex/skills/git-pushing/SKILL.md
+  - .codex/skills/git-pushing/scripts/smart_commit.sh
+  - .codex/skills/git-pushing/skillrun.yaml
+  - .opencode/skills/git-pushing
+  - .opencode/skills/git-pushing/.DS_Store
+  - .opencode/skills/git-pushing/.opencode/commands/telemetry-inspect.md
+  - .opencode/skills/git-pushing/.opencode/commands/telemetry-report.md
+  - .opencode/skills/git-pushing/SKILL.md
+  - .opencode/skills/git-pushing/scripts/smart_commit.sh
+  - .opencode/skills/git-pushing/skillrun.yaml
   deployed_file_hashes:
-    .agents/skills/git-pushing/.DS_Store: sha256:642b51f2351f471bc31851a11c01f71649e9f5d75ca435d9aeda9936c4bf8d9b
     .agents/skills/git-pushing/SKILL.md: sha256:dee8ccd555c16e042e7cf31d0e7cd20ffd82c8421a36349c287bb29117d39710
-    .agents/skills/git-pushing/scripts/smart_commit.sh: sha256:1d2520bfd9f3b03112eb3961cf6bcf17ed3e4397484bda119656e878e3d7975f
-    .claude/skills/git-pushing/.DS_Store: sha256:642b51f2351f471bc31851a11c01f71649e9f5d75ca435d9aeda9936c4bf8d9b
-    .claude/skills/git-pushing/SKILL.md: sha256:dee8ccd555c16e042e7cf31d0e7cd20ffd82c8421a36349c287bb29117d39710
-    .claude/skills/git-pushing/scripts/smart_commit.sh: sha256:1d2520bfd9f3b03112eb3961cf6bcf17ed3e4397484bda119656e878e3d7975f
+    .claude/skills/git-pushing/.DS_Store: sha256:5cb90aa486e315769c62b592c2621a06b3a8e333a131bc1893a25f4308a50b42
+    .claude/skills/git-pushing/.opencode/commands/telemetry-inspect.md: sha256:bf451c37be6f6ca9d0c329f27ec5763881ad0f2c5126ac9a7dab6683446520e3
+    .claude/skills/git-pushing/.opencode/commands/telemetry-report.md: sha256:73455707008886b8e16d6138841b8edbe5e32e5d02a1e451609343f762b936cd
+    .claude/skills/git-pushing/SKILL.md: sha256:bcbc15bbd772b276b185b6a4dbd727bfd588d5bcebe62f4603f9262a2d15564e
+    .claude/skills/git-pushing/scripts/smart_commit.sh: sha256:4e62a45a4839de3cedf3f8a0dcc3205140bc73f7147e68d218c63eb1e48c2308
+    .claude/skills/git-pushing/skillrun.yaml: sha256:77a84c08391e689358f811025e393b980a92979d3774a57064caee6e9b2d7bd5
+    .codex/skills/git-pushing/.DS_Store: sha256:5cb90aa486e315769c62b592c2621a06b3a8e333a131bc1893a25f4308a50b42
+    .codex/skills/git-pushing/.opencode/commands/telemetry-inspect.md: sha256:bf451c37be6f6ca9d0c329f27ec5763881ad0f2c5126ac9a7dab6683446520e3
+    .codex/skills/git-pushing/.opencode/commands/telemetry-report.md: sha256:73455707008886b8e16d6138841b8edbe5e32e5d02a1e451609343f762b936cd
+    .codex/skills/git-pushing/SKILL.md: sha256:bcbc15bbd772b276b185b6a4dbd727bfd588d5bcebe62f4603f9262a2d15564e
+    .codex/skills/git-pushing/scripts/smart_commit.sh: sha256:4e62a45a4839de3cedf3f8a0dcc3205140bc73f7147e68d218c63eb1e48c2308
+    .codex/skills/git-pushing/skillrun.yaml: sha256:77a84c08391e689358f811025e393b980a92979d3774a57064caee6e9b2d7bd5
+    .opencode/skills/git-pushing/.DS_Store: sha256:5cb90aa486e315769c62b592c2621a06b3a8e333a131bc1893a25f4308a50b42
+    .opencode/skills/git-pushing/.opencode/commands/telemetry-inspect.md: sha256:bf451c37be6f6ca9d0c329f27ec5763881ad0f2c5126ac9a7dab6683446520e3
+    .opencode/skills/git-pushing/.opencode/commands/telemetry-report.md: sha256:73455707008886b8e16d6138841b8edbe5e32e5d02a1e451609343f762b936cd
+    .opencode/skills/git-pushing/SKILL.md: sha256:bcbc15bbd772b276b185b6a4dbd727bfd588d5bcebe62f4603f9262a2d15564e
+    .opencode/skills/git-pushing/scripts/smart_commit.sh: sha256:4e62a45a4839de3cedf3f8a0dcc3205140bc73f7147e68d218c63eb1e48c2308
+    .opencode/skills/git-pushing/skillrun.yaml: sha256:77a84c08391e689358f811025e393b980a92979d3774a57064caee6e9b2d7bd5
   source: local
   local_path: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
 deployments:
@@ -42,7 +70,25 @@ deployments:
   owners:
   - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
   active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
-  content_hash: sha256:642b51f2351f471bc31851a11c01f71649e9f5d75ca435d9aeda9936c4bf8d9b
+  content_hash: sha256:5cb90aa486e315769c62b592c2621a06b3a8e333a131bc1893a25f4308a50b42
+- kind: project-relative
+  target: claude
+  value: .claude/skills/git-pushing/.opencode/commands/telemetry-inspect.md
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:bf451c37be6f6ca9d0c329f27ec5763881ad0f2c5126ac9a7dab6683446520e3
+- kind: project-relative
+  target: claude
+  value: .claude/skills/git-pushing/.opencode/commands/telemetry-report.md
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:73455707008886b8e16d6138841b8edbe5e32e5d02a1e451609343f762b936cd
 - kind: project-relative
   target: claude
   value: .claude/skills/git-pushing/SKILL.md
@@ -51,7 +97,7 @@ deployments:
   owners:
   - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
   active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
-  content_hash: sha256:dee8ccd555c16e042e7cf31d0e7cd20ffd82c8421a36349c287bb29117d39710
+  content_hash: sha256:bcbc15bbd772b276b185b6a4dbd727bfd588d5bcebe62f4603f9262a2d15564e
 - kind: project-relative
   target: claude
   value: .claude/skills/git-pushing/scripts/smart_commit.sh
@@ -60,7 +106,16 @@ deployments:
   owners:
   - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
   active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
-  content_hash: sha256:1d2520bfd9f3b03112eb3961cf6bcf17ed3e4397484bda119656e878e3d7975f
+  content_hash: sha256:4e62a45a4839de3cedf3f8a0dcc3205140bc73f7147e68d218c63eb1e48c2308
+- kind: project-relative
+  target: claude
+  value: .claude/skills/git-pushing/skillrun.yaml
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:77a84c08391e689358f811025e393b980a92979d3774a57064caee6e9b2d7bd5
 - kind: project-relative
   target: codex
   value: .agents/skills/git-pushing
@@ -72,15 +127,6 @@ deployments:
   content_hash: null
 - kind: project-relative
   target: codex
-  value: .agents/skills/git-pushing/.DS_Store
-  runtime: null
-  scope: project
-  owners:
-  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
-  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
-  content_hash: sha256:642b51f2351f471bc31851a11c01f71649e9f5d75ca435d9aeda9936c4bf8d9b
-- kind: project-relative
-  target: codex
   value: .agents/skills/git-pushing/SKILL.md
   runtime: null
   scope: project
@@ -90,10 +136,127 @@ deployments:
   content_hash: sha256:dee8ccd555c16e042e7cf31d0e7cd20ffd82c8421a36349c287bb29117d39710
 - kind: project-relative
   target: codex
-  value: .agents/skills/git-pushing/scripts/smart_commit.sh
+  value: .codex/skills/git-pushing
   runtime: null
   scope: project
   owners:
   - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
   active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
-  content_hash: sha256:1d2520bfd9f3b03112eb3961cf6bcf17ed3e4397484bda119656e878e3d7975f
+  content_hash: null
+- kind: project-relative
+  target: codex
+  value: .codex/skills/git-pushing/.DS_Store
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:5cb90aa486e315769c62b592c2621a06b3a8e333a131bc1893a25f4308a50b42
+- kind: project-relative
+  target: codex
+  value: .codex/skills/git-pushing/.opencode/commands/telemetry-inspect.md
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:bf451c37be6f6ca9d0c329f27ec5763881ad0f2c5126ac9a7dab6683446520e3
+- kind: project-relative
+  target: codex
+  value: .codex/skills/git-pushing/.opencode/commands/telemetry-report.md
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:73455707008886b8e16d6138841b8edbe5e32e5d02a1e451609343f762b936cd
+- kind: project-relative
+  target: codex
+  value: .codex/skills/git-pushing/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:bcbc15bbd772b276b185b6a4dbd727bfd588d5bcebe62f4603f9262a2d15564e
+- kind: project-relative
+  target: codex
+  value: .codex/skills/git-pushing/scripts/smart_commit.sh
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:4e62a45a4839de3cedf3f8a0dcc3205140bc73f7147e68d218c63eb1e48c2308
+- kind: project-relative
+  target: codex
+  value: .codex/skills/git-pushing/skillrun.yaml
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:77a84c08391e689358f811025e393b980a92979d3774a57064caee6e9b2d7bd5
+- kind: project-relative
+  target: opencode
+  value: .opencode/skills/git-pushing
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: null
+- kind: project-relative
+  target: opencode
+  value: .opencode/skills/git-pushing/.DS_Store
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:5cb90aa486e315769c62b592c2621a06b3a8e333a131bc1893a25f4308a50b42
+- kind: project-relative
+  target: opencode
+  value: .opencode/skills/git-pushing/.opencode/commands/telemetry-inspect.md
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:bf451c37be6f6ca9d0c329f27ec5763881ad0f2c5126ac9a7dab6683446520e3
+- kind: project-relative
+  target: opencode
+  value: .opencode/skills/git-pushing/.opencode/commands/telemetry-report.md
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:73455707008886b8e16d6138841b8edbe5e32e5d02a1e451609343f762b936cd
+- kind: project-relative
+  target: opencode
+  value: .opencode/skills/git-pushing/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:bcbc15bbd772b276b185b6a4dbd727bfd588d5bcebe62f4603f9262a2d15564e
+- kind: project-relative
+  target: opencode
+  value: .opencode/skills/git-pushing/scripts/smart_commit.sh
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:4e62a45a4839de3cedf3f8a0dcc3205140bc73f7147e68d218c63eb1e48c2308
+- kind: project-relative
+  target: opencode
+  value: .opencode/skills/git-pushing/skillrun.yaml
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+  content_hash: sha256:77a84c08391e689358f811025e393b980a92979d3774a57064caee6e9b2d7bd5

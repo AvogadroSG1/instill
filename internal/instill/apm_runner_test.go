@@ -176,6 +176,20 @@ func TestRunAPMCompileIncludesOutputOnFailure(t *testing.T) {
 	}
 }
 
+func TestRunAPMInstallPassesLegacySkillPathsFlag(t *testing.T) {
+	calls := []string{}
+	runner := func(name string, args ...string) ([]byte, error) {
+		command := strings.TrimSpace(name + " " + strings.Join(args, " "))
+		calls = append(calls, command)
+		return []byte("ok\n"), nil
+	}
+
+	err := RunAPMInstall(runner, "/tmp/project")
+
+	requireNoError(t, err)
+	requireEqual(t, []string{"apm install --legacy-skill-paths --root /tmp/project"}, calls)
+}
+
 func TestRunAPMPruneRunsFromProjectRootWithoutRootOption(t *testing.T) {
 	projectRoot := t.TempDir()
 	binDir := t.TempDir()

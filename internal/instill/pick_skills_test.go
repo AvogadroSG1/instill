@@ -36,7 +36,98 @@ func TestPickAddsSkillPathAndRunsAPMInstall(t *testing.T) {
 	requireEqual(t, []string{filepath.Join(library, "skills", "docker")}, manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --root " + project.Root,
+		"apm install --legacy-skill-paths --root " + project.Root,
+	})
+}
+
+func TestPickAddsPluginPathAndRunsAPMInstall(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		plugins: []CatalogEntry{{
+			Type: LibraryTypePlugin,
+			Name: "shortcuts-playground/claude",
+			Path: "shortcuts-playground/claude/.claude-plugin/plugin.json",
+		}},
+	})
+	project := createAPMProject(t, APMManifest{})
+	calls := []string{}
+
+	err := Pick(PickOptions{
+		Project:     project,
+		LibraryPath: library,
+		Type:        LibraryTypePlugin,
+		Add:         []string{"shortcuts-playground/claude"},
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
+	})
+
+	requireNoError(t, err)
+	manifest, readErr := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, readErr)
+	requireEqual(t, []string{filepath.Join(library, "plugins", "shortcuts-playground", "claude")}, manifest.Dependencies.APM)
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm install --legacy-skill-paths --root " + project.Root,
+	})
+}
+
+func TestPickUnknownPluginNamesTypedLibraryShowGuidance(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	project := createAPMProject(t, APMManifest{})
+
+	err := Pick(PickOptions{
+		Project:     project,
+		LibraryPath: library,
+		Type:        LibraryTypePlugin,
+		Add:         []string{"missing-plugin"},
+		Runner:      recordingRunner(nil, nil),
+		Stdout:      &bytes.Buffer{},
+	})
+
+	if err == nil {
+		t.Fatal("Pick() error = nil, want unknown plugin error")
+	}
+	if !strings.Contains(ErrorMessage(err), "instill library show --type plugin") {
+		t.Fatalf("error = %q, want typed library show guidance for plugin", ErrorMessage(err))
+	}
+}
+
+func TestPickPluginRemovalUpdatesManifestAndCallsAPMPrune(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		plugins: []CatalogEntry{{
+			Type: LibraryTypePlugin,
+			Name: "shortcuts-playground/claude",
+			Path: "shortcuts-playground/claude/.claude-plugin/plugin.json",
+		}},
+	})
+	project := createAPMProject(t, APMManifest{
+		Dependencies: APMDependencies{
+			APM: []string{filepath.Join(library, "plugins", "shortcuts-playground", "claude")},
+		},
+	})
+	calls := []string{}
+
+	err := Pick(PickOptions{
+		Project:     project,
+		LibraryPath: library,
+		Type:        LibraryTypePlugin,
+		Remove:      []string{"shortcuts-playground/claude"},
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
+	})
+
+	requireNoError(t, err)
+	manifest, readErr := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, readErr)
+	requireEqual(t, 0, len(manifest.Dependencies.APM))
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm prune",
 	})
 }
 
@@ -101,7 +192,7 @@ func TestPickAddsMCPBlockAndRunsAPMInstall(t *testing.T) {
 	}}, manifest.Dependencies.MCP)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --root " + project.Root,
+		"apm install --legacy-skill-paths --root " + project.Root,
 	})
 }
 
@@ -177,7 +268,7 @@ func TestPickCopiesInstructionAndRunsAPMInstall(t *testing.T) {
 	requireContains(t, got, "# instruction python-rules")
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --root " + project.Root,
+		"apm install --legacy-skill-paths --root " + project.Root,
 	})
 }
 
@@ -208,7 +299,7 @@ func TestPickCopiesPromptAndRunsAPMInstall(t *testing.T) {
 	requireContains(t, got, "# prompt debug")
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --root " + project.Root,
+		"apm install --legacy-skill-paths --root " + project.Root,
 	})
 }
 
@@ -281,7 +372,7 @@ func TestPickMixedAddAndRemoveRunsInstallThenPrune(t *testing.T) {
 	requireEqual(t, []string{filepath.Join(library, "skills", "golang")}, manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --root " + project.Root,
+		"apm install --legacy-skill-paths --root " + project.Root,
 		"apm prune",
 	})
 }

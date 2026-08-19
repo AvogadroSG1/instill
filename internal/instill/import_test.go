@@ -812,6 +812,7 @@ func TestImportDirectoryScansMarkersAndWritesCatalogs(t *testing.T) {
 	source := t.TempDir()
 	library := t.TempDir()
 	writeTypedLibraryMarker(t, filepath.Join(source, "vendor", "azure", "SKILL.md"), "# azure\n")
+	writeTypedLibraryMarker(t, filepath.Join(source, "shortcuts", "claude", ".claude-plugin", "plugin.json"), `{"name":"shortcuts","description":"Shortcuts plugin"}`)
 	writeTypedLibraryMarker(t, filepath.Join(source, "tools", "local-db", "config.json"), `{"transport":"stdio","command":"sqlite-mcp","args":["--db","dev.db"]}`)
 	writeTypedLibraryMarker(t, filepath.Join(source, "guidance", "python-rules", "INSTRUCTION.md"), "Use typing\n")
 	writeTypedLibraryMarker(t, filepath.Join(source, "templates", "debug", "PROMPT.md"), "/debug\n")
@@ -825,11 +826,12 @@ func TestImportDirectoryScansMarkersAndWritesCatalogs(t *testing.T) {
 	requireNoError(t, err)
 	wantNames := map[LibraryType]string{
 		LibraryTypeSkill:       "vendor/azure",
+		LibraryTypePlugin:      "shortcuts/claude",
 		LibraryTypeMCP:         "tools/local-db",
 		LibraryTypeInstruction: "guidance/python-rules",
 		LibraryTypePrompt:      "templates/debug",
 	}
-	for _, typ := range []LibraryType{LibraryTypeSkill, LibraryTypeMCP, LibraryTypeInstruction, LibraryTypePrompt} {
+	for _, typ := range []LibraryType{LibraryTypeSkill, LibraryTypePlugin, LibraryTypeMCP, LibraryTypeInstruction, LibraryTypePrompt} {
 		entries, loadErr := LoadCatalog(library, typ)
 		requireNoError(t, loadErr)
 		if len(entries) != 1 || entries[0].Name != wantNames[typ] {

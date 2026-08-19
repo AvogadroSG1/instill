@@ -632,3 +632,14 @@ FIXTURE
   [[ "$output" == *"opencode"* ]]
   [[ "$output" == *"hermes"* ]]
 }
+
+@test "init with opencode target creates apm.yml targeting opencode" {
+  make_skill docker
+  make_project
+  scan_library
+
+  run "$INSTILL_BIN" init --targets opencode --skills docker
+  [ "$status" -eq 0 ]
+  [ -f apm.yml ]
+  [[ "$(cat apm.yml)" == *"opencode"* ]]
+}

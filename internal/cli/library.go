@@ -55,7 +55,7 @@ func newLibraryAddCommand(cfg commandConfig) *cobra.Command {
 		},
 	}
 
-	command.Flags().Var(newLibraryTypeValue(&entry.Type), "type", "catalog type: skill, mcp, instruction, or prompt")
+	command.Flags().Var(newLibraryTypeValue(&entry.Type), "type", "catalog type: skill, plugin, mcp, instruction, or prompt")
 	command.Flags().StringVar(&entry.Name, "name", "", "entry name")
 	command.Flags().StringVar(&entry.Category, "category", "", "skill category")
 	command.Flags().StringVar(&entry.Path, "path", "", "relative content path")
@@ -93,7 +93,7 @@ func newLibraryShowCommand(cfg commandConfig) *cobra.Command {
 		},
 	}
 
-	command.Flags().Var(newLibraryTypeValue(&typ), "type", "catalog type: skill, mcp, instruction, or prompt")
+	command.Flags().Var(newLibraryTypeValue(&typ), "type", "catalog type: skill, plugin, mcp, instruction, or prompt")
 	command.Flags().StringVar(&filter, "filter", "", "case-insensitive name substring")
 	_ = command.MarkFlagRequired("type")
 
@@ -118,7 +118,7 @@ func (value *libraryTypeValue) String() string {
 func (value *libraryTypeValue) Set(raw string) error {
 	typ := instill.LibraryType(raw)
 	switch typ {
-	case instill.LibraryTypeSkill, instill.LibraryTypeMCP, instill.LibraryTypeInstruction, instill.LibraryTypePrompt:
+	case instill.LibraryTypeSkill, instill.LibraryTypePlugin, instill.LibraryTypeMCP, instill.LibraryTypeInstruction, instill.LibraryTypePrompt:
 		*value.target = typ
 		return nil
 	default:

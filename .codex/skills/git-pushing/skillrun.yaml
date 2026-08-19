@@ -1,0 +1,14 @@
+name: git-pushing
+model: sonnet
+prompt: |
+  Use the git-pushing skill in {{.Flag "mode"}} mode. Look at the current git
+  status in {{.Cwd}} and execute the {{.Flag "mode"}} workflow as described in
+  the skill. {{if .Flag "tag"}}Tag and release: {{.Flag "tag"}}.{{end}} {{.Args}}
+flags:
+  - {name: mode, default: push, enum: [push, pr, full, release]}
+  - {name: tag, default: ""}
+allowed_tools: ["Bash(git:*)", "Bash(gh:*)", "Bash(bash:*)", Read]
+output: text
+timeout: 600s
+requires:
+  bins: [git, gh]

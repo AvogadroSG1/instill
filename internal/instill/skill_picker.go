@@ -228,6 +228,19 @@ func currentProjectTypeSelection(project Project, libraryPath string, typ Librar
 			}
 		}
 		return normalizeStringSlice(selected), nil
+	case LibraryTypePlugin:
+		namesByDependency := make(map[string]string, len(entries))
+		for _, entry := range entries {
+			namesByDependency[pluginDependencyPath(libraryPath, entry)] = entry.Name
+		}
+
+		selected := make([]string, 0, len(manifest.Dependencies.APM))
+		for _, dependency := range manifest.Dependencies.APM {
+			if name, ok := namesByDependency[dependency]; ok {
+				selected = append(selected, name)
+			}
+		}
+		return normalizeStringSlice(selected), nil
 	case LibraryTypeMCP:
 		selected := make([]string, 0, len(manifest.Dependencies.MCP))
 		for _, dependency := range manifest.Dependencies.MCP {
@@ -351,6 +364,8 @@ func (m pickPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.moveType(-1)
 		case "s":
 			m.focusType(LibraryTypeSkill)
+		case "l":
+			m.focusType(LibraryTypePlugin)
 		case "m":
 			m.focusType(LibraryTypeMCP)
 		case "i":
@@ -485,13 +500,15 @@ func catalogEntryNames(entries []CatalogEntry) []string {
 }
 
 func pickLibraryTypes() []LibraryType {
-	return []LibraryType{LibraryTypeSkill, LibraryTypeMCP, LibraryTypeInstruction, LibraryTypePrompt}
+	return []LibraryType{LibraryTypeSkill, LibraryTypePlugin, LibraryTypeMCP, LibraryTypeInstruction, LibraryTypePrompt}
 }
 
 func pickTypeLabel(typ LibraryType) string {
 	switch typ {
 	case LibraryTypeSkill:
 		return "Skills"
+	case LibraryTypePlugin:
+		return "Plugins"
 	case LibraryTypeMCP:
 		return "MCP Servers"
 	case LibraryTypeInstruction:

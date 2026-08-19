@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/AvogadroSG1/instill/internal/instill"
 )
 
 func TestLibraryCommandHelpListsSubcommands(t *testing.T) {
@@ -55,5 +57,39 @@ func TestLibraryCommandShowSkipsAPMBootstrap(t *testing.T) {
 	}
 	if got := stdout.String(); got != "docker\n1 entries\n" {
 		t.Fatalf("stdout = %q, want skill catalog listing", got)
+	}
+}
+
+func TestLibraryCommandShowPlugin(t *testing.T) {
+	root := t.TempDir()
+	requireNoError := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	requireNoError(instill.WriteCatalog(root, instill.LibraryTypePlugin, []instill.CatalogEntry{
+		{
+			Type:        instill.LibraryTypePlugin,
+			Name:        "shortcuts-playground/claude",
+			Path:        "shortcuts-playground/claude/.claude-plugin/plugin.json",
+			Description: "Shortcuts playground",
+		},
+	}))
+	t.Setenv("INSTILL_LIBRARY_PATH", root)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"library", "show", "--type", "plugin"},
+		cwd:    t.TempDir(),
+	})
+
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	if got := stdout.String(); got != "shortcuts-playground/claude\n1 entries\n" {
+		t.Fatalf("stdout = %q, want plugin catalog listing", got)
 	}
 }

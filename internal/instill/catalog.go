@@ -16,6 +16,7 @@ type LibraryType string
 
 const (
 	LibraryTypeSkill       LibraryType = "skill"
+	LibraryTypePlugin      LibraryType = "plugin"
 	LibraryTypeMCP         LibraryType = "mcp"
 	LibraryTypeInstruction LibraryType = "instruction"
 	LibraryTypePrompt      LibraryType = "prompt"
@@ -133,7 +134,7 @@ func ScanLibrary(root string, stdout io.Writer) error {
 		stdout = io.Discard
 	}
 
-	for _, typ := range []LibraryType{LibraryTypeSkill, LibraryTypeMCP, LibraryTypeInstruction, LibraryTypePrompt} {
+	for _, typ := range []LibraryType{LibraryTypeSkill, LibraryTypePlugin, LibraryTypeMCP, LibraryTypeInstruction, LibraryTypePrompt} {
 		existing, err := LoadCatalog(root, typ)
 		if err != nil {
 			return err
@@ -237,6 +238,8 @@ func catalogFileSpec(root string, typ LibraryType) (string, []string, error) {
 	switch typ {
 	case LibraryTypeSkill:
 		return filepath.Join(root, "skills", "catalog.csv"), []string{"name", "category", "path", "description"}, nil
+	case LibraryTypePlugin:
+		return filepath.Join(root, "plugins", "catalog.csv"), []string{"name", "category", "path", "description"}, nil
 	case LibraryTypeMCP:
 		return filepath.Join(root, "mcp", "catalog.csv"), []string{"name", "transport", "command", "args", "url", "env", "description"}, nil
 	case LibraryTypeInstruction:
@@ -251,9 +254,9 @@ func catalogFileSpec(root string, typ LibraryType) (string, []string, error) {
 func parseCatalogRow(typ LibraryType, row []string) (CatalogEntry, error) {
 	entry := CatalogEntry{Type: typ}
 	switch typ {
-	case LibraryTypeSkill:
+	case LibraryTypeSkill, LibraryTypePlugin:
 		if len(row) != 4 {
-			return CatalogEntry{}, NewExitError(ExitGeneral, "error: malformed catalog: invalid skill row")
+			return CatalogEntry{}, NewExitError(ExitGeneral, fmt.Sprintf("error: malformed catalog: invalid %s row", typ))
 		}
 		entry.Name = row[0]
 		entry.Category = row[1]
@@ -308,6 +311,13 @@ func validateCatalogEntry(entry CatalogEntry) error {
 		if strings.TrimSpace(entry.Path) == "" {
 			return NewExitError(ExitGeneral, "error: malformed catalog: path is required")
 		}
+	case LibraryTypePlugin:
+		if strings.TrimSpace(entry.Name) == "" {
+			return NewExitError(ExitGeneral, "error: malformed catalog: name is required")
+		}
+		if strings.TrimSpace(entry.Path) == "" {
+			return NewExitError(ExitGeneral, "error: malformed catalog: path is required")
+		}
 	case LibraryTypeMCP:
 		switch entry.Transport {
 		case "stdio":
@@ -334,7 +344,7 @@ func validateCatalogEntry(entry CatalogEntry) error {
 
 func formatCatalogRow(entry CatalogEntry) []string {
 	switch entry.Type {
-	case LibraryTypeSkill:
+	case LibraryTypeSkill, LibraryTypePlugin:
 		return []string{entry.Name, entry.Category, entry.Path, entry.Description}
 	case LibraryTypeMCP:
 		return []string{
@@ -410,16 +420,38 @@ func discoverCatalogEntries(root string, typ LibraryType) ([]CatalogEntry, error
 			return err
 		}
 		relPath = filepath.ToSlash(relPath)
-		name := strings.TrimSuffix(relPath, "/"+marker)
+		var name string
+		if typ == LibraryTypePlugin {
+			dir := filepath.Dir(path)
+			baseName := filepath.Base(dir)
+			if baseName == ".claude-plugin" || baseName == ".codex-plugin" {
+				dir = filepath.Dir(dir)
+			}
+			relDir, err := filepath.Rel(baseDir, dir)
+			if err != nil {
+				return err
+			}
+			name = filepath.ToSlash(relDir)
+			if name == "." {
+				name = filepath.Base(dir)
+			}
+		} else {
+			name = strings.TrimSuffix(relPath, "/"+marker)
+		}
 		entry := CatalogEntry{
 			Type: typ,
 			Name: name,
 			Path: relPath,
 		}
-		if typ == LibraryTypeSkill {
+		if typ == LibraryTypeSkill || typ == LibraryTypePlugin {
 			entry.Category = filepath.ToSlash(filepath.Dir(name))
 			if entry.Category == "." {
 				entry.Category = ""
+			}
+		}
+		if typ == LibraryTypePlugin {
+			if meta, err := loadPluginMetadata(path); err == nil && strings.TrimSpace(meta.Description) != "" {
+				entry.Description = meta.Description
 			}
 		}
 		if typ == LibraryTypeMCP {
@@ -487,6 +519,8 @@ func catalogMarkerFileName(typ LibraryType) string {
 	switch typ {
 	case LibraryTypeSkill:
 		return "SKILL.md"
+	case LibraryTypePlugin:
+		return "plugin.json"
 	case LibraryTypeMCP:
 		return "config.json"
 	case LibraryTypeInstruction:
@@ -496,6 +530,26 @@ func catalogMarkerFileName(typ LibraryType) string {
 	default:
 		return ""
 	}
+}
+
+type pluginMetadataFile struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+func loadPluginMetadata(path string) (pluginMetadataFile, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // Scan reads marker files under the selected library root.
+	if err != nil {
+		return pluginMetadataFile{}, err
+	}
+	var meta pluginMetadataFile
+	if len(bytes.TrimSpace(data)) == 0 {
+		return meta, nil
+	}
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return pluginMetadataFile{}, nil
+	}
+	return meta, nil
 }
 
 type mcpConfigFile struct {

@@ -61,6 +61,8 @@ func Pick(opts PickOptions) error {
 	switch opts.Type {
 	case LibraryTypeSkill:
 		manifest.Dependencies.APM, err = applySkillPick(manifest.Dependencies.APM, opts.LibraryPath, entriesByName, opts.Add, opts.Remove)
+	case LibraryTypePlugin:
+		manifest.Dependencies.APM, err = applyPluginPick(manifest.Dependencies.APM, opts.LibraryPath, entriesByName, opts.Add, opts.Remove)
 	case LibraryTypeMCP:
 		manifest.Dependencies.MCP, err = applyMCPPick(manifest.Dependencies.MCP, entriesByName, opts.Add, opts.Remove)
 	case LibraryTypeInstruction:
@@ -182,6 +184,63 @@ func applySkillPick(current []string, libraryPath string, entriesByName map[stri
 		next = append(next, dependency)
 	}
 	return normalizeStringSlice(next), nil
+}
+
+func applyPluginPick(current []string, libraryPath string, entriesByName map[string]CatalogEntry, add []string, remove []string) ([]string, error) {
+	byName := make(map[string]string, len(current))
+	dependencyToName := make(map[string]string, len(entriesByName))
+	for _, entry := range entriesByName {
+		dependencyToName[filepath.Clean(pluginDependencyPath(libraryPath, entry))] = entry.Name
+	}
+	for _, dependency := range current {
+		name, ok := dependencyToName[filepath.Clean(dependency)]
+		if !ok {
+			name = pluginDependencyName(libraryPath, dependency)
+		}
+		byName[name] = dependency
+	}
+	for _, name := range normalizeSkills(add) {
+		entry, ok := entriesByName[name]
+		if !ok {
+			return nil, NewExitError(ExitGeneral, "error: unknown plugin: "+name+" - run 'instill library show --type plugin' to see available plugins")
+		}
+		byName[name] = pluginDependencyPath(libraryPath, entry)
+	}
+	for _, name := range normalizeSkills(remove) {
+		if _, ok := byName[name]; !ok {
+			if _, ok := entriesByName[name]; !ok {
+				return nil, NewExitError(ExitGeneral, "error: unknown plugin: "+name+" - run 'instill library show --type plugin' to see available plugins")
+			}
+		}
+		delete(byName, name)
+	}
+
+	next := make([]string, 0, len(byName))
+	for _, dependency := range byName {
+		next = append(next, dependency)
+	}
+	return normalizeStringSlice(next), nil
+}
+
+func pluginDependencyPath(libraryPath string, entry CatalogEntry) string {
+	pluginDir := filepath.Dir(entry.Path)
+	if filepath.Base(pluginDir) == ".claude-plugin" || filepath.Base(pluginDir) == ".codex-plugin" {
+		pluginDir = filepath.Dir(pluginDir)
+	}
+	return filepath.Join(libraryPath, "plugins", filepath.FromSlash(pluginDir))
+}
+
+func pluginDependencyName(libraryPath string, dependency string) string {
+	pluginsRoot := filepath.Join(libraryPath, "plugins")
+	relative, err := filepath.Rel(pluginsRoot, dependency)
+	if err != nil {
+		return filepath.Base(dependency)
+	}
+	relative = filepath.Clean(relative)
+	if relative == "." || strings.HasPrefix(relative, "..") {
+		return filepath.Base(dependency)
+	}
+	return filepath.ToSlash(relative)
 }
 
 func applyMCPPick(current []MCPDependency, entriesByName map[string]CatalogEntry, add []string, remove []string) ([]MCPDependency, error) {
@@ -332,6 +391,8 @@ func libraryTypeDir(typ LibraryType) string {
 	switch typ {
 	case LibraryTypeSkill:
 		return "skills"
+	case LibraryTypePlugin:
+		return "plugins"
 	case LibraryTypeMCP:
 		return "mcp"
 	case LibraryTypeInstruction:

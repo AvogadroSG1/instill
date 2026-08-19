@@ -47,6 +47,7 @@ func TestPickPickerTopLevelShowsLibraryTypesWithCounts(t *testing.T) {
 
 	model := newPickPickerModel([]pickTypeState{
 		{typ: LibraryTypeSkill, available: []string{"docker", "go"}, selected: []string{"docker"}},
+		{typ: LibraryTypePlugin, available: []string{"shortcuts-playground/claude"}, selected: []string{}},
 		{typ: LibraryTypeMCP, available: []string{"filesystem", "github", "slack"}, selected: []string{"github", "slack"}},
 		{typ: LibraryTypeInstruction, available: []string{"architecture"}, selected: []string{}},
 		{typ: LibraryTypePrompt, available: []string{"daily", "retro"}, selected: []string{"daily"}},
@@ -55,6 +56,7 @@ func TestPickPickerTopLevelShowsLibraryTypesWithCounts(t *testing.T) {
 	view := model.View()
 	want := []string{
 		"▶ Skills (2 available, 1 installed)",
+		"  Plugins (1 available, 0 installed)",
 		"  MCP Servers (3 available, 2 installed)",
 		"  Instructions (1 available, 0 installed)",
 		"  Prompts (2 available, 1 installed)",
@@ -567,7 +569,7 @@ func TestApplySkillSelectionWritesDiffAndReconciles(t *testing.T) {
 	}, manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --root " + project.Root,
+		"apm install --legacy-skill-paths --root " + project.Root,
 		"apm prune",
 	})
 }
@@ -621,7 +623,7 @@ func TestApplySkillSelectionWritesAPMManifestAndRunsAPMPruneOnRemoval(t *testing
 	}, manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --root " + project.Root,
+		"apm install --legacy-skill-paths --root " + project.Root,
 		"apm prune",
 	})
 }

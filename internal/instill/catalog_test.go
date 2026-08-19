@@ -39,6 +39,37 @@ func TestLoadCatalogReadsSkillSchema(t *testing.T) {
 	}, entries)
 }
 
+func TestLoadCatalogReadsPluginSchema(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	requireNoError(t, os.MkdirAll(filepath.Join(root, "plugins"), 0o755))
+	requireNoError(t, os.WriteFile(
+		filepath.Join(root, "plugins", "catalog.csv"),
+		[]byte("name,category,path,description\nshortcuts-playground/claude,shortcuts-playground,shortcuts-playground/claude/.claude-plugin/plugin.json,Shortcuts plugin\ndocker,,docker/plugin.json,Container plugin\n"),
+		0o644,
+	))
+
+	entries, err := LoadCatalog(root, LibraryTypePlugin)
+
+	requireNoError(t, err)
+	requireEqual(t, []CatalogEntry{
+		{
+			Type:        LibraryTypePlugin,
+			Name:        "docker",
+			Path:        "docker/plugin.json",
+			Description: "Container plugin",
+		},
+		{
+			Type:        LibraryTypePlugin,
+			Name:        "shortcuts-playground/claude",
+			Category:    "shortcuts-playground",
+			Path:        "shortcuts-playground/claude/.claude-plugin/plugin.json",
+			Description: "Shortcuts plugin",
+		},
+	}, entries)
+}
+
 func TestLoadCatalogReadsMCPSchema(t *testing.T) {
 	t.Parallel()
 
@@ -189,6 +220,39 @@ func TestWriteCatalogWritesSkillSchemaSortedByName(t *testing.T) {
 	requireEqual(t, want, got)
 }
 
+func TestWriteCatalogWritesPluginSchema(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	entries := []CatalogEntry{
+		{
+			Type:        LibraryTypePlugin,
+			Name:        "docker",
+			Path:        "docker/plugin.json",
+			Description: "Container plugin",
+		},
+		{
+			Type:        LibraryTypePlugin,
+			Name:        "shortcuts-playground/claude",
+			Category:    "shortcuts-playground",
+			Path:        "shortcuts-playground/claude/.claude-plugin/plugin.json",
+			Description: "Shortcuts plugin",
+		},
+	}
+
+	err := WriteCatalog(root, LibraryTypePlugin, entries)
+
+	requireNoError(t, err)
+	got := readFile(t, filepath.Join(root, "plugins", "catalog.csv"))
+	want := strings.Join([]string{
+		"name,category,path,description",
+		"docker,,docker/plugin.json,Container plugin",
+		"shortcuts-playground/claude,shortcuts-playground,shortcuts-playground/claude/.claude-plugin/plugin.json,Shortcuts plugin",
+		"",
+	}, "\n")
+	requireEqual(t, want, got)
+}
+
 func TestWriteCatalogWritesMCPSchema(t *testing.T) {
 	t.Parallel()
 
@@ -321,6 +385,16 @@ func TestScanLibraryWritesCatalogsAndPreservesManualMetadata(t *testing.T) {
 		Path: "python-rules/INSTRUCTION.md",
 	}}, instructions)
 
+	plugins, err := LoadCatalog(root, LibraryTypePlugin)
+	requireNoError(t, err)
+	requireEqual(t, []CatalogEntry{{
+		Type:        LibraryTypePlugin,
+		Name:        "shortcuts-playground/claude",
+		Category:    "shortcuts-playground",
+		Path:        "shortcuts-playground/claude/.claude-plugin/plugin.json",
+		Description: "Shortcuts description",
+	}}, plugins)
+
 	prompts, err := LoadCatalog(root, LibraryTypePrompt)
 	requireNoError(t, err)
 	requireEqual(t, []CatalogEntry{{
@@ -417,6 +491,12 @@ func createTypedLibrary(t *testing.T) string {
 
 	root := t.TempDir()
 	mustWriteCatalogMarker(t, filepath.Join(root, "skills", "cloud", "azure", "azure-cli", "SKILL.md"))
+	requireNoError(t, os.MkdirAll(filepath.Join(root, "plugins", "shortcuts-playground", "claude", ".claude-plugin"), 0o755))
+	requireNoError(t, os.WriteFile(
+		filepath.Join(root, "plugins", "shortcuts-playground", "claude", ".claude-plugin", "plugin.json"),
+		[]byte("{\"name\":\"shortcuts-playground\",\"description\":\"Shortcuts description\"}\n"),
+		0o644,
+	))
 	requireNoError(t, os.MkdirAll(filepath.Join(root, "mcp", "local-db"), 0o755))
 	requireNoError(t, os.WriteFile(
 		filepath.Join(root, "mcp", "local-db", "config.json"),

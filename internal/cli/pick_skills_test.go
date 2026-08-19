@@ -239,6 +239,47 @@ func TestPickCLIRemoveModeUsesAllNamesAsRemovals(t *testing.T) {
 	}
 }
 
+func TestPickCLIAddsPluginDependency(t *testing.T) {
+	root := t.TempDir()
+	library := t.TempDir()
+	requireNoError := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	requireNoError(instill.WriteCatalog(library, instill.LibraryTypePlugin, []instill.CatalogEntry{
+		{
+			Type:        instill.LibraryTypePlugin,
+			Name:        "shortcuts-playground/claude",
+			Path:        "shortcuts-playground/claude/.claude-plugin/plugin.json",
+			Description: "Shortcuts playground",
+		},
+	}))
+	requireNoError(instill.WriteAPMManifestAtomic(filepath.Join(root, "apm.yml"), instill.APMManifest{}))
+	t.Setenv("SKILL_LIBRARY_PATH", library)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"pick", "--type", "plugin", "shortcuts-playground/claude"},
+		cwd:    root,
+		runner: recordingRunner(nil),
+	})
+
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	data, err := os.ReadFile(filepath.Join(root, "apm.yml"))
+	if err != nil {
+		t.Fatalf("ReadFile(apm.yml) error = %v", err)
+	}
+	if !strings.Contains(string(data), filepath.Join(library, "plugins", "shortcuts-playground", "claude")) {
+		t.Fatalf("manifest = %q, want shortcuts-playground/claude dependency", string(data))
+	}
+}
+
 func createPickCatalogLibrary(t *testing.T, mcpEntries []instill.CatalogEntry) string {
 	t.Helper()
 
