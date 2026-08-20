@@ -14,7 +14,7 @@ func TestSyncProjectRunsInstallThenCompileAndReportsSummary(t *testing.T) {
 	library := createCatalogLibrary(t, catalogLibrarySeed{})
 	project := createAPMProject(t, APMManifest{
 		Dependencies: APMDependencies{
-			APM: []string{filepath.Join(library, "skills", "docker")},
+			APM: localDependencies(filepath.Join(library, "skills", "docker")),
 			MCP: []MCPDependency{{Name: "local-db", Command: "sqlite-mcp"}},
 		},
 	})
@@ -132,10 +132,10 @@ func TestProjectStatusReportsRemovedAvailableAndHashMismatch(t *testing.T) {
 	})
 	project := createAPMProject(t, APMManifest{
 		Dependencies: APMDependencies{
-			APM: []string{
+			APM: localDependencies(
 				filepath.Join(library, "skills", "docker"),
 				filepath.Join(library, "skills", "missing"),
-			},
+			),
 		},
 	})
 	requireNoError(t, os.MkdirAll(filepath.Join(project.Root, ".apm", "instructions"), 0o755))
@@ -199,12 +199,12 @@ func TestProjectStatusSupportsNestedSkillsAndMultiTypeDrift(t *testing.T) {
 	})
 	project := createAPMProject(t, APMManifest{
 		Dependencies: APMDependencies{
-			APM: []string{
+			APM: localDependencies(
 				filepath.Join(library, "skills", "cloud", "azure", "azure-cli"),
 				filepath.Join(library, "skills", "missing", "skill"),
 				filepath.Join(library, "plugins", "shortcuts-playground", "claude"),
 				filepath.Join(library, "plugins", "missing-plugin"),
-			},
+			),
 			MCP: []MCPDependency{
 				{Name: "current-mcp", Command: "current-mcp"},
 				{Name: "missing-mcp", Command: "missing-mcp"},

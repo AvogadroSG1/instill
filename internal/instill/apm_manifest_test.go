@@ -14,7 +14,7 @@ func TestWriteAPMManifestAtomicWritesYAMLDependencies(t *testing.T) {
 		Name:    "my-project",
 		Version: "1.0.0",
 		Dependencies: APMDependencies{
-			APM: []string{"/library/skills/golang-testing"},
+			APM: localDependencies("/library/skills/golang-testing"),
 			MCP: []MCPDependency{{
 				Name: "local-db", Transport: "stdio", Registry: false,
 				Command: "sqlite-mcp", Args: []string{"--db", "dev.db"},

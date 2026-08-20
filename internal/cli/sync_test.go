@@ -16,7 +16,7 @@ func TestSyncCLIReportsSummary(t *testing.T) {
 
 	root := createAPMProjectRoot(t, instill.APMManifest{
 		Dependencies: instill.APMDependencies{
-			APM: []string{"/library/skills/docker"},
+			APM: instill.LocalDependencies("/library/skills/docker"),
 			MCP: []instill.MCPDependency{{Name: "local-db", Command: "sqlite-mcp"}},
 		},
 	})

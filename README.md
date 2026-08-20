@@ -59,6 +59,28 @@ Expected library shape:
 
 Run `instill library scan` to create or refresh catalog CSV files from library content.
 
+### Remote Skills
+
+Register a GitHub skill with its repository alone:
+
+```bash
+instill library add --type skill --repository owner/repo
+```
+
+Instill derives the skill name from `repo`, verifies `skills/{repo}/SKILL.md`, and records the canonical clone URL (`https://github.com/owner/repo.git`), virtual package path (`skills/{repo}`), and the default branch's full immutable commit SHA in `skills/catalog.csv`. The expanded skill catalog schema is `name,category,path,source,repository,ref,description`; existing four-column local catalogs remain readable and are migrated on write.
+
+Public repositories require no special setup. Private repositories use the user's normal Git credential helpers and SSH/HTTPS configuration when Git accesses GitHub. Instill never accepts, writes, or stores credentials.
+
+The catalog SHA is the source pin. When APM installs it, its lockfile records the resolved package as a second pin. Instill MUST NOT update either pin automatically. To intentionally refresh a remote skill to its current default-branch commit, run:
+
+```bash
+instill library update --type skill --name repo
+instill pick --type skill repo
+instill sync
+```
+
+The explicit `pick` updates this project's manifest to the catalog SHA. `sync` alone MUST NOT change project dependency refs. Review and commit the catalog, manifest, and APM lockfile changes after an explicit upgrade.
+
 ## Project Workflow
 
 ```bash
@@ -95,6 +117,7 @@ your-project/
 | `instill status` | Compare project APM state with the Library catalog |
 | `instill library scan` | Rebuild typed catalog CSV files from library content |
 | `instill library add` | Add one typed catalog entry |
+| `instill library update --type skill --name NAME` | Refresh an explicitly selected remote skill's immutable SHA pin |
 | `instill library show` | List typed catalog entries |
 | `instill import` | Import legacy instill, graft, Claude config, or generic directories |
 | `instill bootstrap` | Ensure APM is installed and meets the minimum version |

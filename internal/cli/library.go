@@ -13,11 +13,13 @@ func newLibraryCommand(cfg commandConfig) *cobra.Command {
 	command.AddCommand(newLibraryScanCommand(cfg))
 	command.AddCommand(newLibraryAddCommand(cfg))
 	command.AddCommand(newLibraryShowCommand(cfg))
+	command.AddCommand(newLibraryUpdateCommand(cfg))
 	return command
 }
 
 func newLibraryScanCommand(cfg commandConfig) *cobra.Command {
-	return &cobra.Command{
+	var typ instill.LibraryType
+	command := &cobra.Command{
 		Use:   "scan",
 		Short: "Scan the configured library and rebuild catalog CSVs",
 		Args:  cobra.NoArgs,
@@ -30,19 +32,28 @@ func newLibraryScanCommand(cfg commandConfig) *cobra.Command {
 				return err
 			}
 
+			if typ != "" {
+				return instill.ScanLibraryType(libraryPath, typ, cfg.stdout)
+			}
 			return instill.ScanLibrary(libraryPath, cfg.stdout)
 		},
 	}
+	command.Flags().Var(newLibraryTypeValue(&typ), "type", "catalog type to scan")
+	return command
 }
 
 func newLibraryAddCommand(cfg commandConfig) *cobra.Command {
 	var entry instill.CatalogEntry
+	var repository string
 
 	command := &cobra.Command{
 		Use:   "add",
 		Short: "Add a catalog entry to the configured library",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
+			if repository == "" && entry.Name == "" {
+				return instill.NewExitError(instill.ExitGeneral, "error: required flag(s) \"name\" not set")
+			}
 			libraryPath, err := instill.ResolveLibraryPath(instill.ConfigResolverOptions{
 				Stdin:  cfg.stdin,
 				Stderr: cfg.stderr,
@@ -51,6 +62,12 @@ func newLibraryAddCommand(cfg commandConfig) *cobra.Command {
 				return err
 			}
 
+			if repository != "" {
+				if entry.Type != instill.LibraryTypeSkill {
+					return instill.NewExitError(instill.ExitGeneral, "error: --repository is only supported for skills")
+				}
+				return instill.AddRemoteSkill(libraryPath, repository, cfg.runner)
+			}
 			return instill.AddCatalogEntry(libraryPath, entry)
 		},
 	}
@@ -66,9 +83,34 @@ func newLibraryAddCommand(cfg commandConfig) *cobra.Command {
 	command.Flags().StringSliceVar(&entry.Env, "env", nil, "mcp environment entries")
 	command.Flags().StringVar(&entry.ApplyTo, "apply-to", "", "instruction apply_to glob")
 	command.Flags().StringVar(&entry.Description, "description", "", "entry description")
+	command.Flags().StringVar(&repository, "repository", "", "GitHub owner/repo for a remote skill")
+	_ = command.MarkFlagRequired("type")
+
+	return command
+}
+
+func newLibraryUpdateCommand(cfg commandConfig) *cobra.Command {
+	var typ instill.LibraryType
+	var name string
+	command := &cobra.Command{
+		Use:   "update",
+		Short: "Refresh a remote skill's default-branch commit pin",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if typ != instill.LibraryTypeSkill {
+				return instill.NewExitError(instill.ExitGeneral, "error: update is only supported for skills")
+			}
+			libraryPath, err := instill.ResolveLibraryPath(instill.ConfigResolverOptions{Stdin: cfg.stdin, Stderr: cfg.stderr})
+			if err != nil {
+				return err
+			}
+			return instill.UpdateRemoteSkill(libraryPath, name, cfg.runner)
+		},
+	}
+	command.Flags().Var(newLibraryTypeValue(&typ), "type", "catalog type: skill")
+	command.Flags().StringVar(&name, "name", "", "remote skill name")
 	_ = command.MarkFlagRequired("type")
 	_ = command.MarkFlagRequired("name")
-
 	return command
 }
 

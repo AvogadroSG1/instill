@@ -19,10 +19,10 @@ func TestStatusCLIReportsDrift(t *testing.T) {
 	})
 	root := createAPMProjectRoot(t, instill.APMManifest{
 		Dependencies: instill.APMDependencies{
-			APM: []string{
+			APM: instill.LocalDependencies(
 				filepath.Join(library, "skills", "docker"),
 				filepath.Join(library, "skills", "missing"),
-			},
+			),
 		},
 	})
 	if err := os.WriteFile(filepath.Join(root, "apm.lock.yaml"), []byte("instructions: []\n"), 0o644); err != nil {

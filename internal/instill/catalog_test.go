@@ -212,9 +212,9 @@ func TestWriteCatalogWritesSkillSchemaSortedByName(t *testing.T) {
 	requireNoError(t, err)
 	got := readFile(t, filepath.Join(root, "skills", "catalog.csv"))
 	want := strings.Join([]string{
-		"name,category,path,description",
-		"cloud/azure/azure-cli,cloud/azure,cloud/azure/azure-cli/SKILL.md,Azure CLI helper",
-		"docker,,docker/SKILL.md,Container workflow",
+		"name,category,path,source,repository,ref,description",
+		"cloud/azure/azure-cli,cloud/azure,cloud/azure/azure-cli/SKILL.md,,,,Azure CLI helper",
+		"docker,,docker/SKILL.md,,,,Container workflow",
 		"",
 	}, "\n")
 	requireEqual(t, want, got)
@@ -466,6 +466,21 @@ func TestScanLibraryPreservesExistingEntryWhenPathMatchesDiscoveredContent(t *te
 		Path:        "cloud/azure/azure-cli/SKILL.md",
 		Description: "Manual alias",
 	}}, skills)
+}
+
+func TestScanLibraryTypeOnlyWritesRequestedCatalog(t *testing.T) {
+	t.Parallel()
+
+	root := createTypedLibrary(t)
+	pluginCatalog := filepath.Join(root, "plugins", "catalog.csv")
+	requireNoError(t, os.WriteFile(pluginCatalog, []byte("preserve this catalog\n"), 0o644))
+
+	requireNoError(t, ScanLibraryType(root, LibraryTypeSkill, &bytes.Buffer{}))
+
+	requireEqual(t, "preserve this catalog\n", readFile(t, pluginCatalog))
+	entries, err := LoadCatalog(root, LibraryTypeSkill)
+	requireNoError(t, err)
+	requireEqual(t, 1, len(entries))
 }
 
 func TestScanLibraryReturnsClearErrorForIncompleteDiscoveredMCPConfig(t *testing.T) {

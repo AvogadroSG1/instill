@@ -52,7 +52,7 @@ func TestImportOldInstillWritesCatalogAndManifestAndRemovesLegacyArtifacts(t *te
 	manifest, err := ReadAPMManifest(ProjectAPMPath(root))
 	requireNoError(t, err)
 	wantDependency := filepath.Join(library, "skills", "cloud", "azure", "azure-cli")
-	requireEqual(t, []string{wantDependency}, manifest.Dependencies.APM)
+	requireEqual(t, localDependencies(wantDependency), manifest.Dependencies.APM)
 
 	if _, err := os.Lstat(legacy.ManifestPath); !os.IsNotExist(err) {
 		t.Fatalf("legacy manifest remains; err = %v", err)
@@ -447,7 +447,7 @@ func TestImportOldInstillMergesExistingAPMDependencies(t *testing.T) {
 	apmPath := ProjectAPMPath(root)
 	requireNoError(t, WriteAPMManifestAtomic(apmPath, APMManifest{
 		Dependencies: APMDependencies{
-			APM: []string{existingDependency},
+			APM: localDependencies(existingDependency),
 			MCP: []MCPDependency{{Name: "existing-mcp", Command: "existing-command"}},
 		},
 	}))
@@ -464,7 +464,7 @@ func TestImportOldInstillMergesExistingAPMDependencies(t *testing.T) {
 	manifest, err := ReadAPMManifest(apmPath)
 	requireNoError(t, err)
 	importedDependency := filepath.Join(library, "skills", "cloud", "azure", "azure-cli")
-	requireEqual(t, []string{existingDependency, importedDependency}, manifest.Dependencies.APM)
+	requireEqual(t, localDependencies(existingDependency, importedDependency), manifest.Dependencies.APM)
 	if len(manifest.Dependencies.MCP) != 1 || manifest.Dependencies.MCP[0].Name != "existing-mcp" {
 		t.Fatalf("manifest mcp = %#v, want existing mcp dependency preserved", manifest.Dependencies.MCP)
 	}
@@ -511,7 +511,7 @@ dependencies:
 	manifest, err := ReadAPMManifest(apmPath)
 	requireNoError(t, err)
 	importedDependency := filepath.Join(library, "skills", "cloud", "azure", "azure-cli")
-	requireEqual(t, []string{"../existing/SKILL.md", importedDependency}, manifest.Dependencies.APM)
+	requireEqual(t, localDependencies("../existing/SKILL.md", importedDependency), manifest.Dependencies.APM)
 }
 
 func TestImportOldInstillReturnsErrorForUnreadableAPMManifest(t *testing.T) {
@@ -583,7 +583,7 @@ func TestImportGraftMergesExistingMCPDependencies(t *testing.T) {
 	apmPath := ProjectAPMPath(root)
 	requireNoError(t, WriteAPMManifestAtomic(apmPath, APMManifest{
 		Dependencies: APMDependencies{
-			APM: []string{"../existing/SKILL.md"},
+			APM: localDependencies("../existing/SKILL.md"),
 			MCP: []MCPDependency{{Name: "existing-mcp", Command: "existing-command"}},
 		},
 	}))
@@ -599,7 +599,7 @@ func TestImportGraftMergesExistingMCPDependencies(t *testing.T) {
 	requireNoError(t, err)
 	manifest, err := ReadAPMManifest(apmPath)
 	requireNoError(t, err)
-	requireEqual(t, []string{"../existing/SKILL.md"}, manifest.Dependencies.APM)
+	requireEqual(t, localDependencies("../existing/SKILL.md"), manifest.Dependencies.APM)
 	if len(manifest.Dependencies.MCP) != 2 {
 		t.Fatalf("manifest mcp = %#v, want existing and imported dependencies", manifest.Dependencies.MCP)
 	}
@@ -651,7 +651,7 @@ dependencies:
 	}
 	manifest, err := ReadAPMManifest(apmPath)
 	requireNoError(t, err)
-	requireEqual(t, []string{"../existing/SKILL.md"}, manifest.Dependencies.APM)
+	requireEqual(t, localDependencies("../existing/SKILL.md"), manifest.Dependencies.APM)
 	if len(manifest.Dependencies.MCP) != 2 {
 		t.Fatalf("manifest mcp = %#v, want existing and imported dependencies", manifest.Dependencies.MCP)
 	}

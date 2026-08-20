@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -113,7 +114,7 @@ func ApplySkillSelection(opts SkillSelectionOptions) error {
 	if err := EnsureAPM(opts.Runner); err != nil {
 		return err
 	}
-	previous := append([]string{}, manifest.Dependencies.APM...)
+	previous := append([]APMDependency{}, manifest.Dependencies.APM...)
 	dependencies, err := resolveSkillDependencies(opts.LibraryPath, opts.Skills)
 	if err != nil {
 		return err
@@ -133,33 +134,47 @@ func ApplySkillSelection(opts SkillSelectionOptions) error {
 	return nil
 }
 
-func hasAddedDependencies(previous []string, next []string) bool {
+func hasAddedDependencies(previous []APMDependency, next []APMDependency) bool {
 	return hasRemovedDependencies(next, previous)
 }
 
-func hasRemovedDependencies(previous []string, next []string) bool {
+func hasRemovedDependencies(previous []APMDependency, next []APMDependency) bool {
 	current := make(map[string]struct{}, len(next))
 	for _, dependency := range next {
-		current[dependency] = struct{}{}
+		current[dependency.identity()] = struct{}{}
 	}
 	for _, dependency := range previous {
-		if _, ok := current[dependency]; !ok {
+		if _, ok := current[dependency.identity()]; !ok {
 			return true
 		}
 	}
 	return false
 }
 
-func applySkillPick(current []string, libraryPath string, entriesByName map[string]CatalogEntry, add []string, remove []string) ([]string, error) {
-	byName := make(map[string]string, len(current))
+func applySkillPick(current []APMDependency, libraryPath string, entriesByName map[string]CatalogEntry, add []string, remove []string) ([]APMDependency, error) {
+	byName := make(map[string]APMDependency, len(current))
 	dependencyToName := make(map[string]string, len(entriesByName))
 	for _, entry := range entriesByName {
-		dependencyToName[filepath.Clean(skillDependencyPath(libraryPath, entry))] = entry.Name
+		if entry.Source == "git" {
+			dependencyToName[gitDependencyIdentity(entry)] = entry.Name
+		} else {
+			dependencyToName[filepath.Clean(skillDependencyPath(libraryPath, entry))] = entry.Name
+		}
 	}
 	for _, dependency := range current {
-		name, ok := dependencyToName[filepath.Clean(dependency)]
+		if dependency.Git != nil {
+			name, ok := dependencyToName[dependency.identity()]
+			if !ok {
+				name = dependency.identity()
+			}
+			byName[name] = dependency
+			continue
+		}
+		key := dependency.identity()
+		key = filepath.Clean(dependency.Local)
+		name, ok := dependencyToName[key]
 		if !ok {
-			name = skillDependencyName(libraryPath, dependency)
+			name = skillDependencyName(libraryPath, dependency.Local)
 		}
 		byName[name] = dependency
 	}
@@ -168,7 +183,7 @@ func applySkillPick(current []string, libraryPath string, entriesByName map[stri
 		if !ok {
 			return nil, NewExitError(ExitGeneral, "error: unknown skill: "+name+" - run 'instill library show --type skill' to see available skills")
 		}
-		byName[name] = skillDependencyPath(libraryPath, entry)
+		byName[name] = skillDependencyFromCatalog(libraryPath, entry)
 	}
 	for _, name := range normalizeSkills(remove) {
 		if _, ok := byName[name]; !ok {
@@ -179,23 +194,24 @@ func applySkillPick(current []string, libraryPath string, entriesByName map[stri
 		delete(byName, name)
 	}
 
-	next := make([]string, 0, len(byName))
-	for _, dependency := range byName {
-		next = append(next, dependency)
-	}
-	return normalizeStringSlice(next), nil
+	next := dependenciesByName(byName)
+	return normalizeAPMDependencies(next), nil
 }
 
-func applyPluginPick(current []string, libraryPath string, entriesByName map[string]CatalogEntry, add []string, remove []string) ([]string, error) {
-	byName := make(map[string]string, len(current))
+func applyPluginPick(current []APMDependency, libraryPath string, entriesByName map[string]CatalogEntry, add []string, remove []string) ([]APMDependency, error) {
+	byName := make(map[string]APMDependency, len(current))
 	dependencyToName := make(map[string]string, len(entriesByName))
 	for _, entry := range entriesByName {
 		dependencyToName[filepath.Clean(pluginDependencyPath(libraryPath, entry))] = entry.Name
 	}
 	for _, dependency := range current {
-		name, ok := dependencyToName[filepath.Clean(dependency)]
+		if dependency.Git != nil {
+			byName[dependency.identity()] = dependency
+			continue
+		}
+		name, ok := dependencyToName[filepath.Clean(dependency.Local)]
 		if !ok {
-			name = pluginDependencyName(libraryPath, dependency)
+			name = pluginDependencyName(libraryPath, dependency.Local)
 		}
 		byName[name] = dependency
 	}
@@ -204,7 +220,7 @@ func applyPluginPick(current []string, libraryPath string, entriesByName map[str
 		if !ok {
 			return nil, NewExitError(ExitGeneral, "error: unknown plugin: "+name+" - run 'instill library show --type plugin' to see available plugins")
 		}
-		byName[name] = pluginDependencyPath(libraryPath, entry)
+		byName[name] = APMDependency{Local: pluginDependencyPath(libraryPath, entry)}
 	}
 	for _, name := range normalizeSkills(remove) {
 		if _, ok := byName[name]; !ok {
@@ -215,11 +231,8 @@ func applyPluginPick(current []string, libraryPath string, entriesByName map[str
 		delete(byName, name)
 	}
 
-	next := make([]string, 0, len(byName))
-	for _, dependency := range byName {
-		next = append(next, dependency)
-	}
-	return normalizeStringSlice(next), nil
+	next := dependenciesByName(byName)
+	return normalizeAPMDependencies(next), nil
 }
 
 func pluginDependencyPath(libraryPath string, entry CatalogEntry) string {
@@ -320,7 +333,7 @@ func projectContentExists(path string) bool {
 	return err == nil
 }
 
-func resolveSkillDependencies(libraryPath string, names []string) ([]string, error) {
+func resolveSkillDependencies(libraryPath string, names []string) ([]APMDependency, error) {
 	entries, err := LoadCatalog(libraryPath, LibraryTypeSkill)
 	if err != nil {
 		return nil, err
@@ -330,15 +343,39 @@ func resolveSkillDependencies(libraryPath string, names []string) ([]string, err
 		entriesByName[entry.Name] = entry
 	}
 
-	dependencies := make([]string, 0, len(names))
+	dependencies := make([]APMDependency, 0, len(names))
 	for _, name := range normalizeSkills(names) {
 		entry, ok := entriesByName[name]
 		if !ok {
 			return nil, NewExitError(ExitGeneral, "error: unknown skill: "+name+" - run 'instill library show --type skill' to see available skills")
 		}
-		dependencies = append(dependencies, skillDependencyPath(libraryPath, entry))
+		dependencies = append(dependencies, skillDependencyFromCatalog(libraryPath, entry))
 	}
-	return normalizeStringSlice(dependencies), nil
+	return normalizeAPMDependencies(dependencies), nil
+}
+
+func skillDependencyFromCatalog(libraryPath string, entry CatalogEntry) APMDependency {
+	if entry.Source == "git" {
+		return APMDependency{Git: &GitDependency{Repository: entry.Repository, Path: remoteSkillPath(entry), Ref: entry.Ref}}
+	}
+	return APMDependency{Local: skillDependencyPath(libraryPath, entry)}
+}
+
+func gitDependencyIdentity(entry CatalogEntry) string {
+	return "git:" + entry.Repository + ":" + remoteSkillPath(entry) + ":" + entry.Ref
+}
+
+func dependenciesByName(byName map[string]APMDependency) []APMDependency {
+	names := make([]string, 0, len(byName))
+	for name := range byName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	dependencies := make([]APMDependency, 0, len(names))
+	for _, name := range names {
+		dependencies = append(dependencies, byName[name])
+	}
+	return dependencies
 }
 
 func skillDependencyPath(libraryPath string, entry CatalogEntry) string {

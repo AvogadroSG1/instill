@@ -33,7 +33,7 @@ func TestPickAddsSkillPathAndRunsAPMInstall(t *testing.T) {
 	requireNoError(t, err)
 	manifest, readErr := ReadAPMManifest(project.ManifestPath)
 	requireNoError(t, readErr)
-	requireEqual(t, []string{filepath.Join(library, "skills", "docker")}, manifest.Dependencies.APM)
+	requireEqual(t, localDependencies(filepath.Join(library, "skills", "docker")), manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
 		"apm install --legacy-skill-paths --root " + project.Root,
@@ -65,7 +65,7 @@ func TestPickAddsPluginPathAndRunsAPMInstall(t *testing.T) {
 	requireNoError(t, err)
 	manifest, readErr := ReadAPMManifest(project.ManifestPath)
 	requireNoError(t, readErr)
-	requireEqual(t, []string{filepath.Join(library, "plugins", "shortcuts-playground", "claude")}, manifest.Dependencies.APM)
+	requireEqual(t, localDependencies(filepath.Join(library, "plugins", "shortcuts-playground", "claude")), manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
 		"apm install --legacy-skill-paths --root " + project.Root,
@@ -107,7 +107,7 @@ func TestPickPluginRemovalUpdatesManifestAndCallsAPMPrune(t *testing.T) {
 	})
 	project := createAPMProject(t, APMManifest{
 		Dependencies: APMDependencies{
-			APM: []string{filepath.Join(library, "plugins", "shortcuts-playground", "claude")},
+			APM: localDependencies(filepath.Join(library, "plugins", "shortcuts-playground", "claude")),
 		},
 	})
 	calls := []string{}
@@ -315,7 +315,7 @@ func TestPickRemovalUpdatesManifestAndCallsAPMPrune(t *testing.T) {
 	})
 	project := createAPMProject(t, APMManifest{
 		Dependencies: APMDependencies{
-			APM: []string{filepath.Join(library, "skills", "docker")},
+			APM: localDependencies(filepath.Join(library, "skills", "docker")),
 		},
 	})
 	calls := []string{}
@@ -351,7 +351,7 @@ func TestPickMixedAddAndRemoveRunsInstallThenPrune(t *testing.T) {
 	})
 	project := createAPMProject(t, APMManifest{
 		Dependencies: APMDependencies{
-			APM: []string{filepath.Join(library, "skills", "docker")},
+			APM: localDependencies(filepath.Join(library, "skills", "docker")),
 		},
 	})
 	calls := []string{}
@@ -369,7 +369,7 @@ func TestPickMixedAddAndRemoveRunsInstallThenPrune(t *testing.T) {
 	requireNoError(t, err)
 	manifest, readErr := ReadAPMManifest(project.ManifestPath)
 	requireNoError(t, readErr)
-	requireEqual(t, []string{filepath.Join(library, "skills", "golang")}, manifest.Dependencies.APM)
+	requireEqual(t, localDependencies(filepath.Join(library, "skills", "golang")), manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
 		"apm install --legacy-skill-paths --root " + project.Root,
@@ -389,7 +389,7 @@ func TestPickRemovalSupportsNestedSkillNames(t *testing.T) {
 	})
 	project := createAPMProject(t, APMManifest{
 		Dependencies: APMDependencies{
-			APM: []string{filepath.Join(library, "skills", "cloud", "azure", "azure-cli")},
+			APM: localDependencies(filepath.Join(library, "skills", "cloud", "azure", "azure-cli")),
 		},
 	})
 	calls := []string{}
@@ -419,7 +419,7 @@ func TestPickRemovalSupportsStaleSkillDependencyMissingFromCatalog(t *testing.T)
 	library := createCatalogLibrary(t, catalogLibrarySeed{})
 	project := createAPMProject(t, APMManifest{
 		Dependencies: APMDependencies{
-			APM: []string{filepath.Join(library, "skills", "docker")},
+			APM: localDependencies(filepath.Join(library, "skills", "docker")),
 		},
 	})
 	calls := []string{}

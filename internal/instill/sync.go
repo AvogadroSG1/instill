@@ -200,23 +200,24 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func reportSkillStatus(stdout io.Writer, libraryPath string, dependencies []string, catalog []CatalogEntry) error {
+func reportSkillStatus(stdout io.Writer, libraryPath string, dependencies []APMDependency, catalog []CatalogEntry) error {
 	librarySkills := make(map[string]CatalogEntry, len(catalog))
 	dependencyToName := make(map[string]string, len(catalog))
 	for _, entry := range catalog {
 		librarySkills[entry.Name] = entry
-		dependencyToName[filepath.Clean(skillDependencyPath(libraryPath, entry))] = entry.Name
+		dependencyToName[skillDependencyFromCatalog(libraryPath, entry).identity()] = entry.Name
 	}
 
 	pluginsRoot := filepath.Join(libraryPath, "plugins")
 	projectSkills := make(map[string]struct{}, len(dependencies))
 	for _, dependency := range dependencies {
-		name, ok := dependencyToName[filepath.Clean(dependency)]
+		key := dependency.identity()
+		name, ok := dependencyToName[key]
 		if !ok {
-			if isUnderDir(pluginsRoot, dependency) {
+			if dependency.Git != nil || isUnderDir(pluginsRoot, dependency.Local) {
 				continue
 			}
-			name = skillDependencyName(libraryPath, dependency)
+			name = skillDependencyName(libraryPath, dependency.Local)
 		}
 		projectSkills[name] = struct{}{}
 		if _, ok := librarySkills[name]; !ok {
@@ -236,7 +237,7 @@ func reportSkillStatus(stdout io.Writer, libraryPath string, dependencies []stri
 	return nil
 }
 
-func reportPluginStatus(stdout io.Writer, libraryPath string, dependencies []string, catalog []CatalogEntry) error {
+func reportPluginStatus(stdout io.Writer, libraryPath string, dependencies []APMDependency, catalog []CatalogEntry) error {
 	if len(catalog) == 0 {
 		return nil
 	}
@@ -250,12 +251,15 @@ func reportPluginStatus(stdout io.Writer, libraryPath string, dependencies []str
 	pluginsRoot := filepath.Join(libraryPath, "plugins")
 	projectPlugins := make(map[string]struct{}, len(dependencies))
 	for _, dependency := range dependencies {
-		name, ok := dependencyToName[filepath.Clean(dependency)]
+		if dependency.Git != nil {
+			continue
+		}
+		name, ok := dependencyToName[filepath.Clean(dependency.Local)]
 		if !ok {
-			if !isUnderDir(pluginsRoot, dependency) {
+			if !isUnderDir(pluginsRoot, dependency.Local) {
 				continue
 			}
-			name = pluginDependencyName(libraryPath, dependency)
+			name = pluginDependencyName(libraryPath, dependency.Local)
 		}
 		projectPlugins[name] = struct{}{}
 		if _, ok := libraryPlugins[name]; !ok {

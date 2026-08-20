@@ -76,7 +76,7 @@ func TestInitProjectWithSkillsWritesSkillPathsAndRunsAPMInstall(t *testing.T) {
 		t.Fatalf("ReadAPMManifest() error = %v", err)
 	}
 	want := filepath.Join(library, "skills", "docker")
-	if len(manifest.Dependencies.APM) != 1 || manifest.Dependencies.APM[0] != want {
+	if len(manifest.Dependencies.APM) != 1 || manifest.Dependencies.APM[0].Local != want {
 		t.Fatalf("manifest dependencies.apm = %#v, want [%q]", manifest.Dependencies.APM, want)
 	}
 	assertCommands(t, calls, []string{

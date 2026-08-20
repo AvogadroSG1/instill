@@ -34,6 +34,9 @@ type CatalogEntry struct {
 	Env         []string
 	ApplyTo     string
 	Description string
+	Source      string
+	Repository  string
+	Ref         string
 }
 
 func LoadCatalog(root string, typ LibraryType) ([]CatalogEntry, error) {
@@ -57,7 +60,7 @@ func LoadCatalog(root string, typ LibraryType) ([]CatalogEntry, error) {
 	if len(rows) == 0 {
 		return []CatalogEntry{}, nil
 	}
-	if !equalStringSlices(rows[0], headers) {
+	if !catalogHeadersValid(typ, rows[0], headers) {
 		return nil, NewExitError(ExitGeneral, "error: malformed catalog: invalid header")
 	}
 
@@ -130,11 +133,20 @@ func WriteCatalog(root string, typ LibraryType, entries []CatalogEntry) error {
 }
 
 func ScanLibrary(root string, stdout io.Writer) error {
+	return scanLibraryTypes(root, stdout, []LibraryType{LibraryTypeSkill, LibraryTypePlugin, LibraryTypeMCP, LibraryTypeInstruction, LibraryTypePrompt})
+}
+
+// ScanLibraryType rebuilds one typed catalog without changing other catalog files.
+func ScanLibraryType(root string, typ LibraryType, stdout io.Writer) error {
+	return scanLibraryTypes(root, stdout, []LibraryType{typ})
+}
+
+func scanLibraryTypes(root string, stdout io.Writer, types []LibraryType) error {
 	if stdout == nil {
 		stdout = io.Discard
 	}
 
-	for _, typ := range []LibraryType{LibraryTypeSkill, LibraryTypePlugin, LibraryTypeMCP, LibraryTypeInstruction, LibraryTypePrompt} {
+	for _, typ := range types {
 		existing, err := LoadCatalog(root, typ)
 		if err != nil {
 			return err
@@ -154,7 +166,7 @@ func ScanLibrary(root string, stdout io.Writer) error {
 			}
 		}
 
-		merged := make([]CatalogEntry, 0, len(discovered))
+		merged := make([]CatalogEntry, 0, len(discovered)+len(existing))
 		preservedNames := make(map[string]struct{}, len(discovered))
 		for _, entry := range discovered {
 			current, ok := existingByName[entry.Name]
@@ -180,6 +192,10 @@ func ScanLibrary(root string, stdout io.Writer) error {
 
 		for _, entry := range existing {
 			if _, ok := preservedNames[entry.Name]; ok {
+				continue
+			}
+			if typ == LibraryTypeSkill && entry.Source == "git" {
+				merged = append(merged, entry)
 				continue
 			}
 			exists, err := catalogContentExists(root, entry)
@@ -237,7 +253,7 @@ func ShowCatalog(root string, typ LibraryType, filter string, stdout io.Writer) 
 func catalogFileSpec(root string, typ LibraryType) (string, []string, error) {
 	switch typ {
 	case LibraryTypeSkill:
-		return filepath.Join(root, "skills", "catalog.csv"), []string{"name", "category", "path", "description"}, nil
+		return filepath.Join(root, "skills", "catalog.csv"), []string{"name", "category", "path", "source", "repository", "ref", "description"}, nil
 	case LibraryTypePlugin:
 		return filepath.Join(root, "plugins", "catalog.csv"), []string{"name", "category", "path", "description"}, nil
 	case LibraryTypeMCP:
@@ -254,7 +270,17 @@ func catalogFileSpec(root string, typ LibraryType) (string, []string, error) {
 func parseCatalogRow(typ LibraryType, row []string) (CatalogEntry, error) {
 	entry := CatalogEntry{Type: typ}
 	switch typ {
-	case LibraryTypeSkill, LibraryTypePlugin:
+	case LibraryTypeSkill:
+		if len(row) == 4 {
+			entry.Name, entry.Category, entry.Path, entry.Description = row[0], row[1], row[2], row[3]
+			break
+		}
+		if len(row) != 7 {
+			return CatalogEntry{}, NewExitError(ExitGeneral, "error: malformed catalog: invalid skill row")
+		}
+		entry.Name, entry.Category, entry.Path = row[0], row[1], row[2]
+		entry.Source, entry.Repository, entry.Ref, entry.Description = row[3], row[4], row[5], row[6]
+	case LibraryTypePlugin:
 		if len(row) != 4 {
 			return CatalogEntry{}, NewExitError(ExitGeneral, fmt.Sprintf("error: malformed catalog: invalid %s row", typ))
 		}
@@ -311,6 +337,12 @@ func validateCatalogEntry(entry CatalogEntry) error {
 		if strings.TrimSpace(entry.Path) == "" {
 			return NewExitError(ExitGeneral, "error: malformed catalog: path is required")
 		}
+		if entry.Source == "" {
+			return nil
+		}
+		if entry.Source != "git" || !isCanonicalRemoteSkill(entry) || !isFullGitSHA(entry.Ref) {
+			return NewExitError(ExitGeneral, "error: malformed catalog: remote skill requires git repository and full commit SHA")
+		}
 	case LibraryTypePlugin:
 		if strings.TrimSpace(entry.Name) == "" {
 			return NewExitError(ExitGeneral, "error: malformed catalog: name is required")
@@ -344,7 +376,9 @@ func validateCatalogEntry(entry CatalogEntry) error {
 
 func formatCatalogRow(entry CatalogEntry) []string {
 	switch entry.Type {
-	case LibraryTypeSkill, LibraryTypePlugin:
+	case LibraryTypeSkill:
+		return []string{entry.Name, entry.Category, entry.Path, entry.Source, entry.Repository, entry.Ref, entry.Description}
+	case LibraryTypePlugin:
 		return []string{entry.Name, entry.Category, entry.Path, entry.Description}
 	case LibraryTypeMCP:
 		return []string{
@@ -493,6 +527,9 @@ func mergeCatalogEntry(existing CatalogEntry, discovered CatalogEntry) CatalogEn
 }
 
 func catalogContentExists(root string, entry CatalogEntry) (bool, error) {
+	if entry.Type == LibraryTypeSkill && entry.Source == "git" {
+		return true, nil
+	}
 	path, err := catalogContentPath(root, entry)
 	if err != nil {
 		return false, err
@@ -505,6 +542,13 @@ func catalogContentExists(root string, entry CatalogEntry) (bool, error) {
 		return false, NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot read library: %v", err))
 	}
 	return !info.IsDir(), nil
+}
+
+func catalogHeadersValid(typ LibraryType, got, current []string) bool {
+	if equalStringSlices(got, current) {
+		return true
+	}
+	return typ == LibraryTypeSkill && equalStringSlices(got, []string{"name", "category", "path", "description"})
 }
 
 func catalogContentPath(root string, entry CatalogEntry) (string, error) {

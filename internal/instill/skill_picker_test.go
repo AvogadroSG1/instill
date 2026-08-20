@@ -542,10 +542,10 @@ func TestApplySkillSelectionWritesDiffAndReconciles(t *testing.T) {
 	})
 	project := createAPMProject(t, APMManifest{
 		Dependencies: APMDependencies{
-			APM: []string{
+			APM: localDependencies(
 				filepath.Join(library, "skills", "docker"),
 				filepath.Join(library, "skills", "golang-cli"),
-			},
+			),
 		},
 	})
 	calls := []string{}
@@ -563,10 +563,10 @@ func TestApplySkillSelectionWritesDiffAndReconciles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadAPMManifest() error = %v", err)
 	}
-	requireEqual(t, []string{
+	requireEqual(t, localDependencies(
 		filepath.Join(library, "skills", "golang-cli"),
 		filepath.Join(library, "skills", "golang-testing"),
-	}, manifest.Dependencies.APM)
+	), manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
 		"apm install --legacy-skill-paths --root " + project.Root,
@@ -598,10 +598,10 @@ func TestApplySkillSelectionWritesAPMManifestAndRunsAPMPruneOnRemoval(t *testing
 	})
 	project := createAPMProject(t, APMManifest{
 		Dependencies: APMDependencies{
-			APM: []string{
+			APM: localDependencies(
 				filepath.Join(library, "skills", "docker"),
 				filepath.Join(library, "skills", "golang-cli"),
-			},
+			),
 		},
 	})
 	calls := []string{}
@@ -617,10 +617,10 @@ func TestApplySkillSelectionWritesAPMManifestAndRunsAPMPruneOnRemoval(t *testing
 
 	manifest, readErr := ReadAPMManifest(project.ManifestPath)
 	requireNoError(t, readErr)
-	requireEqual(t, []string{
+	requireEqual(t, localDependencies(
 		filepath.Join(library, "skills", "golang-cli"),
 		filepath.Join(library, "skills", "golang-testing"),
-	}, manifest.Dependencies.APM)
+	), manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
 		"apm install --legacy-skill-paths --root " + project.Root,
@@ -638,10 +638,10 @@ func TestApplySkillSelectionRemovesStaleManifestSkillOnConfirm(t *testing.T) {
 	})
 	project := createAPMProject(t, APMManifest{
 		Dependencies: APMDependencies{
-			APM: []string{
+			APM: localDependencies(
 				filepath.Join(library, "skills", "docker"),
 				filepath.Join(library, "skills", "missing"),
-			},
+			),
 		},
 	})
 	calls := []string{}
@@ -659,7 +659,7 @@ func TestApplySkillSelectionRemovesStaleManifestSkillOnConfirm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadAPMManifest() error = %v", err)
 	}
-	requireEqual(t, []string{filepath.Join(library, "skills", "docker")}, manifest.Dependencies.APM)
+	requireEqual(t, localDependencies(filepath.Join(library, "skills", "docker")), manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
 		"apm prune",
@@ -685,7 +685,7 @@ func TestRunPickSkillsTUILoadsSelectedSkillsFromAPMManifest(t *testing.T) {
 	})
 	project := createAPMProject(t, APMManifest{
 		Dependencies: APMDependencies{
-			APM: []string{filepath.Join(library, "skills", "docker")},
+			APM: localDependencies(filepath.Join(library, "skills", "docker")),
 		},
 	})
 

@@ -218,12 +218,12 @@ func currentProjectTypeSelection(project Project, libraryPath string, typ Librar
 	case LibraryTypeSkill:
 		namesByDependency := make(map[string]string, len(entries))
 		for _, entry := range entries {
-			namesByDependency[skillDependencyPath(libraryPath, entry)] = entry.Name
+			namesByDependency[skillDependencyFromCatalog(libraryPath, entry).identity()] = entry.Name
 		}
 
 		selected := make([]string, 0, len(manifest.Dependencies.APM))
 		for _, dependency := range manifest.Dependencies.APM {
-			if name, ok := namesByDependency[dependency]; ok {
+			if name, ok := namesByDependency[dependency.identity()]; ok {
 				selected = append(selected, name)
 			}
 		}
@@ -236,7 +236,10 @@ func currentProjectTypeSelection(project Project, libraryPath string, typ Librar
 
 		selected := make([]string, 0, len(manifest.Dependencies.APM))
 		for _, dependency := range manifest.Dependencies.APM {
-			if name, ok := namesByDependency[dependency]; ok {
+			if dependency.Git != nil {
+				continue
+			}
+			if name, ok := namesByDependency[dependency.Local]; ok {
 				selected = append(selected, name)
 			}
 		}
@@ -270,12 +273,12 @@ func currentProjectSkills(project Project, libraryPath string) ([]string, error)
 
 	namesByDependency := make(map[string]string, len(entries))
 	for _, entry := range entries {
-		namesByDependency[skillDependencyPath(libraryPath, entry)] = entry.Name
+		namesByDependency[skillDependencyFromCatalog(libraryPath, entry).identity()] = entry.Name
 	}
 
 	selected := make([]string, 0, len(manifest.Dependencies.APM))
 	for _, dependency := range manifest.Dependencies.APM {
-		if name, ok := namesByDependency[dependency]; ok {
+		if name, ok := namesByDependency[dependency.identity()]; ok {
 			selected = append(selected, name)
 		}
 	}

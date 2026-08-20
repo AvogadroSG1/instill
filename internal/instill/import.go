@@ -443,7 +443,7 @@ func writeAPMManifestDocumentAtomic(path string, document *yaml.Node, dependenci
 }
 
 func normalizeAPMManifest(manifest *APMManifest) {
-	manifest.Dependencies.APM = normalizeStringSlice(manifest.Dependencies.APM)
+	manifest.Dependencies.APM = normalizeAPMDependencies(manifest.Dependencies.APM)
 	if manifest.Dependencies.MCP == nil {
 		manifest.Dependencies.MCP = []MCPDependency{}
 	}
@@ -524,8 +524,8 @@ func scalarNode(value string) *yaml.Node {
 	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
 }
 
-func mergeAPMDependencies(existing []string, imported []string) []string {
-	return normalizeStringSlice(append(append([]string{}, existing...), imported...))
+func mergeAPMDependencies(existing []APMDependency, imported []APMDependency) []APMDependency {
+	return normalizeAPMDependencies(append(append([]APMDependency{}, existing...), imported...))
 }
 
 func mergeMCPDependencies(existing []MCPDependency, imported []MCPDependency) []MCPDependency {
