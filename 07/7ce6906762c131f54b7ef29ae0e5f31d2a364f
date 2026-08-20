@@ -1,0 +1,52 @@
+.beads/.auto-import-issues.jsonl
+  h_56c22cd4a131f7 1
+README.md
+  h_56c22cd4a131f7 62-83,120
+internal/cli/library.go
+  h_56c22cd4a131f7 16,21-22,35-37,41-42,47,54-56,65-70,86,92-116
+internal/cli/status_test.go
+  h_56c22cd4a131f7 22,25
+internal/cli/sync_test.go
+  h_56c22cd4a131f7 19
+internal/instill/apm_manifest.go
+  h_56c22cd4a131f7 25,29-41,60,69,86-145
+internal/instill/apm_manifest_test.go
+  h_56c22cd4a131f7 17
+internal/instill/catalog.go
+  h_56c22cd4a131f7 37-39,63,136-144,149,169,197-200,256,273-283,340-345,379-381,530-532,547-553
+internal/instill/catalog_test.go
+  h_56c22cd4a131f7 215-217,471-485
+internal/instill/import.go
+  h_56c22cd4a131f7 446,527-528
+internal/instill/import_test.go
+  h_56c22cd4a131f7 55,450,467,514,586,602,654
+internal/instill/init_project_test.go
+  h_56c22cd4a131f7 79
+internal/instill/pick_skills.go
+  h_56c22cd4a131f7 7,117,137,141,144,147,154-155,158-162,165-175,177,186,197-198,201-202,208-212,214,223,234-235,336,346,352-376,378
+internal/instill/pick_skills_test.go
+  h_56c22cd4a131f7 36,68,110,318,354,372,392,422
+internal/instill/remote_skill.go
+  h_56c22cd4a131f7 1-123
+internal/instill/remote_skills_test.go
+  h_56c22cd4a131f7 1-206
+internal/instill/skill_picker.go
+  h_56c22cd4a131f7 221,226,239-242,276,281
+internal/instill/skill_picker_test.go
+  h_56c22cd4a131f7 545,548,566,569,601,604,620,623,641,644,662,688
+internal/instill/sync.go
+  h_56c22cd4a131f7 203,208,214-215,217,220,240,254-257,259,262
+internal/instill/sync_test.go
+  h_56c22cd4a131f7 17,135,138,202,207
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "077ce6906762c131f54b7ef29ae0e5f31d2a364f",
+  "prompts": {},
+  "humans": {
+    "h_56c22cd4a131f7": {
+      "author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    }
+  }
+}
