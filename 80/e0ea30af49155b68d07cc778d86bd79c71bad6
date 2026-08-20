@@ -1,0 +1,37 @@
+internal/instill/skill_picker.go
+  s_ede22d880dd843::t_4f0fb932dc331f 992-994
+  s_ede22d880dd843::t_f8e73b16206412 13-17,636,955-956,1010-1016
+  s_ede22d880dd843::t_11549f26d44528 995
+  s_ede22d880dd843::t_08a07957d2c416 948,951-954,987,996-1005
+internal/instill/skill_picker_test.go
+  s_4103e5f5c4b415::t_482763da2c02d0 138-183,254-255,278-301,371-372,377-378,456,459,502,505-506,509-510,513,588,591-592,594-595,597-598,609-610,612-613
+  s_4103e5f5c4b415::t_e04889d0998d32 256-277
+  s_4103e5f5c4b415::t_78a288791063e0 184-215,217,219-253
+  s_4103e5f5c4b415::t_4ad934e16e9584 216,218
+CHANGELOG.md
+  s_ede22d880dd843::t_f8e73b16206412 23-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "80e0ea30af49155b68d07cc778d86bd79c71bad6",
+  "prompts": {},
+  "sessions": {
+    "s_4103e5f5c4b415": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fdf7391adffe6RAKf7S09zA49d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    },
+    "s_ede22d880dd843": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fdf543507ffeeqlWe5G4u5Gm0I",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    }
+  }
+}
