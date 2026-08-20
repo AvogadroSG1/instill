@@ -1,0 +1,19 @@
+.beads/.gitignore
+  s_4103e5f5c4b415::t_404c248b2fc96e 74-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "d132049892e19a610106ef85ef68b3862596b544",
+  "prompts": {},
+  "sessions": {
+    "s_4103e5f5c4b415": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fdf7391adffe6RAKf7S09zA49d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    }
+  }
+}
