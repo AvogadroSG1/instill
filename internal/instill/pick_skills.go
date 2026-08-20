@@ -170,8 +170,7 @@ func applySkillPick(current []APMDependency, libraryPath string, entriesByName m
 			byName[name] = dependency
 			continue
 		}
-		key := dependency.identity()
-		key = filepath.Clean(dependency.Local)
+		key := filepath.Clean(dependency.Local)
 		name, ok := dependencyToName[key]
 		if !ok {
 			name = skillDependencyName(libraryPath, dependency.Local)

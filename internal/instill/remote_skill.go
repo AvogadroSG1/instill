@@ -76,7 +76,10 @@ func resolveRemoteSkill(repository string, runner CommandRunner) (CatalogEntry, 
 	if err != nil {
 		return CatalogEntry{}, NewExitError(ExitFilesystem, "error: cannot create temporary git directory: "+err.Error())
 	}
-	defer os.RemoveAll(dir)
+	defer func() {
+		// Cleanup is best-effort and MUST NOT replace the primary operation result.
+		_ = os.RemoveAll(dir)
+	}()
 	if output, err := runner("git", "clone", "--no-checkout", url, dir); err != nil {
 		return CatalogEntry{}, remoteGitError(err, output)
 	}

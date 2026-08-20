@@ -205,7 +205,7 @@ func (m targetPickerModel) View() string {
 		if m.selected[target] {
 			marker = "[✓]"
 		}
-		b.WriteString(fmt.Sprintf("%s%s %s\n", prefix, marker, target))
+		_, _ = fmt.Fprintf(&b, "%s%s %s\n", prefix, marker, target)
 	}
 	b.WriteString("\n(↑/↓ to move, space to toggle, enter to confirm, esc to cancel)\n")
 	return b.String()
