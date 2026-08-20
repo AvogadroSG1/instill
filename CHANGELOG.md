@@ -20,9 +20,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   segments. Deep names link to a single flat colon-joined symlink
   (`cloud:azure:azure-cli`).
 - The `pick-skills` picker now derives its category tree directly from the
-  library folder structure instead of `.categories.json`, and a selected
-  category shows only the skills living directly at that level while deeper
-  folders appear as drill-in subcategories
+  library folder structure instead of `.categories.json`. The root retains
+  `All`; drilled categories conditionally show `Unclassified` for skills living
+  directly at that level, followed by deeper folders as drill-in subcategories
 - `init` now accepts `--skills` flag for headless initialization without launching the TUI
 - Skill names are always normalized (deduped + sorted) before writing the manifest
 

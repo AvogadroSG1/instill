@@ -10,7 +10,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-const skillPickerPageSize = 15
+const (
+	skillPickerPageSize             = 15
+	skillPickerAllCategory          = "All"
+	skillPickerUnclassifiedCategory = "Unclassified"
+)
 
 type skillPickerPane int
 
@@ -629,7 +633,7 @@ func newSkillPickerModel(skills []string, selected []string) skillPickerModel {
 
 func categoryPaneEntries(categories []string) []string {
 	entries := make([]string, 0, len(categories)+1)
-	entries = append(entries, "All")
+	entries = append(entries, skillPickerAllCategory)
 	if len(categories) == 0 {
 		return entries
 	}
@@ -941,8 +945,14 @@ func (m skillPickerModel) visibleSkills() []string {
 
 func (m skillPickerModel) visibleCategorySkills() []string {
 	category := m.selectedCategory()
-	if category == "" || category == "All" {
+	if category == "" {
 		return m.skillsUnderPath(m.categoryPath)
+	}
+	if m.selectedCategoryIsSynthetic() {
+		if len(m.categoryPath) == 0 {
+			return m.skillsUnderPath(m.categoryPath)
+		}
+		return m.tree.immediateSkills(m.categoryPath)
 	}
 	path := append(append([]string{}, m.categoryPath...), category)
 	return m.tree.immediateSkills(path)
@@ -974,17 +984,36 @@ func (m skillPickerModel) selectedCategory() string {
 
 func (m skillPickerModel) selectedCategoryHasChildren() bool {
 	category := m.selectedCategory()
-	if category == "" || category == "All" {
+	if category == "" || m.selectedCategoryIsSynthetic() {
 		return false
 	}
 	path := append(append([]string{}, m.categoryPath...), category)
 	node := m.tree.nodeAt(path)
-	return node != nil && len(node.children) > 0
+	if node == nil {
+		return false
+	}
+	return len(node.children) > 0
+}
+
+func (m skillPickerModel) selectedCategoryIsSynthetic() bool {
+	if m.categoryCursor != 0 {
+		return false
+	}
+	if len(m.categoryPath) == 0 {
+		return true
+	}
+	return len(m.tree.immediateSkills(m.categoryPath)) > 0
 }
 
 func (m skillPickerModel) categoriesForPath() []string {
 	subs := m.tree.subcategoryNames(m.categoryPath)
-	return categoryPaneEntries(subs)
+	if len(m.categoryPath) == 0 {
+		return categoryPaneEntries(subs)
+	}
+	if len(m.tree.immediateSkills(m.categoryPath)) == 0 {
+		return subs
+	}
+	return append([]string{skillPickerUnclassifiedCategory}, subs...)
 }
 
 func (m skillPickerModel) categoryBreadcrumb() string {

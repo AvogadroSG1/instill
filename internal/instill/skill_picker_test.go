@@ -135,6 +135,170 @@ func TestSkillPickerShowsTopLevelCategoriesAlphabetically(t *testing.T) {
 	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/azure-blob-storage,cloud/docker,golang/golang-cli" {
 		t.Fatalf("visible skills = %q, want unfiltered flat list", got)
 	}
+	if strings.Contains(view, "Unclassified") {
+		t.Fatalf("view = %q, want root All without Unclassified", view)
+	}
+}
+
+func TestSkillPickerCodingUsesUnclassifiedForDirectSkills(t *testing.T) {
+	t.Parallel()
+
+	model := newSkillPickerModel(
+		[]string{
+			"coding/microsoft-foundry",
+			"coding/dotnet/run-tests",
+			"coding/front-end/accessibility",
+			"coding/microsoft-foundry/models/deploy-model",
+		},
+		[]string{},
+	)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model = updated.(skillPickerModel)
+
+	if got := strings.Join(model.categoryPath, "/"); got != "coding" {
+		t.Fatalf("categoryPath = %q, want coding", got)
+	}
+	if got := strings.Join(model.categories, ","); got != "Unclassified,dotnet,front-end,microsoft-foundry" {
+		t.Fatalf("categories = %q, want Unclassified and coding child categories", got)
+	}
+	if got := model.selectedCategory(); got != "Unclassified" {
+		t.Fatalf("selectedCategory() = %q, want Unclassified", got)
+	}
+	if got := strings.Join(model.visibleSkills(), ","); got != "coding/microsoft-foundry" {
+		t.Fatalf("visible skills = %q, want direct coding skill only", got)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model = updated.(skillPickerModel)
+	if got := strings.Join(model.categoryPath, "/"); got != "coding" {
+		t.Fatalf("categoryPath after right on Unclassified = %q, want coding", got)
+	}
+	if model.focusedPane != skillPickerSkillsPane {
+		t.Fatalf("focusedPane = %v, want skills pane", model.focusedPane)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(skillPickerModel)
+	for range 3 {
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+		model = updated.(skillPickerModel)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model = updated.(skillPickerModel)
+
+	if got := strings.Join(model.categoryPath, "/"); got != "coding/microsoft-foundry" {
+		t.Fatalf("categoryPath = %q, want coding/microsoft-foundry", got)
+	}
+	if got := strings.Join(model.categories, ","); got != "models" {
+		t.Fatalf("categories = %q, want models", got)
+	}
+	if got := strings.Join(model.visibleSkills(), ","); got != "coding/microsoft-foundry/models/deploy-model" {
+		t.Fatalf("visible skills = %q, want deploy-model", got)
+	}
+}
+
+func TestSkillPickerRealSyntheticNamedCategoriesRemainDrillable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		skills     []string
+		wantPath   string
+		wantSkills string
+	}{
+		{
+			name:       "root category named All",
+			skills:     []string{"docker", "All/models/deploy"},
+			wantPath:   "All",
+			wantSkills: "All/models/deploy",
+		},
+		{
+			name:       "nested category named Unclassified",
+			skills:     []string{"coding/direct", "coding/Unclassified/models/deploy"},
+			wantPath:   "coding/Unclassified",
+			wantSkills: "coding/Unclassified/models/deploy",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			model := newSkillPickerModel(tt.skills, []string{})
+			updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+			model = updated.(skillPickerModel)
+			updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+			model = updated.(skillPickerModel)
+			if tt.wantPath == "coding/Unclassified" {
+				updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+				model = updated.(skillPickerModel)
+				updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+				model = updated.(skillPickerModel)
+			}
+			updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+			model = updated.(skillPickerModel)
+
+			if got := strings.Join(model.categoryPath, "/"); got != tt.wantPath {
+				t.Fatalf("categoryPath = %q, want %q", got, tt.wantPath)
+			}
+			if got := strings.Join(model.visibleSkills(), ","); got != tt.wantSkills {
+				t.Fatalf("visible skills = %q, want %q", got, tt.wantSkills)
+			}
+		})
+	}
+}
+
+func TestSkillPickerRealSyntheticNamedLeafUsesNormalFocusBehavior(t *testing.T) {
+	t.Parallel()
+
+	model := newSkillPickerModel([]string{"All/tool"}, []string{})
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model = updated.(skillPickerModel)
+
+	if got := strings.Join(model.categoryPath, "/"); got != "" {
+		t.Fatalf("categoryPath = %q, want root path for leaf category", got)
+	}
+	if model.focusedPane != skillPickerSkillsPane {
+		t.Fatalf("focusedPane = %v, want skills pane", model.focusedPane)
+	}
+	if got := strings.Join(model.visibleSkills(), ","); got != "All/tool" {
+		t.Fatalf("visible skills = %q, want All/tool", got)
+	}
+}
+
+func TestSkillPickerNestedPathWithoutDirectSkillsOmitsUnclassified(t *testing.T) {
+	t.Parallel()
+
+	model := newSkillPickerModel(
+		[]string{
+			"product-management/skills/product-strategy",
+			"product-management/skills/product-vision",
+		},
+		[]string{},
+	)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(skillPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model = updated.(skillPickerModel)
+
+	if got := strings.Join(model.categories, ","); got != "skills" {
+		t.Fatalf("categories = %q, want only skills", got)
+	}
+	if got := strings.Join(model.visibleSkills(), ","); got != "product-management/skills/product-strategy,product-management/skills/product-vision" {
+		t.Fatalf("visible skills = %q, want product-management skills", got)
+	}
 }
 
 func TestSkillPickerCategoryNavigationFiltersSkillsAndResetsCursor(t *testing.T) {
@@ -204,14 +368,14 @@ func TestSkillPickerDrillsDownAndNavigatesBack(t *testing.T) {
 	if got := strings.Join(model.categoryPath, "/"); got != "cloud" {
 		t.Fatalf("categoryPath = %q, want cloud", got)
 	}
-	if got := strings.Join(model.categories, ","); got != "All,azure,server" {
-		t.Fatalf("categories = %q, want All plus cloud children", got)
+	if got := strings.Join(model.categories, ","); got != "Unclassified,azure,server" {
+		t.Fatalf("categories = %q, want Unclassified plus cloud children", got)
 	}
 	if got := model.categoryBreadcrumb(); got != "cloud" {
 		t.Fatalf("breadcrumb = %q, want cloud", got)
 	}
-	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/azure-blob-storage,cloud/server/azure-functions,cloud/docker" {
-		t.Fatalf("visible skills = %q, want all skills under cloud", got)
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/docker" {
+		t.Fatalf("visible skills = %q, want unclassified cloud skill", got)
 	}
 	view := model.View()
 	if !strings.Contains(view, "cloud\n") {
@@ -289,10 +453,10 @@ func TestSkillPickerEscapeLeavesGlobalSearchWithoutCancelling(t *testing.T) {
 	if got := strings.Join(model.categoryPath, "/"); got != "cloud" {
 		t.Fatalf("categoryPath = %q, want previous browse path", got)
 	}
-	if got := strings.Join(model.categories, ","); got != "All,azure,server" {
+	if got := strings.Join(model.categories, ","); got != "azure,server" {
 		t.Fatalf("categories = %q, want previous subcategory list", got)
 	}
-	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/azure-blob-storage,cloud/server/azure-functions" {
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/azure-blob-storage" {
 		t.Fatalf("visible skills = %q, want browsed category after leaving search", got)
 	}
 }
@@ -335,18 +499,18 @@ func TestSkillPickerSelectsParentSkillWithSubfolders(t *testing.T) {
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
 	model = updated.(skillPickerModel)
 
-	// Drill into foo; cursor lands on "All", which still lists foo/qux.
+	// Drill into foo; cursor lands on Unclassified, which lists foo/qux.
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
 	model = updated.(skillPickerModel)
-	if got := model.selectedCategory(); got != "All" {
-		t.Fatalf("selectedCategory after drilling foo = %q, want All", got)
+	if got := model.selectedCategory(); got != "Unclassified" {
+		t.Fatalf("selectedCategory after drilling foo = %q, want Unclassified", got)
 	}
 	visible := model.visibleSkills()
-	if got := strings.Join(visible, ","); got != "foo/qux,foo/bar/baz" {
-		t.Fatalf("visible after drilling foo = %q, want both skills under foo", got)
+	if got := strings.Join(visible, ","); got != "foo/qux" {
+		t.Fatalf("visible after drilling foo = %q, want direct skill under foo", got)
 	}
 
-	// Right on "All" (no children) focuses the skills pane.
+	// Right on Unclassified focuses the skills pane without drilling further.
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
 	model = updated.(skillPickerModel)
 	if model.focusedPane != skillPickerSkillsPane {
@@ -421,18 +585,17 @@ func TestSkillPickerDrillsThreeLevels(t *testing.T) {
 		t.Fatalf("visible at cloud (highlighted) = %q, want cloud/k8s-helm", got)
 	}
 
-	// Drill into cloud; cursor lands on the "All" entry, which lists every
-	// skill under cloud so the parent-level skills are not lost.
+	// Drill into cloud; cursor lands on Unclassified, preserving its direct skill.
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
 	model = updated.(skillPickerModel)
-	if got := strings.Join(model.categories, ","); got != "All,azure" {
-		t.Fatalf("categories at cloud = %q, want All,azure", got)
+	if got := strings.Join(model.categories, ","); got != "Unclassified,azure" {
+		t.Fatalf("categories at cloud = %q, want Unclassified,azure", got)
 	}
-	if got := model.selectedCategory(); got != "All" {
-		t.Fatalf("selectedCategory after drilling cloud = %q, want All", got)
+	if got := model.selectedCategory(); got != "Unclassified" {
+		t.Fatalf("selectedCategory after drilling cloud = %q, want Unclassified", got)
 	}
-	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/compute/azure-vm,cloud/azure/azure-cli,cloud/k8s-helm" {
-		t.Fatalf("visible after drilling cloud = %q, want all skills under cloud", got)
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/k8s-helm" {
+		t.Fatalf("visible after drilling cloud = %q, want direct cloud skill", got)
 	}
 
 	// Move to subcategory "azure" and drill into it (it has subcategory compute).
@@ -443,11 +606,11 @@ func TestSkillPickerDrillsThreeLevels(t *testing.T) {
 	if got := model.categoryBreadcrumb(); got != "cloud > azure" {
 		t.Fatalf("breadcrumb = %q, want 'cloud > azure'", got)
 	}
-	if got := strings.Join(model.categories, ","); got != "All,compute" {
-		t.Fatalf("categories at cloud/azure = %q, want All,compute", got)
+	if got := strings.Join(model.categories, ","); got != "Unclassified,compute" {
+		t.Fatalf("categories at cloud/azure = %q, want Unclassified,compute", got)
 	}
-	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/compute/azure-vm,cloud/azure/azure-cli" {
-		t.Fatalf("visible after drilling azure = %q, want all skills under cloud/azure", got)
+	if got := strings.Join(model.visibleSkills(), ","); got != "cloud/azure/azure-cli" {
+		t.Fatalf("visible after drilling azure = %q, want direct cloud/azure skill", got)
 	}
 }
 
