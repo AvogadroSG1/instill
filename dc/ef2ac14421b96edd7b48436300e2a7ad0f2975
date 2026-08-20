@@ -1,0 +1,23 @@
+internal/instill/target_picker.go
+  s_1b4074d615709e::t_b402374a58a24b 208
+internal/instill/remote_skill.go
+  s_1b4074d615709e::t_b402374a58a24b 79-82
+internal/instill/pick_skills.go
+  s_1b4074d615709e::t_b402374a58a24b 173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "dcef2ac14421b96edd7b48436300e2a7ad0f2975",
+  "prompts": {},
+  "sessions": {
+    "s_1b4074d615709e": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fdf4bd0e3ffeJkZYmRQoKP0vmf",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    }
+  }
+}
