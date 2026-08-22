@@ -194,7 +194,7 @@ func scanLibraryTypes(root string, stdout io.Writer, types []LibraryType) error 
 			if _, ok := preservedNames[entry.Name]; ok {
 				continue
 			}
-			if typ == LibraryTypeSkill && entry.Source == "git" {
+			if (typ == LibraryTypeSkill || typ == LibraryTypePlugin) && entry.Source == "git" {
 				merged = append(merged, entry)
 				continue
 			}
@@ -255,7 +255,7 @@ func catalogFileSpec(root string, typ LibraryType) (string, []string, error) {
 	case LibraryTypeSkill:
 		return filepath.Join(root, "skills", "catalog.csv"), []string{"name", "category", "path", "source", "repository", "ref", "description"}, nil
 	case LibraryTypePlugin:
-		return filepath.Join(root, "plugins", "catalog.csv"), []string{"name", "category", "path", "description"}, nil
+		return filepath.Join(root, "plugins", "catalog.csv"), []string{"name", "category", "path", "source", "repository", "ref", "description"}, nil
 	case LibraryTypeMCP:
 		return filepath.Join(root, "mcp", "catalog.csv"), []string{"name", "transport", "command", "args", "url", "env", "description"}, nil
 	case LibraryTypeInstruction:
@@ -281,13 +281,15 @@ func parseCatalogRow(typ LibraryType, row []string) (CatalogEntry, error) {
 		entry.Name, entry.Category, entry.Path = row[0], row[1], row[2]
 		entry.Source, entry.Repository, entry.Ref, entry.Description = row[3], row[4], row[5], row[6]
 	case LibraryTypePlugin:
-		if len(row) != 4 {
+		if len(row) == 4 {
+			entry.Name, entry.Category, entry.Path, entry.Description = row[0], row[1], row[2], row[3]
+			break
+		}
+		if len(row) != 7 {
 			return CatalogEntry{}, NewExitError(ExitGeneral, fmt.Sprintf("error: malformed catalog: invalid %s row", typ))
 		}
-		entry.Name = row[0]
-		entry.Category = row[1]
-		entry.Path = row[2]
-		entry.Description = row[3]
+		entry.Name, entry.Category, entry.Path = row[0], row[1], row[2]
+		entry.Source, entry.Repository, entry.Ref, entry.Description = row[3], row[4], row[5], row[6]
 	case LibraryTypeMCP:
 		if len(row) != 7 {
 			return CatalogEntry{}, NewExitError(ExitGeneral, "error: malformed catalog: invalid mcp row")
@@ -350,6 +352,16 @@ func validateCatalogEntry(entry CatalogEntry) error {
 		if strings.TrimSpace(entry.Path) == "" {
 			return NewExitError(ExitGeneral, "error: malformed catalog: path is required")
 		}
+		if entry.Source == "" {
+			return nil
+		}
+		if entry.Source != "git" || !canonicalGitHubRepository(entry.Repository) || !isFullGitSHA(entry.Ref) {
+			return NewExitError(ExitGeneral, "error: malformed catalog: remote plugin requires git repository and full commit SHA")
+		}
+		normalized, err := validateRemotePluginSource(entry.Path)
+		if err != nil || normalized != entry.Path {
+			return NewExitError(ExitGeneral, "error: malformed catalog: remote plugin path must be a normalized repository-local slash path")
+		}
 	case LibraryTypeMCP:
 		switch entry.Transport {
 		case "stdio":
@@ -379,7 +391,7 @@ func formatCatalogRow(entry CatalogEntry) []string {
 	case LibraryTypeSkill:
 		return []string{entry.Name, entry.Category, entry.Path, entry.Source, entry.Repository, entry.Ref, entry.Description}
 	case LibraryTypePlugin:
-		return []string{entry.Name, entry.Category, entry.Path, entry.Description}
+		return []string{entry.Name, entry.Category, entry.Path, entry.Source, entry.Repository, entry.Ref, entry.Description}
 	case LibraryTypeMCP:
 		return []string{
 			entry.Name,
@@ -527,7 +539,7 @@ func mergeCatalogEntry(existing CatalogEntry, discovered CatalogEntry) CatalogEn
 }
 
 func catalogContentExists(root string, entry CatalogEntry) (bool, error) {
-	if entry.Type == LibraryTypeSkill && entry.Source == "git" {
+	if (entry.Type == LibraryTypeSkill || entry.Type == LibraryTypePlugin) && entry.Source == "git" {
 		return true, nil
 	}
 	path, err := catalogContentPath(root, entry)
@@ -548,7 +560,7 @@ func catalogHeadersValid(typ LibraryType, got, current []string) bool {
 	if equalStringSlices(got, current) {
 		return true
 	}
-	return typ == LibraryTypeSkill && equalStringSlices(got, []string{"name", "category", "path", "description"})
+	return (typ == LibraryTypeSkill || typ == LibraryTypePlugin) && equalStringSlices(got, []string{"name", "category", "path", "description"})
 }
 
 func catalogContentPath(root string, entry CatalogEntry) (string, error) {

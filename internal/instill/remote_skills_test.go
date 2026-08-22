@@ -21,12 +21,16 @@ func TestAddRemoteSkillPinsVerifiedDefaultBranch(t *testing.T) {
 		switch {
 		case command == "git ls-remote --symref https://github.com/owner/example.git HEAD":
 			return []byte("ref: refs/heads/main\tHEAD\n" + remoteSkillSHA + "\tHEAD\n"), nil
-		case strings.HasPrefix(command, "git clone --no-checkout https://github.com/owner/example.git "):
+		case strings.HasPrefix(command, "git init "):
+			return nil, nil
+		case strings.Contains(command, " remote add origin https://github.com/owner/example.git"):
 			return nil, nil
 		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " fetch --depth 1 origin "+remoteSkillSHA):
 			return nil, nil
-		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " cat-file -e "+remoteSkillSHA+":skills/example/SKILL.md"):
-			return nil, nil
+		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " ls-tree "+remoteSkillSHA+" -- skills/example/SKILL.md"):
+			return []byte("100644 blob abc\tskills/example/SKILL.md\n"), nil
+		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " show "+remoteSkillSHA+":skills/example/SKILL.md"):
+			return []byte("# example"), nil
 		default:
 			t.Fatalf("unexpected command: %s", command)
 			return nil, nil
@@ -42,7 +46,7 @@ func TestAddRemoteSkillPinsVerifiedDefaultBranch(t *testing.T) {
 		Type: LibraryTypeSkill, Name: "example", Path: "skills/example", Source: "git",
 		Repository: "https://github.com/owner/example.git", Ref: remoteSkillSHA,
 	}}, entries)
-	requireEqual(t, 4, len(calls))
+	requireEqual(t, 6, len(calls))
 }
 
 func TestAddRemoteSkillAcceptsGitSuffix(t *testing.T) {
@@ -192,12 +196,16 @@ func remoteSkillRunner(t *testing.T, sha string) CommandRunner {
 		switch {
 		case command == "git ls-remote --symref https://github.com/owner/example.git HEAD":
 			return []byte("ref: refs/heads/main\tHEAD\n" + sha + "\tHEAD\n"), nil
-		case strings.HasPrefix(command, "git clone --no-checkout https://github.com/owner/example.git "):
+		case strings.HasPrefix(command, "git init "):
+			return nil, nil
+		case strings.Contains(command, " remote add origin https://github.com/owner/example.git"):
 			return nil, nil
 		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " fetch --depth 1 origin "+sha):
 			return nil, nil
-		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " cat-file -e "+sha+":skills/example/SKILL.md"):
-			return nil, nil
+		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " ls-tree "+sha+" -- skills/example/SKILL.md"):
+			return []byte("100644 blob abc\tskills/example/SKILL.md\n"), nil
+		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " show "+sha+":skills/example/SKILL.md"):
+			return []byte("# example"), nil
 		default:
 			t.Fatalf("unexpected command: %s", command)
 			return nil, nil

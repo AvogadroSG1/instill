@@ -245,9 +245,9 @@ func TestWriteCatalogWritesPluginSchema(t *testing.T) {
 	requireNoError(t, err)
 	got := readFile(t, filepath.Join(root, "plugins", "catalog.csv"))
 	want := strings.Join([]string{
-		"name,category,path,description",
-		"docker,,docker/plugin.json,Container plugin",
-		"shortcuts-playground/claude,shortcuts-playground,shortcuts-playground/claude/.claude-plugin/plugin.json,Shortcuts plugin",
+		"name,category,path,source,repository,ref,description",
+		"docker,,docker/plugin.json,,,,Container plugin",
+		"shortcuts-playground/claude,shortcuts-playground,shortcuts-playground/claude/.claude-plugin/plugin.json,,,,Shortcuts plugin",
 		"",
 	}, "\n")
 	requireEqual(t, want, got)

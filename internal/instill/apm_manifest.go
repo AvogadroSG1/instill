@@ -138,9 +138,16 @@ func LocalDependencies(values ...string) []APMDependency { return localDependenc
 
 func (d APMDependency) identity() string {
 	if d.Git != nil {
-		return "git:" + d.Git.Repository + ":" + d.Git.Path + ":" + d.Git.Ref
+		return exactGitIdentity(d.Git.Repository, d.Git.Path, d.Git.Ref)
 	}
 	return "local:" + d.Local
+}
+
+func (d APMDependency) stableIdentity() string {
+	if d.Git != nil {
+		return stableGitIdentity(d.Git.Repository, d.Git.Path)
+	}
+	return "local:" + filepath.Clean(d.Local)
 }
 
 func ProjectAPMPath(root string) string {

@@ -443,6 +443,36 @@ func TestPickRemovalSupportsStaleSkillDependencyMissingFromCatalog(t *testing.T)
 	})
 }
 
+func TestPickRemovalSupportsStalePluginDependencyMissingFromCatalog(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	project := createAPMProject(t, APMManifest{
+		Dependencies: APMDependencies{
+			APM: localDependencies(filepath.Join(library, "plugins", "plugin")),
+		},
+	})
+	calls := []string{}
+
+	err := Pick(PickOptions{
+		Project:     project,
+		LibraryPath: library,
+		Type:        LibraryTypePlugin,
+		Remove:      []string{"plugin"},
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      &bytes.Buffer{},
+	})
+
+	requireNoError(t, err)
+	manifest, readErr := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, readErr)
+	requireEqual(t, 0, len(manifest.Dependencies.APM))
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm prune",
+	})
+}
+
 func TestPickRemovalDeletesCopiedInstruction(t *testing.T) {
 	t.Parallel()
 

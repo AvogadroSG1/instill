@@ -38,7 +38,7 @@ func TestSyncProjectRunsInstallThenCompileAndReportsSummary(t *testing.T) {
 		"apm install --legacy-skill-paths --root " + project.Root,
 		"apm compile --root " + project.Root,
 	})
-	requireContains(t, stdout.String(), "ok: synced 1 skills, 1 mcp servers, 1 instructions, 1 prompts")
+	requireContains(t, stdout.String(), "ok: synced 1 skills, 0 plugins, 1 mcp servers, 1 instructions, 1 prompts")
 }
 
 func TestSyncProjectRepairsCatalogMCPAndPreservesRegistryDependency(t *testing.T) {

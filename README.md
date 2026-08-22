@@ -19,10 +19,10 @@ flowchart LR
     APM --> Project[.apm rendered project content]
 ```
 
-- The **Library catalog** lives under `INSTILL_LIBRARY_PATH` and uses typed CSV files for skills, MCP servers, instructions, and prompts.
+- The **Library catalog** lives under `INSTILL_LIBRARY_PATH` and uses typed CSV files for skills, plugins, MCP servers, instructions, and prompts.
 - The **APM manifest** is the project-local `apm.yml` file committed with the project.
 - **Sync** means `instill sync` runs `apm install`, then `apm compile`, then reports installed counts.
-- **Typed library entries** let one library manage skills, MCP servers, instructions, and prompts without overloading a skill-only manifest.
+- **Typed library entries** let one library manage skills, plugins, MCP servers, instructions, and prompts without overloading a skill-only manifest.
 
 ## Install
 
@@ -49,6 +49,8 @@ Expected library shape:
 ~/path/to/agent-library/
   skills/catalog.csv
   skills/golang-testing/SKILL.md
+  plugins/catalog.csv
+  plugins/example/.claude-plugin/plugin.json
   mcp/catalog.csv
   mcp/local-db/config.json
   instructions/catalog.csv
@@ -80,6 +82,36 @@ instill sync
 ```
 
 The explicit `pick` updates this project's manifest to the catalog SHA. `sync` alone MUST NOT change project dependency refs. Review and commit the catalog, manifest, and APM lockfile changes after an explicit upgrade.
+
+### Remote Plugins
+
+Register a plugin from a GitHub repository containing a root Claude marketplace:
+
+```bash
+instill library add --type plugin --repository pbakaus/impeccable --name impeccable
+```
+
+Instill resolves the repository's default branch to a full immutable commit SHA, reads `.claude-plugin/marketplace.json` at that commit, selects the named plugin, and verifies its package-local `.claude-plugin/plugin.json`. `--name` MAY be omitted when the marketplace advertises exactly one plugin; repositories advertising multiple plugins MUST use `--name`.
+
+Marketplace plugin sources MUST be repository-local directories. Instill rejects absolute paths, URLs, traversal, symlinks, malformed metadata, duplicate names, and package manifests whose name does not match the marketplace entry. Registration failures MUST NOT change the catalog.
+
+Repository-backed plugins use the expanded `plugins/catalog.csv` schema `name,category,path,source,repository,ref,description`. Existing four-column local plugin catalogs remain readable and migrate on their next write. For Impeccable, selecting the catalog entry writes this APM dependency:
+
+```yaml
+- git: https://github.com/pbakaus/impeccable.git
+  path: plugin
+  ref: <full-40-character-sha>
+```
+
+Refresh remains explicit and follows the same three-pin lifecycle as remote skills:
+
+```bash
+instill library update --type plugin --name impeccable
+instill pick --type plugin impeccable
+instill sync
+```
+
+`library update` refreshes the catalog source pin, `pick` replaces the project's manifest pin, and APM records installation state in its lockfile. `sync` MUST NOT discover or select a newer commit by itself.
 
 ## Project Workflow
 
@@ -117,7 +149,7 @@ your-project/
 | `instill status` | Compare project APM state with the Library catalog |
 | `instill library scan` | Rebuild typed catalog CSV files from library content |
 | `instill library add` | Add one typed catalog entry |
-| `instill library update --type skill --name NAME` | Refresh an explicitly selected remote skill's immutable SHA pin |
+| `instill library update --type TYPE --name NAME` | Refresh a remote Skill or Plugin; `TYPE` MUST be `skill` or `plugin` |
 | `instill library show` | List typed catalog entries |
 | `instill import` | Import legacy instill, graft, Claude config, or generic directories |
 | `instill bootstrap` | Ensure APM is installed and meets the minimum version |
@@ -161,3 +193,5 @@ MIT — see [LICENSE](./LICENSE).
 
 [build-badge]: https://img.shields.io/github/actions/workflow/status/AvogadroSg1/instill/test.yml?branch=main
 [build-url]: https://github.com/AvogadroSg1/instill/actions
+
+*Authored By Peter O'Connor with Assistance from OpenCode (openai/gpt-5.6-sol) · 2026-08-22 · Repository-backed plugin documentation*

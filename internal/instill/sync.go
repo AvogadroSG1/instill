@@ -38,6 +38,10 @@ func SyncProject(opts SyncOptions) error {
 	if err := ensureTargets(opts.Project, &manifest); err != nil {
 		return err
 	}
+	skillCatalog, pluginCatalog, err := loadTypedPackageCatalogs(opts.LibraryPath)
+	if err != nil {
+		return err
+	}
 	mcpCatalog, err := LoadCatalog(opts.LibraryPath, LibraryTypeMCP)
 	if err != nil {
 		return err
@@ -65,8 +69,9 @@ func SyncProject(opts SyncOptions) error {
 		return err
 	}
 	return writeLine(opts.Stdout, fmt.Sprintf(
-		"ok: synced %d skills, %d mcp servers, %d instructions, %d prompts",
-		len(manifest.Dependencies.APM),
+		"ok: synced %d skills, %d plugins, %d mcp servers, %d instructions, %d prompts",
+		len(ownedDependencyNames(manifest.Dependencies.APM, opts.LibraryPath, LibraryTypeSkill, skillCatalog)),
+		len(ownedDependencyNames(manifest.Dependencies.APM, opts.LibraryPath, LibraryTypePlugin, pluginCatalog)),
 		len(manifest.Dependencies.MCP),
 		instructions,
 		prompts,
@@ -107,11 +112,14 @@ func ProjectStatus(opts StatusOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := reportSkillStatus(opts.Stdout, opts.LibraryPath, manifest.Dependencies.APM, skillCatalog); err != nil {
-		return err
-	}
 	pluginCatalog, err := LoadCatalog(opts.LibraryPath, LibraryTypePlugin)
 	if err != nil {
+		return err
+	}
+	if err := validateTypedGitCatalogs(skillCatalog, pluginCatalog); err != nil {
+		return err
+	}
+	if err := reportSkillStatus(opts.Stdout, opts.LibraryPath, manifest.Dependencies.APM, skillCatalog); err != nil {
 		return err
 	}
 	if err := reportPluginStatus(opts.Stdout, opts.LibraryPath, manifest.Dependencies.APM, pluginCatalog); err != nil {
@@ -205,13 +213,13 @@ func reportSkillStatus(stdout io.Writer, libraryPath string, dependencies []APMD
 	dependencyToName := make(map[string]string, len(catalog))
 	for _, entry := range catalog {
 		librarySkills[entry.Name] = entry
-		dependencyToName[skillDependencyFromCatalog(libraryPath, entry).identity()] = entry.Name
+		dependencyToName[skillDependencyFromCatalog(libraryPath, entry).stableIdentity()] = entry.Name
 	}
 
 	pluginsRoot := filepath.Join(libraryPath, "plugins")
 	projectSkills := make(map[string]struct{}, len(dependencies))
 	for _, dependency := range dependencies {
-		key := dependency.identity()
+		key := dependency.stableIdentity()
 		name, ok := dependencyToName[key]
 		if !ok {
 			if dependency.Git != nil || isUnderDir(pluginsRoot, dependency.Local) {
@@ -220,7 +228,13 @@ func reportSkillStatus(stdout io.Writer, libraryPath string, dependencies []APMD
 			name = skillDependencyName(libraryPath, dependency.Local)
 		}
 		projectSkills[name] = struct{}{}
-		if _, ok := librarySkills[name]; !ok {
+		entry, inCatalog := librarySkills[name]
+		if inCatalog && dependency.Git != nil && dependency.identity() != skillDependencyFromCatalog(libraryPath, entry).identity() {
+			if err := writeLine(stdout, "update available: skill "+name); err != nil {
+				return err
+			}
+		}
+		if !inCatalog {
 			if err := writeLine(stdout, "removed from library: skill "+name); err != nil {
 				return err
 			}
@@ -245,24 +259,30 @@ func reportPluginStatus(stdout io.Writer, libraryPath string, dependencies []APM
 	dependencyToName := make(map[string]string, len(catalog))
 	for _, entry := range catalog {
 		libraryPlugins[entry.Name] = entry
-		dependencyToName[filepath.Clean(pluginDependencyPath(libraryPath, entry))] = entry.Name
+		dependencyToName[pluginDependencyFromCatalog(libraryPath, entry).stableIdentity()] = entry.Name
 	}
 
 	pluginsRoot := filepath.Join(libraryPath, "plugins")
 	projectPlugins := make(map[string]struct{}, len(dependencies))
 	for _, dependency := range dependencies {
-		if dependency.Git != nil {
-			continue
-		}
-		name, ok := dependencyToName[filepath.Clean(dependency.Local)]
+		name, ok := dependencyToName[dependency.stableIdentity()]
 		if !ok {
+			if dependency.Git != nil {
+				continue
+			}
 			if !isUnderDir(pluginsRoot, dependency.Local) {
 				continue
 			}
 			name = pluginDependencyName(libraryPath, dependency.Local)
 		}
 		projectPlugins[name] = struct{}{}
-		if _, ok := libraryPlugins[name]; !ok {
+		entry, inCatalog := libraryPlugins[name]
+		if inCatalog && dependency.Git != nil && dependency.identity() != pluginDependencyFromCatalog(libraryPath, entry).identity() {
+			if err := writeLine(stdout, "update available: plugin "+name); err != nil {
+				return err
+			}
+		}
+		if !inCatalog {
 			if err := writeLine(stdout, "removed from library: plugin "+name); err != nil {
 				return err
 			}

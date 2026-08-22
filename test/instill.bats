@@ -81,7 +81,7 @@ setup() {
 
   run "$INSTILL_BIN" sync
   [ "$status" -eq 0 ]
-  [[ "$output" == *"ok: synced 1 skills, 0 mcp servers, 1 instructions, 1 prompts"* ]]
+  [[ "$output" == *"ok: synced 1 skills, 0 plugins, 0 mcp servers, 1 instructions, 1 prompts"* ]]
 }
 
 @test "pick adds MCP catalog entries to the APM manifest" {
@@ -642,4 +642,25 @@ FIXTURE
   [ "$status" -eq 0 ]
   [ -f apm.yml ]
   [[ "$(cat apm.yml)" == *"opencode"* ]]
+}
+
+@test "library add registers a repository-backed plugin from marketplace metadata" {
+  install_fake_git_remote_plugin
+  make_project
+
+  run "$INSTILL_BIN" library add --type plugin --repository pbakaus/impeccable --name impeccable
+  [ "$status" -eq 0 ]
+
+  catalog="$(cat "$INSTILL_LIBRARY_PATH/plugins/catalog.csv")"
+  [[ "$catalog" == *"impeccable,design,plugin,git,https://github.com/pbakaus/impeccable.git,3333333333333333333333333333333333333333,Design fluency"* ]]
+
+  printf 'name: project\nversion: 0.1.0\ndependencies: {}\n' > apm.yml
+  run "$INSTILL_BIN" pick --type plugin impeccable
+  [ "$status" -eq 0 ]
+
+  manifest="$(cat apm.yml)"
+  [[ "$manifest" == *"git: https://github.com/pbakaus/impeccable.git"* ]]
+  [[ "$manifest" == *"path: plugin"* ]]
+  [[ "$manifest" == *"ref: \"3333333333333333333333333333333333333333\""* ]]
+  [ -f apm.lock.yaml ]
 }

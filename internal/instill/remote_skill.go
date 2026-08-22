@@ -1,15 +1,9 @@
 package instill
 
 import (
-	"fmt"
-	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
-
-var githubRepositoryPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]+$`)
-var fullGitSHAPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 func AddRemoteSkill(root, repository string, runner CommandRunner) error {
 	entry, err := resolveRemoteSkill(repository, runner)
@@ -24,6 +18,9 @@ func AddRemoteSkill(root, repository string, runner CommandRunner) error {
 		if existing.Name == entry.Name {
 			return NewExitError(ExitGeneral, "error: skill already exists: "+entry.Name)
 		}
+	}
+	if err := rejectCrossCatalogGitIdentity(root, LibraryTypeSkill, entry); err != nil {
+		return err
 	}
 	return WriteCatalog(root, LibraryTypeSkill, append(entries, entry))
 }
@@ -47,6 +44,9 @@ func UpdateRemoteSkill(root, name string, runner CommandRunner) error {
 		}
 		updated.Category = entry.Category
 		updated.Description = entry.Description
+		if err := rejectCrossCatalogGitIdentity(root, LibraryTypeSkill, updated); err != nil {
+			return err
+		}
 		entries[i] = updated
 		return WriteCatalog(root, LibraryTypeSkill, entries)
 	}
@@ -54,70 +54,25 @@ func UpdateRemoteSkill(root, name string, runner CommandRunner) error {
 }
 
 func resolveRemoteSkill(repository string, runner CommandRunner) (CatalogEntry, error) {
-	repository = strings.TrimSuffix(repository, ".git")
-	if !githubRepositoryPattern.MatchString(repository) {
-		return CatalogEntry{}, NewExitError(ExitGeneral, "error: repository must be a GitHub owner/repo")
-	}
-	if runner == nil {
-		runner = defaultCommandRunner
-	}
-	parts := strings.Split(repository, "/")
-	name := parts[1]
-	url := "https://github.com/" + repository + ".git"
-	output, err := runner("git", "ls-remote", "--symref", url, "HEAD")
-	if err != nil {
-		return CatalogEntry{}, remoteGitError(err, output)
-	}
-	sha, err := remoteHeadSHA(string(output))
+	snapshot, url, err := openGitSnapshot(repository, runner)
 	if err != nil {
 		return CatalogEntry{}, err
 	}
-	dir, err := os.MkdirTemp("", "instill-git-")
-	if err != nil {
-		return CatalogEntry{}, NewExitError(ExitFilesystem, "error: cannot create temporary git directory: "+err.Error())
-	}
-	defer func() {
-		// Cleanup is best-effort and MUST NOT replace the primary operation result.
-		_ = os.RemoveAll(dir)
-	}()
-	if output, err := runner("git", "clone", "--no-checkout", url, dir); err != nil {
-		return CatalogEntry{}, remoteGitError(err, output)
-	}
-	if output, err := runner("git", "-C", dir, "fetch", "--depth", "1", "origin", sha); err != nil {
-		return CatalogEntry{}, remoteGitError(err, output)
-	}
+	defer snapshot.close()
+	parts := strings.Split(strings.TrimSuffix(strings.TrimPrefix(url, "https://github.com/"), ".git"), "/")
+	name := parts[1]
 	path := "skills/" + name
-	if output, err := runner("git", "-C", dir, "cat-file", "-e", sha+":"+path+"/SKILL.md"); err != nil {
-		return CatalogEntry{}, NewExitError(ExitGeneral, "error: remote skill is missing "+path+"/SKILL.md at "+sha+": "+strings.TrimSpace(string(output)))
+	if _, err := snapshot.regularFile(path + "/SKILL.md"); err != nil {
+		return CatalogEntry{}, NewExitError(ExitGeneral, "error: remote skill is missing "+path+"/SKILL.md at "+snapshot.sha)
 	}
-	return CatalogEntry{Type: LibraryTypeSkill, Name: name, Path: path, Source: "git", Repository: url, Ref: sha}, nil
+	return CatalogEntry{Type: LibraryTypeSkill, Name: name, Path: path, Source: "git", Repository: url, Ref: snapshot.sha}, nil
 }
-
-func remoteHeadSHA(output string) (string, error) {
-	for _, line := range strings.Split(output, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 2 && fields[1] == "HEAD" && isFullGitSHA(fields[0]) {
-			return fields[0], nil
-		}
-	}
-	return "", NewExitError(ExitGeneral, "error: could not resolve remote default branch to a full commit SHA")
-}
-
-func remoteGitError(err error, output []byte) error {
-	message := strings.TrimSpace(string(output))
-	if message != "" {
-		return NewExitError(ExitGeneral, fmt.Sprintf("error: cannot access remote repository: %v\n%s", err, message))
-	}
-	return NewExitError(ExitGeneral, fmt.Sprintf("error: cannot access remote repository: %v", err))
-}
-
-func isFullGitSHA(value string) bool { return fullGitSHAPattern.MatchString(value) }
 
 func remoteSkillPath(entry CatalogEntry) string { return filepath.ToSlash(entry.Path) }
 
 func isCanonicalRemoteSkill(entry CatalogEntry) bool {
 	repository := strings.TrimSuffix(strings.TrimPrefix(entry.Repository, "https://github.com/"), ".git")
-	if !githubRepositoryPattern.MatchString(repository) {
+	if !canonicalGitHubRepository(entry.Repository) {
 		return false
 	}
 	parts := strings.Split(repository, "/")

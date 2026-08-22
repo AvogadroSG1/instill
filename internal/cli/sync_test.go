@@ -11,12 +11,12 @@ import (
 )
 
 func TestSyncCLIReportsSummary(t *testing.T) {
-	library := createCatalogLibrary(t, cliCatalogLibrarySeed{})
+	library := createCatalogLibrary(t, cliCatalogLibrarySeed{skills: []catalogFixture{{typ: "skill", name: "docker", path: "docker/SKILL.md"}}})
 	t.Setenv("INSTILL_LIBRARY_PATH", library)
 
 	root := createAPMProjectRoot(t, instill.APMManifest{
 		Dependencies: instill.APMDependencies{
-			APM: instill.LocalDependencies("/library/skills/docker"),
+			APM: instill.LocalDependencies(filepath.Join(library, "skills", "docker")),
 			MCP: []instill.MCPDependency{{Name: "local-db", Command: "sqlite-mcp"}},
 		},
 	})
@@ -46,7 +46,7 @@ func TestSyncCLIReportsSummary(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "ok: synced 1 skills, 1 mcp servers, 1 instructions, 1 prompts") {
+	if !strings.Contains(stdout.String(), "ok: synced 1 skills, 0 plugins, 1 mcp servers, 1 instructions, 1 prompts") {
 		t.Fatalf("stdout = %q, want sync summary", stdout.String())
 	}
 }

@@ -197,11 +197,23 @@ func loadPickTypeStates(project Project, libraryPath string) ([]pickTypeState, e
 		return nil, err
 	}
 
+	skills, plugins, err := loadTypedPackageCatalogs(libraryPath)
+	if err != nil {
+		return nil, err
+	}
 	states := make([]pickTypeState, 0, len(pickLibraryTypes()))
 	for _, typ := range pickLibraryTypes() {
-		entries, err := LoadCatalog(libraryPath, typ)
-		if err != nil {
-			return nil, err
+		var entries []CatalogEntry
+		switch typ {
+		case LibraryTypeSkill:
+			entries = skills
+		case LibraryTypePlugin:
+			entries = plugins
+		default:
+			entries, err = LoadCatalog(libraryPath, typ)
+			if err != nil {
+				return nil, err
+			}
 		}
 		available := catalogEntryNames(entries)
 		selected, err := currentProjectTypeSelection(project, libraryPath, typ, manifest, entries)
@@ -222,12 +234,12 @@ func currentProjectTypeSelection(project Project, libraryPath string, typ Librar
 	case LibraryTypeSkill:
 		namesByDependency := make(map[string]string, len(entries))
 		for _, entry := range entries {
-			namesByDependency[skillDependencyFromCatalog(libraryPath, entry).identity()] = entry.Name
+			namesByDependency[skillDependencyFromCatalog(libraryPath, entry).stableIdentity()] = entry.Name
 		}
 
 		selected := make([]string, 0, len(manifest.Dependencies.APM))
 		for _, dependency := range manifest.Dependencies.APM {
-			if name, ok := namesByDependency[dependency.identity()]; ok {
+			if name, ok := namesByDependency[dependency.stableIdentity()]; ok {
 				selected = append(selected, name)
 			}
 		}
@@ -235,15 +247,12 @@ func currentProjectTypeSelection(project Project, libraryPath string, typ Librar
 	case LibraryTypePlugin:
 		namesByDependency := make(map[string]string, len(entries))
 		for _, entry := range entries {
-			namesByDependency[pluginDependencyPath(libraryPath, entry)] = entry.Name
+			namesByDependency[pluginDependencyFromCatalog(libraryPath, entry).stableIdentity()] = entry.Name
 		}
 
 		selected := make([]string, 0, len(manifest.Dependencies.APM))
 		for _, dependency := range manifest.Dependencies.APM {
-			if dependency.Git != nil {
-				continue
-			}
-			if name, ok := namesByDependency[dependency.Local]; ok {
+			if name, ok := namesByDependency[dependency.stableIdentity()]; ok {
 				selected = append(selected, name)
 			}
 		}
@@ -270,19 +279,19 @@ func currentProjectSkills(project Project, libraryPath string) ([]string, error)
 	if err != nil {
 		return nil, err
 	}
-	entries, err := LoadCatalog(libraryPath, LibraryTypeSkill)
+	entries, _, err := loadTypedPackageCatalogs(libraryPath)
 	if err != nil {
 		return nil, err
 	}
 
 	namesByDependency := make(map[string]string, len(entries))
 	for _, entry := range entries {
-		namesByDependency[skillDependencyFromCatalog(libraryPath, entry).identity()] = entry.Name
+		namesByDependency[skillDependencyFromCatalog(libraryPath, entry).stableIdentity()] = entry.Name
 	}
 
 	selected := make([]string, 0, len(manifest.Dependencies.APM))
 	for _, dependency := range manifest.Dependencies.APM {
-		if name, ok := namesByDependency[dependency.identity()]; ok {
+		if name, ok := namesByDependency[dependency.stableIdentity()]; ok {
 			selected = append(selected, name)
 		}
 	}
