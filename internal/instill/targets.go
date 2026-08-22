@@ -8,26 +8,33 @@ import (
 
 // SetTargetsOptions configures target agent updates on an existing project.
 type SetTargetsOptions struct {
-	Project Project
-	Targets []string
-	Stdout  io.Writer
+	Project         Project
+	Targets         []string
+	Stdout          io.Writer
+	manifestMetrics *manifestIOMetrics
 }
 
 // SetProjectTargets updates the targets in the project's APM manifest.
 func SetProjectTargets(opts SetTargetsOptions) error {
-	manifest, err := ReadAPMManifest(opts.Project.ManifestPath)
+	document, err := loadManifestDocumentObserved(opts.Project.ManifestPath, opts.manifestMetrics)
 	if err != nil {
 		return err
 	}
-	manifest.Targets = normalizeStringSlice(opts.Targets)
-	if err := WriteAPMManifestAtomic(opts.Project.ManifestPath, manifest); err != nil {
+	targets := normalizeStringSlice(opts.Targets)
+	if err := document.setTargets(targets, false); err != nil {
+		return err
+	}
+	if err := document.repairIdentity(opts.Project.Root, false); err != nil {
+		return err
+	}
+	if err := document.write(); err != nil {
 		return err
 	}
 	if opts.Stdout != nil {
-		if len(manifest.Targets) == 0 {
+		if len(targets) == 0 {
 			return writeLine(opts.Stdout, "ok: targets cleared")
 		}
-		return writeLine(opts.Stdout, fmt.Sprintf("ok: targets set to %s", strings.Join(manifest.Targets, ", ")))
+		return writeLine(opts.Stdout, fmt.Sprintf("ok: targets set to %s", strings.Join(targets, ", ")))
 	}
 	return nil
 }

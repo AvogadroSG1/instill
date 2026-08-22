@@ -11,14 +11,11 @@ func TestSetProjectTargets(t *testing.T) {
 
 	root := t.TempDir()
 	manifestPath := filepath.Join(root, "apm.yml")
-	err := WriteAPMManifestAtomic(manifestPath, APMManifest{
+	writeAPMManifestForTest(t, manifestPath, APMManifest{
 		Name:    "myproject",
 		Version: "0.1.0",
 		Targets: []string{"claude"},
 	})
-	if err != nil {
-		t.Fatalf("WriteAPMManifestAtomic() error = %v", err)
-	}
 
 	project := Project{
 		Root:         root,
@@ -26,7 +23,7 @@ func TestSetProjectTargets(t *testing.T) {
 	}
 
 	var stdout bytes.Buffer
-	err = SetProjectTargets(SetTargetsOptions{
+	err := SetProjectTargets(SetTargetsOptions{
 		Project: project,
 		Targets: []string{"codex", "opencode"},
 		Stdout:  &stdout,

@@ -11,6 +11,8 @@ setup_file() {
   INSTILL_TEST_DIR="$(mktemp -d)"
   export INSTILL_BIN="$INSTILL_TEST_DIR/instill"
   (cd "$REPO_ROOT" && go build -o "$INSTILL_BIN" .)
+  export MANIFEST_SEMANTICS_BIN="$INSTILL_TEST_DIR/manifest-semantics"
+  (cd "$REPO_ROOT" && go build -o "$MANIFEST_SEMANTICS_BIN" ./test/test_helper/manifest_semantics.go)
 }
 
 teardown_file() {
@@ -99,6 +101,100 @@ setup() {
   [ "$status" -eq 0 ]
   [[ "$(cat apm.yml)" == *"name: local-db"* ]]
   [[ "$(cat apm.yml)" == *"command: local-db-mcp"* ]]
+}
+
+@test "pick rejects removal of user-owned MCP dependency missing from catalog" {
+  make_project
+  scan_library
+  cat > apm.yml <<'YAML'
+name: project
+version: 1.0.0
+dependencies:
+  mcp:
+    - {name: user-server, registry: true, x-owner: user}
+YAML
+  before="$(cat apm.yml)"
+
+  run "$INSTILL_BIN" pick --type mcp --remove user-server
+
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unknown mcp: user-server"* ]]
+  [ "$(cat apm.yml)" = "$before" ]
+}
+
+@test "pick preserves unknown manifest nodes" {
+  make_skill docker
+  make_mcp local-db
+  mkdir -p "$INSTILL_LIBRARY_PATH/plugins/example/.claude-plugin"
+  printf '{"name":"example"}\n' > "$INSTILL_LIBRARY_PATH/plugins/example/.claude-plugin/plugin.json"
+  make_project
+  scan_library
+  cat > apm.yml <<'YAML'
+# preserved head
+name: project
+version: 1.0.0
+x-flow: {owner: user, values: [one, two]}
+dependencies:
+  lsp: [{name: gopls, x-user: true}]
+  apm:
+    - owner/remote#main
+    - {marketplace: private, name: opaque}
+  mcp:
+    - io.example/opaque
+    - {x-custom: true}
+YAML
+
+  run "$INSTILL_BIN" pick --type skill docker
+  [ "$status" -eq 0 ]
+  run "$MANIFEST_SEMANTICS_BIN" apm.yml
+  [ "$status" -eq 0 ]
+  run "$INSTILL_BIN" pick --type plugin example
+  [ "$status" -eq 0 ]
+  run "$MANIFEST_SEMANTICS_BIN" apm.yml
+  [ "$status" -eq 0 ]
+  run "$INSTILL_BIN" pick --type mcp local-db
+  [ "$status" -eq 0 ]
+  run "$MANIFEST_SEMANTICS_BIN" apm.yml
+  [ "$status" -eq 0 ]
+
+  manifest="$(cat apm.yml)"
+  [[ "$manifest" == *"# preserved head"* ]]
+  [[ "$manifest" == *"x-flow:"* ]]
+  [[ "$manifest" == *"lsp:"* ]]
+  [[ "$manifest" == *"owner/remote#main"* ]]
+  [[ "$manifest" == *"marketplace: private"* ]]
+  [[ "$manifest" == *"io.example/opaque"* ]]
+  [[ "$manifest" == *"x-custom: true"* ]]
+}
+
+@test "sync preserves unknown manifest nodes in one reconciliation" {
+  make_mcp local-db
+  make_project
+  mkdir -p .codex
+  scan_library
+  cat > apm.yml <<'YAML'
+x-user: {flow: [one, two]}
+dependencies:
+  lsp: [{name: gopls}]
+  apm: [owner/remote#main]
+  mcp:
+    - {name: local-db, registry: true, command: stale, x-owner: user}
+    - io.example/opaque
+YAML
+
+  run "$INSTILL_BIN" sync
+  [ "$status" -eq 0 ]
+
+  manifest="$(cat apm.yml)"
+  [[ "$manifest" == *"targets:"* ]]
+  [[ "$manifest" == *"codex"* ]]
+  [[ "$manifest" == *"registry: false"* ]]
+  [[ "$manifest" == *"command: local-db-mcp"* ]]
+  [[ "$manifest" == *"x-user:"* ]]
+  [[ "$manifest" == *"lsp:"* ]]
+  [[ "$manifest" == *"owner/remote#main"* ]]
+  [[ "$manifest" == *"x-owner: user"* ]]
+  [[ "$manifest" == *"io.example/opaque"* ]]
 }
 
 @test "add-hooks registers instill sync and replaces legacy managed hook" {
@@ -297,6 +393,8 @@ setup() {
   # apm.yml created with MCP dependency
   [ -f apm.yml ]
   [[ "$(cat apm.yml)" == *"name: local-db"* ]]
+  [[ "$(cat apm.yml)" == *"transport: stdio"* ]]
+  [[ "$(cat apm.yml)" == *"registry: false"* ]]
   [[ "$(cat apm.yml)" == *"command: sqlite-mcp"* ]]
   [[ "$(cat apm.yml)" == *"--db"* ]]
 

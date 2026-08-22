@@ -51,10 +51,10 @@ func TestTypedGitDependencyOwnershipIsPreserved(t *testing.T) {
 			pluginDependency := APMDependency{Git: &GitDependency{Repository: plugin.Repository, Path: plugin.Path, Ref: plugin.Ref}}
 			project := createAPMProject(t, APMManifest{Dependencies: APMDependencies{APM: []APMDependency{skillDependency, pluginDependency, unknown}}})
 			name := skill.Name
-			want := []APMDependency{unknown, pluginDependency}
+			want := []APMDependency{pluginDependency, unknown}
 			if removeType == LibraryTypePlugin {
 				name = plugin.Name
-				want = []APMDependency{unknown, skillDependency}
+				want = []APMDependency{skillDependency, unknown}
 			}
 
 			requireNoError(t, Pick(PickOptions{Project: project, LibraryPath: library, Type: removeType, Remove: []string{name}, Runner: recordingRunner(nil, nil)}))

@@ -46,6 +46,34 @@ type PickSkillsTUIOptions struct {
 	SelectSkills func(available []string, selected []string, stdin *os.File, output io.Writer) ([]string, bool, error)
 }
 
+// SelectInitialSkillsTUI gathers an init selection without mutating a project.
+func SelectInitialSkillsTUI(opts PickSkillsTUIOptions) (InitialSkillSelectionPlan, bool, error) {
+	isTTY := opts.IsTTY
+	if isTTY == nil {
+		isTTY = IsTerminal
+	}
+	if opts.Stdin == nil || !isTTY(opts.Stdin) {
+		return InitialSkillSelectionPlan{}, false, NewExitError(ExitEnvironment, "error: pick TUI requires a terminal")
+	}
+	available, err := ListLibrarySkills(opts.LibraryPath, opts.Stderr)
+	if err != nil {
+		return InitialSkillSelectionPlan{}, false, err
+	}
+	selectSkills := opts.SelectSkills
+	if selectSkills == nil {
+		selectSkills = runSkillPickerProgram
+	}
+	output := opts.Stderr
+	if output == nil {
+		output = io.Discard
+	}
+	selected, confirmed, err := selectSkills(available, nil, opts.Stdin, output)
+	if err != nil {
+		return InitialSkillSelectionPlan{}, false, NewExitError(ExitGeneral, "error: pick TUI failed: "+err.Error())
+	}
+	return InitialSkillSelectionPlan{Skills: normalizeStringSlice(selected)}, confirmed, nil
+}
+
 // RunPickTUI lets a user choose project library entries interactively.
 func RunPickTUI(opts PickTUIOptions) error {
 	if opts.Stdin == nil || !IsTerminal(opts.Stdin) {

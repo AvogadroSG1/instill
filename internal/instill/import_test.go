@@ -9,6 +9,88 @@ import (
 	"testing"
 )
 
+func TestImportHasNoSupersededManifestWriter(t *testing.T) {
+	source, err := os.ReadFile("import.go")
+	requireNoError(t, err)
+	text := string(source)
+	for _, removed := range []string{"readAPMManifestDocument", "writeAPMManifestDocumentAtomic", "yaml.Marshal(document)"} {
+		if strings.Contains(text, removed) {
+			t.Fatalf("import.go contains superseded manifest writer %q", removed)
+		}
+	}
+	if strings.Count(text, "loadManifestDocumentObserved(opts.Project.ManifestPath, opts.manifestMetrics)") != 2 {
+		t.Fatalf("shared adapter loads = %d, want 2", strings.Count(text, "loadManifestDocumentObserved(opts.Project.ManifestPath, opts.manifestMetrics)"))
+	}
+}
+
+func TestImportUsesSharedManifestDocumentAdapter(t *testing.T) {
+	t.Run("old Instill preserves authoritative nodes", func(t *testing.T) {
+		library := createTypedLibrary(t)
+		root := t.TempDir()
+		requireNoError(t, os.MkdirAll(filepath.Dir(ProjectManifestPath(root)), 0o755))
+		requireNoError(t, WriteManifestAtomic(ProjectManifestPath(root), Manifest{Skills: []string{"cloud/azure/azure-cli"}}))
+		path := ProjectAPMPath(root)
+		requireNoError(t, os.WriteFile(path, []byte(`# preserve
+name: project
+version: 1.0.0
+x-user: &user {flow: [one, two]}
+x-copy: *user
+dependencies:
+  apm:
+    - owner/remote#main
+  lsp: [{name: gopls}]
+`), 0o640))
+		before := mustManifestNode(t, path)
+
+		requireNoError(t, ImportOldInstill(ImportOptions{Project: Project{Root: root, ManifestPath: path}, LibraryPath: library}))
+		after := mustManifestNode(t, path)
+		beforeRoot, _ := apmManifestMapping(before)
+		afterRoot, _ := apmManifestMapping(after)
+		assertNodeSemantics(t, mappingValue(beforeRoot, "x-user"), mappingValue(afterRoot, "x-user"))
+		assertNodeSemantics(t, mappingValue(beforeRoot, "x-copy"), mappingValue(afterRoot, "x-copy"))
+		assertNodeSemantics(t, mappingValue(mappingValue(beforeRoot, "dependencies"), "lsp"), mappingValue(mappingValue(afterRoot, "dependencies"), "lsp"))
+		sequence := mappingValue(mappingValue(afterRoot, "dependencies"), "apm")
+		if len(sequence.Content) != 2 || sequence.Content[0].Value != "owner/remote#main" {
+			t.Fatalf("dependencies.apm = %#v, want opaque remote followed by import", sequence.Content)
+		}
+		info, err := os.Stat(path)
+		requireNoError(t, err)
+		requireEqual(t, os.FileMode(0o640), info.Mode().Perm())
+	})
+
+	t.Run("Graft preserves and reuses authoritative nodes", func(t *testing.T) {
+		library := t.TempDir()
+		root := t.TempDir()
+		requireNoError(t, os.WriteFile(filepath.Join(root, "graft.lock"), []byte("servers:\n  - local-db\n"), 0o644))
+		requireNoError(t, os.WriteFile(filepath.Join(root, ".mcp.json"), []byte(`{"mcpServers":{"local-db":{"command":"sqlite-mcp"}}}`), 0o644))
+		path := ProjectAPMPath(root)
+		requireNoError(t, os.WriteFile(path, []byte(`name: project
+version: 1.0.0
+x-user: {flow: [one, two]}
+dependencies:
+  lsp: [{name: gopls}]
+  mcp:
+    - {name: local-db, registry: true, command: old, x-owner: user}
+    - io.example/opaque
+`), 0o644))
+
+		requireNoError(t, ImportGraft(ImportOptions{Project: Project{Root: root, ManifestPath: path}, LibraryPath: library}))
+		after := mustManifestNode(t, path)
+		rootNode, _ := apmManifestMapping(after)
+		dependencies := mappingValue(rootNode, "dependencies")
+		if mappingValue(rootNode, "x-user") == nil || mappingValue(dependencies, "lsp") == nil {
+			t.Fatalf("import removed unknown nodes: %s", readFile(t, path))
+		}
+		sequence := mappingValue(dependencies, "mcp")
+		if len(sequence.Content) != 2 || sequence.Content[1].Value != "io.example/opaque" {
+			t.Fatalf("dependencies.mcp = %#v, want reused mapping and opaque scalar", sequence.Content)
+		}
+		requireEqual(t, "user", mappingValue(sequence.Content[0], "x-owner").Value)
+		requireEqual(t, "false", mappingValue(sequence.Content[0], "registry").Value)
+		requireEqual(t, "stdio", mappingValue(sequence.Content[0], "transport").Value)
+	})
+}
+
 func TestImportOldInstillWritesCatalogAndManifestAndRemovesLegacyArtifacts(t *testing.T) {
 	library := createTypedLibrary(t)
 	root := t.TempDir()
@@ -137,6 +219,10 @@ func TestImportGraftWritesMCPCatalogAndManifestAndPreservesUnmanagedServers(t *t
 	requireNoError(t, err)
 	if len(manifest.Dependencies.MCP) != 1 || manifest.Dependencies.MCP[0].Name != "local-db" {
 		t.Fatalf("manifest mcp = %#v, want local-db dependency", manifest.Dependencies.MCP)
+	}
+	localDB := manifest.Dependencies.MCP[0]
+	if localDB.Transport != "stdio" || localDB.Registry != false || localDB.Command != "sqlite-mcp" {
+		t.Fatalf("manifest local-db = %#v, want explicit self-defined stdio dependency", localDB)
 	}
 
 	if _, err := os.Lstat(filepath.Join(root, "graft.lock")); !os.IsNotExist(err) {
@@ -380,6 +466,44 @@ func TestImportGraftPreservesSSETransport(t *testing.T) {
 	if len(entries) != 1 || entries[0].Name != "events" || entries[0].Transport != "sse" {
 		t.Fatalf("mcp catalog = %#v, want events with sse transport", entries)
 	}
+	manifest, err := ReadAPMManifest(ProjectAPMPath(root))
+	requireNoError(t, err)
+	if len(manifest.Dependencies.MCP) != 1 || manifest.Dependencies.MCP[0].Transport != "sse" || manifest.Dependencies.MCP[0].Registry != false {
+		t.Fatalf("manifest mcp = %#v, want explicit self-defined sse dependency", manifest.Dependencies.MCP)
+	}
+}
+
+func TestImportGraftReusesMatchingMCPNodeAndUpdatesOwnedFields(t *testing.T) {
+	library := t.TempDir()
+	root := t.TempDir()
+	requireNoError(t, os.WriteFile(filepath.Join(root, "graft.lock"), []byte("servers:\n  - local-db\n"), 0o644))
+	requireNoError(t, os.WriteFile(filepath.Join(root, ".mcp.json"), []byte(`{
+  "mcpServers": {
+    "local-db": {"command": "sqlite-mcp", "args": ["--db", "dev.db"]}
+  }
+}`), 0o644))
+	apmPath := ProjectAPMPath(root)
+	requireNoError(t, os.WriteFile(apmPath, []byte(`name: project
+version: 1.0.0
+dependencies:
+  mcp:
+    - {name: local-db, transport: http, registry: true, url: https://old.test, x-owner: user}
+`), 0o644))
+
+	err := ImportGraft(ImportOptions{Project: Project{Root: root, ManifestPath: apmPath}, LibraryPath: library})
+	requireNoError(t, err)
+	manifest, err := ReadAPMManifest(apmPath)
+	requireNoError(t, err)
+	if len(manifest.Dependencies.MCP) != 1 {
+		t.Fatalf("manifest mcp = %#v, want one reused dependency", manifest.Dependencies.MCP)
+	}
+	dependency := manifest.Dependencies.MCP[0]
+	if dependency.Transport != "stdio" || dependency.Registry != false || dependency.Command != "sqlite-mcp" || dependency.URL != "" {
+		t.Fatalf("manifest dependency = %#v, want reconciled Graft fields", dependency)
+	}
+	if dependency.Extra["x-owner"] != "user" {
+		t.Fatalf("manifest dependency extra = %#v, want x-owner preserved", dependency.Extra)
+	}
 }
 
 func TestImportGraftWritesDurableMCPMarkersThatSurviveScan(t *testing.T) {
@@ -445,12 +569,12 @@ func TestImportOldInstillMergesExistingAPMDependencies(t *testing.T) {
 
 	existingDependency := filepath.ToSlash(filepath.Join(root, "external", "SKILL.md"))
 	apmPath := ProjectAPMPath(root)
-	requireNoError(t, WriteAPMManifestAtomic(apmPath, APMManifest{
+	writeAPMManifestForTest(t, apmPath, APMManifest{
 		Dependencies: APMDependencies{
 			APM: localDependencies(existingDependency),
 			MCP: []MCPDependency{{Name: "existing-mcp", Command: "existing-command"}},
 		},
-	}))
+	})
 
 	err := ImportOldInstill(ImportOptions{
 		Project: Project{
@@ -581,12 +705,12 @@ func TestImportGraftMergesExistingMCPDependencies(t *testing.T) {
   }
 }`), 0o644))
 	apmPath := ProjectAPMPath(root)
-	requireNoError(t, WriteAPMManifestAtomic(apmPath, APMManifest{
+	writeAPMManifestForTest(t, apmPath, APMManifest{
 		Dependencies: APMDependencies{
 			APM: localDependencies("../existing/SKILL.md"),
 			MCP: []MCPDependency{{Name: "existing-mcp", Command: "existing-command"}},
 		},
-	}))
+	})
 
 	err := ImportGraft(ImportOptions{
 		Project: Project{

@@ -48,11 +48,6 @@ func newInitProjectCommand(cfg commandConfig) *cobra.Command {
 				}
 			}
 
-			runPicker := cfg.pickTUI
-			if runPicker == nil {
-				runPicker = instill.RunPickTUI
-			}
-
 			runTargetPicker := cfg.targetPicker
 			if runTargetPicker == nil {
 				runTargetPicker = instill.RunTargetPickerTUI
@@ -89,18 +84,21 @@ func newInitProjectCommand(cfg commandConfig) *cobra.Command {
 				Runner:        cfg.runner,
 				Stdout:        cfg.stdout,
 				SelectTargets: selectTargets,
-				SelectSkills: func(project instill.Project) error {
+				SelectSkills: func() (instill.InitialSkillSelectionPlan, bool, error) {
 					if len(skills) > 0 {
-						return nil
+						return instill.InitialSkillSelectionPlan{Skills: skills}, true, nil
 					}
-					return runPicker(instill.PickTUIOptions{
-						Project:     project,
+					runPicker := cfg.initPicker
+					if runPicker == nil {
+						runPicker = instill.SelectInitialSkillsTUI
+					}
+					return runPicker(instill.PickSkillsTUIOptions{
 						LibraryPath: libraryPath,
-						InitialType: instill.LibraryTypeSkill,
 						Stdin:       cfg.stdin,
 						Stdout:      cfg.stdout,
 						Stderr:      cfg.stderr,
 						Runner:      cfg.runner,
+						IsTTY:       isTTY,
 					})
 				},
 			})

@@ -14,10 +14,11 @@ import (
 )
 
 type SyncOptions struct {
-	Project     Project
-	LibraryPath string
-	Runner      CommandRunner
-	Stdout      io.Writer
+	Project         Project
+	LibraryPath     string
+	Runner          CommandRunner
+	Stdout          io.Writer
+	manifestMetrics *manifestIOMetrics
 }
 
 type StatusOptions struct {
@@ -31,15 +32,30 @@ func SyncProject(opts SyncOptions) error {
 	if err := EnsureAPM(opts.Runner); err != nil {
 		return err
 	}
-	manifest, err := ReadAPMManifest(opts.Project.ManifestPath)
+	document, err := loadManifestDocumentObserved(opts.Project.ManifestPath, opts.manifestMetrics)
 	if err != nil {
 		return err
 	}
-	if err := ensureTargets(opts.Project, &manifest); err != nil {
+	manifest := document.projection
+	if err := document.setTargets(DetectHarnessTargets(opts.Project.Root), true); err != nil {
 		return err
 	}
 	skillCatalog, pluginCatalog, err := loadTypedPackageCatalogs(opts.LibraryPath)
 	if err != nil {
+		return err
+	}
+	catalogDependencies := make([]APMDependency, 0, len(skillCatalog)+len(pluginCatalog))
+	for _, entry := range skillCatalog {
+		catalogDependencies = append(catalogDependencies, skillDependencyFromCatalog(opts.LibraryPath, entry))
+	}
+	for _, entry := range pluginCatalog {
+		catalogDependencies = append(catalogDependencies, pluginDependencyFromCatalog(opts.LibraryPath, entry))
+	}
+	ownership := ownershipForDependencies(catalogDependencies, []string{
+		filepath.Join(opts.LibraryPath, "skills"),
+		filepath.Join(opts.LibraryPath, "plugins"),
+	})
+	if err := document.mutateAPM(manifest.Dependencies.APM, ownership); err != nil {
 		return err
 	}
 	mcpCatalog, err := LoadCatalog(opts.LibraryPath, LibraryTypeMCP)
@@ -49,9 +65,15 @@ func SyncProject(opts SyncOptions) error {
 	dependencies, changed := reconcileMCPDependencies(manifest.Dependencies.MCP, mcpCatalog)
 	if changed {
 		manifest.Dependencies.MCP = dependencies
-		if err := WriteAPMManifestAtomic(opts.Project.ManifestPath, manifest); err != nil {
-			return err
-		}
+	}
+	if err := document.mutateMCP(dependencies, catalogEntryNamesSet(mcpCatalog)); err != nil {
+		return err
+	}
+	if err := document.repairIdentity(opts.Project.Root, false); err != nil {
+		return err
+	}
+	if err := document.write(); err != nil {
+		return err
 	}
 	if err := RunAPMInstall(opts.Runner, opts.Project.Root); err != nil {
 		return err
@@ -149,18 +171,6 @@ func ProjectStatus(opts StatusOptions) error {
 		return err
 	}
 	return reportContentStatus(opts.Stdout, opts.Project.Root, opts.LibraryPath, LibraryTypePrompt, promptCatalog, lock.Prompts)
-}
-
-func ensureTargets(project Project, manifest *APMManifest) error {
-	if len(manifest.Targets) > 0 {
-		return nil
-	}
-	targets := DetectHarnessTargets(project.Root)
-	if len(targets) == 0 {
-		return nil
-	}
-	manifest.Targets = targets
-	return WriteAPMManifestAtomic(project.ManifestPath, *manifest)
 }
 
 func countProjectContent(dir string, pattern string) (int, error) {

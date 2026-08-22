@@ -428,31 +428,38 @@ marketplace:
 
 ## Gap Analysis: instill vs. APM Schema
 
-Current `APMManifest` struct (in `internal/instill/apm_manifest.go`):
+Instill parses the complete manifest into an authoritative `yaml.Node` document. `APMManifest` is a non-authoritative typed projection used for validation, identity matching, and planning. Instill MUST serialize the node document, not the projection, so unmodeled schema fields and opaque dependency forms survive supported updates.
+
+Instill owns only these fields during the corresponding operation:
+
+- Mutating commands repair absent `name` and `version`; read-only and instruction/prompt operations do not.
+- Target updates own plural `targets`. Singular `target` is preserved as an unknown compatibility field.
+- Skill and Plugin selection own catalog-matched Git dependencies and ordinary `!!str` local paths that exactly match catalog-derived paths or are stale paths contained under their Library roots. Tagged scalars are never owned.
+- MCP selection and sync own `name`, `transport`, `registry`, `command`, `args`, `env`, and `url` only for catalog-matched mappings. MCP removal rejects names absent from the active catalog rather than removing a user-owned named mapping. Self-defined Library and Graft-imported entries always write their transport and `registry: false` explicitly.
+- Unsupported scalars and mappings, including tagged scalars, remote APM shorthand, marketplace/registry mappings, and MCP shorthand, remain opaque.
+
+The adapter preserves node kind, tag, value, ordering, style, comments, anchors, aliases, and unknown children outside an operation's exact ownership. A genuine mutation may re-render whitespace that `yaml.v3` does not model. A no-op performs no write.
+
+Existing manifest replacements retain the original permission bits. New manifests request mode `0o644`, with the process umask applied when the temporary replacement file is created.
 
 | Schema Field | instill Status | Notes |
 |---|---|---|
 | `name` | **Implemented** | Set from `filepath.Base(root)` |
-| `version` | **Missing — REQUIRED** | APM requires this; likely root cause of validation errors |
+| `version` | **Implemented** | New manifests use `0.1.0`; mutating commands repair an absent value |
 | `description` | Missing | Optional |
 | `author` | Missing | Optional |
 | `license` | Missing | Optional |
-| `target`/`targets` | Missing | Relies on APM auto-detect |
+| `target`/`targets` | Partial | Instill owns plural `targets`; singular `target` is preserved but not interpreted |
 | `type` | Missing | Controls compilation behavior |
-| `dependencies.apm` | Implemented | String-form local paths only |
-| `dependencies.mcp` | Partial | Has name/command/args/env/url; missing `transport`, `registry`, `headers`, `tools`, `version`, `package` |
-| `dependencies.lsp` | **Missing** | Entire sub-key absent from struct |
-| `devDependencies` | Missing | Entire section absent |
-| `compilation` | Missing | Entire section absent |
-| `scripts` | Missing | Entire section absent |
-| `includes` | Missing | Content consent not modeled |
-| `policy` | Missing | Consumer-side controls absent |
-| `registries` | Missing | Experimental, low priority |
-| `marketplace` | Missing | Authoring metadata absent |
+| `dependencies.apm` | Partial, preservation-safe | Typed local and Git forms are managed; every other form is opaque and preserved |
+| `dependencies.mcp` | Partial, preservation-safe | Catalog-owned fields are managed; headers, tools, version, package, and unknown keys are preserved |
+| `dependencies.lsp` | Preserved, not managed | Retained as authoritative nodes |
+| `devDependencies` | Preserved, not managed | Retained as authoritative nodes |
+| `compilation` | Preserved, not managed | Retained as authoritative nodes |
+| `scripts` | Preserved, not managed | Retained as authoritative nodes |
+| `includes` | Preserved, not managed | Retained as authoritative nodes |
+| `policy` | Preserved, not managed | Retained as authoritative nodes |
+| `registries` | Preserved, not managed | Retained as authoritative nodes |
+| `marketplace` | Preserved, not managed | Retained as authoritative nodes |
 
-### Priority for fixing validation errors
-
-1. **Add `version` field** — required by schema, currently not emitted
-2. **Expand `MCPDependency`** — add `transport`, `registry` at minimum
-3. **Add `target`** — prevents reliance on auto-detect which may fail
-4. **Add `type`** — controls how APM processes the package
+Instill MUST NOT expand the typed projection merely to preserve a field. New managed fields require an explicit ownership decision and narrow node mutation contract.

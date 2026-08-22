@@ -255,7 +255,7 @@ func TestPickCLIAddsPluginDependency(t *testing.T) {
 			Description: "Shortcuts playground",
 		},
 	}))
-	requireNoError(instill.WriteAPMManifestAtomic(filepath.Join(root, "apm.yml"), instill.APMManifest{}))
+	requireNoError(os.WriteFile(filepath.Join(root, "apm.yml"), []byte("dependencies: {apm: [], mcp: []}\n"), 0o644))
 	t.Setenv("SKILL_LIBRARY_PATH", library)
 
 	var stdout bytes.Buffer

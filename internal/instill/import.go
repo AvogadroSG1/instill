@@ -12,8 +12,9 @@ import (
 )
 
 type ImportOptions struct {
-	Project     Project
-	LibraryPath string
+	Project         Project
+	LibraryPath     string
+	manifestMetrics *manifestIOMetrics
 }
 
 type ImportDirectoryOptions struct {
@@ -64,12 +65,20 @@ func ImportOldInstill(opts ImportOptions) error {
 	if err != nil {
 		return err
 	}
-	document, manifest, err := readAPMManifestDocument(opts.Project.ManifestPath)
+	document, err := loadManifestDocumentObserved(opts.Project.ManifestPath, opts.manifestMetrics)
 	if err != nil {
 		return err
 	}
+	manifest := document.projection
 	manifest.Dependencies.APM = mergeAPMDependencies(manifest.Dependencies.APM, dependencies)
-	if err := writeAPMManifestDocumentAtomic(opts.Project.ManifestPath, document, manifest.Dependencies, "apm"); err != nil {
+	ownership := ownershipForDependencies(dependencies, nil)
+	if err := document.mutateAPM(manifest.Dependencies.APM, ownership); err != nil {
+		return err
+	}
+	if err := document.repairIdentity(opts.Project.Root, false); err != nil {
+		return err
+	}
+	if err := document.write(); err != nil {
 		return err
 	}
 
@@ -125,13 +134,11 @@ func ImportGraft(opts ImportOptions) error {
 		entriesByName[entry.Name] = entry
 	}
 
-	document, manifest, err := readAPMManifestDocument(opts.Project.ManifestPath)
+	document, err := loadManifestDocumentObserved(opts.Project.ManifestPath, opts.manifestMetrics)
 	if err != nil {
 		return err
 	}
-	if err := ensureAPMManifestIdentity(document, opts.Project.Root); err != nil {
-		return err
-	}
+	manifest := document.projection
 	dependencies := make([]MCPDependency, 0, len(names))
 	imported := make(map[string]struct{}, len(names))
 	for _, name := range names {
@@ -148,11 +155,13 @@ func ImportGraft(opts ImportOptions) error {
 			return err
 		}
 		dependencies = append(dependencies, MCPDependency{
-			Name:    entry.Name,
-			Command: entry.Command,
-			Args:    entry.Args,
-			Env:     mcpEnvironment(entry.Env),
-			URL:     entry.URL,
+			Name:      entry.Name,
+			Transport: entry.Transport,
+			Registry:  false,
+			Command:   entry.Command,
+			Args:      entry.Args,
+			Env:       mcpEnvironment(entry.Env),
+			URL:       entry.URL,
 		})
 		imported[name] = struct{}{}
 	}
@@ -164,7 +173,14 @@ func ImportGraft(opts ImportOptions) error {
 		return err
 	}
 	manifest.Dependencies.MCP = mergeMCPDependencies(manifest.Dependencies.MCP, dependencies)
-	if err := writeAPMManifestDocumentAtomic(opts.Project.ManifestPath, document, manifest.Dependencies, "mcp"); err != nil {
+	ownedNames := dependencyNames(dependencies)
+	if err := document.mutateMCP(manifest.Dependencies.MCP, ownedNames); err != nil {
+		return err
+	}
+	if err := document.repairIdentity(opts.Project.Root, false); err != nil {
+		return err
+	}
+	if err := document.write(); err != nil {
 		return err
 	}
 
@@ -367,161 +383,11 @@ func copyDirectoryTree(source string, target string) error {
 	})
 }
 
-func readAPMManifestDocument(path string) (*yaml.Node, APMManifest, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // Manifest path is discovered under the selected project root.
-	if err != nil {
-		if os.IsNotExist(err) {
-			manifest := APMManifest{}
-			normalizeAPMManifest(&manifest)
-			return emptyAPMManifestDocument(), manifest, nil
-		}
-		return nil, APMManifest{}, NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot read manifest: %v", err))
-	}
-
-	var document yaml.Node
-	if err := yaml.Unmarshal(data, &document); err != nil {
-		return nil, APMManifest{}, NewExitError(ExitGeneral, fmt.Sprintf("error: malformed manifest: %v", err))
-	}
-	if document.Kind == 0 {
-		document = *emptyAPMManifestDocument()
-	}
-
-	var manifest APMManifest
-	if err := document.Decode(&manifest); err != nil {
-		return nil, APMManifest{}, NewExitError(ExitGeneral, fmt.Sprintf("error: malformed manifest: %v", err))
-	}
-	normalizeAPMManifest(&manifest)
-	return &document, manifest, nil
-}
-
-func emptyAPMManifestDocument() *yaml.Node {
-	return &yaml.Node{
-		Kind: yaml.DocumentNode,
-		Content: []*yaml.Node{
-			{Kind: yaml.MappingNode},
-		},
-	}
-}
-
-func writeAPMManifestDocumentAtomic(path string, document *yaml.Node, dependencies APMDependencies, fields ...string) error {
-	manifest := APMManifest{Dependencies: dependencies}
-	normalizeAPMManifest(&manifest)
-	dependencies = manifest.Dependencies
-	mapping, err := apmManifestMapping(document)
-	if err != nil {
-		return err
-	}
-	dependenciesNode, err := ensureMappingNode(mapping, "dependencies")
-	if err != nil {
-		return err
-	}
-	for _, field := range fields {
-		switch field {
-		case "apm":
-			node, encodeErr := yamlNode(dependencies.APM)
-			if encodeErr != nil {
-				return NewExitError(ExitGeneral, fmt.Sprintf("error: cannot encode manifest: %v", encodeErr))
-			}
-			setMappingValue(dependenciesNode, "apm", node)
-		case "mcp":
-			node, encodeErr := yamlNode(dependencies.MCP)
-			if encodeErr != nil {
-				return NewExitError(ExitGeneral, fmt.Sprintf("error: cannot encode manifest: %v", encodeErr))
-			}
-			setMappingValue(dependenciesNode, "mcp", node)
-		}
-	}
-
-	data, err := yaml.Marshal(document)
-	if err != nil {
-		return NewExitError(ExitGeneral, fmt.Sprintf("error: cannot encode manifest: %v", err))
-	}
-	if err := writeFileAtomic(path, data, 0o644); err != nil {
-		return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot write manifest: %v", err))
-	}
-	return nil
-}
-
 func normalizeAPMManifest(manifest *APMManifest) {
 	manifest.Dependencies.APM = normalizeAPMDependencies(manifest.Dependencies.APM)
 	if manifest.Dependencies.MCP == nil {
 		manifest.Dependencies.MCP = []MCPDependency{}
 	}
-}
-
-func apmManifestMapping(document *yaml.Node) (*yaml.Node, error) {
-	if document.Kind != yaml.DocumentNode {
-		return nil, NewExitError(ExitGeneral, "error: malformed manifest: expected document")
-	}
-	if len(document.Content) == 0 {
-		document.Content = []*yaml.Node{{Kind: yaml.MappingNode}}
-	}
-	if len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
-		return nil, NewExitError(ExitGeneral, "error: malformed manifest: expected mapping")
-	}
-	return document.Content[0], nil
-}
-
-func ensureAPMManifestIdentity(document *yaml.Node, root string) error {
-	mapping, err := apmManifestMapping(document)
-	if err != nil {
-		return err
-	}
-	if mappingValue(mapping, "name") == nil {
-		setMappingValue(mapping, "name", scalarNode(filepath.Base(root)))
-	}
-	if mappingValue(mapping, "version") == nil {
-		setMappingValue(mapping, "version", scalarNode("0.1.0"))
-	}
-	return nil
-}
-
-func mappingValue(mapping *yaml.Node, key string) *yaml.Node {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			return mapping.Content[i+1]
-		}
-	}
-	return nil
-}
-
-func ensureMappingNode(mapping *yaml.Node, key string) (*yaml.Node, error) {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value != key {
-			continue
-		}
-		value := mapping.Content[i+1]
-		if value.Kind != yaml.MappingNode {
-			return nil, NewExitError(ExitGeneral, fmt.Sprintf("error: malformed manifest: %s must be a mapping", key))
-		}
-		return value, nil
-	}
-	value := &yaml.Node{Kind: yaml.MappingNode}
-	mapping.Content = append(mapping.Content, scalarNode(key), value)
-	return value, nil
-}
-
-func setMappingValue(mapping *yaml.Node, key string, value *yaml.Node) {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value != key {
-			continue
-		}
-		mapping.Content[i+1] = value
-		return
-	}
-	mapping.Content = append(mapping.Content, scalarNode(key), value)
-}
-
-func yamlNode(value any) (*yaml.Node, error) {
-	node := &yaml.Node{}
-	if err := node.Encode(value); err != nil {
-		return nil, err
-	}
-	return node, nil
-}
-
-func scalarNode(value string) *yaml.Node {
-	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
 }
 
 func mergeAPMDependencies(existing []APMDependency, imported []APMDependency) []APMDependency {

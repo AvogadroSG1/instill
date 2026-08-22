@@ -52,7 +52,7 @@ func TestInitProjectCLIUsesUnifiedPicker(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("SKILL_LIBRARY_PATH", library)
 
-	var captured instill.PickTUIOptions
+	var captured instill.PickSkillsTUIOptions
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	code := execute(commandConfig{
@@ -64,9 +64,9 @@ func TestInitProjectCLIUsesUnifiedPicker(t *testing.T) {
 		isTTY: func(*os.File) bool {
 			return true
 		},
-		pickTUI: func(opts instill.PickTUIOptions) error {
+		initPicker: func(opts instill.PickSkillsTUIOptions) (instill.InitialSkillSelectionPlan, bool, error) {
 			captured = opts
-			return nil
+			return instill.InitialSkillSelectionPlan{}, true, nil
 		},
 		targetPicker: func(opts instill.TargetPickerOptions) ([]string, bool, error) {
 			return []string{"codex"}, true, nil
@@ -75,9 +75,6 @@ func TestInitProjectCLIUsesUnifiedPicker(t *testing.T) {
 
 	if code != 0 {
 		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
-	}
-	if captured.InitialType != instill.LibraryTypeSkill {
-		t.Fatalf("InitialType = %q, want %q", captured.InitialType, instill.LibraryTypeSkill)
 	}
 	if captured.Runner == nil {
 		t.Fatal("captured.Runner = nil, want injected runner")

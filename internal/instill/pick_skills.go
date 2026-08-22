@@ -10,13 +10,14 @@ import (
 
 // PickOptions configures additive and removal changes for one library type.
 type PickOptions struct {
-	Project     Project
-	LibraryPath string
-	Add         []string
-	Remove      []string
-	Type        LibraryType
-	Runner      CommandRunner
-	Stdout      io.Writer
+	Project         Project
+	LibraryPath     string
+	Add             []string
+	Remove          []string
+	Type            LibraryType
+	Runner          CommandRunner
+	Stdout          io.Writer
+	manifestMetrics *manifestIOMetrics
 }
 
 // PickSkillsOptions configures manifest skill selection changes.
@@ -46,14 +47,6 @@ func Pick(opts PickOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := EnsureAPM(opts.Runner); err != nil {
-		return err
-	}
-
-	manifest, err := ReadAPMManifest(opts.Project.ManifestPath)
-	if err != nil {
-		return err
-	}
 	var entries []CatalogEntry
 	switch opts.Type {
 	case LibraryTypeSkill:
@@ -70,25 +63,68 @@ func Pick(opts PickOptions) error {
 	for _, entry := range entries {
 		entriesByName[entry.Name] = entry
 	}
+	if opts.Type == LibraryTypeInstruction || opts.Type == LibraryTypePrompt {
+		if err := EnsureAPM(opts.Runner); err != nil {
+			return err
+		}
+		if err := applyContentPick(opts.Project.Root, opts.LibraryPath, entriesByName, opts.Add, opts.Remove, opts.Type); err != nil {
+			return err
+		}
+		if len(normalizeSkills(opts.Add)) > 0 {
+			if err := RunAPMInstall(opts.Runner, opts.Project.Root); err != nil {
+				return err
+			}
+		}
+		if len(normalizeSkills(opts.Remove)) > 0 {
+			return RunAPMPrune(opts.Runner, opts.Project.Root)
+		}
+		return nil
+	}
+	if err := EnsureAPM(opts.Runner); err != nil {
+		return err
+	}
+	document, err := loadManifestDocumentObserved(opts.Project.ManifestPath, opts.manifestMetrics)
+	if err != nil {
+		return err
+	}
+	manifest := document.projection
 
 	switch opts.Type {
 	case LibraryTypeSkill:
 		manifest.Dependencies.APM, err = applySkillPick(manifest.Dependencies.APM, opts.LibraryPath, entriesByName, opts.Add, opts.Remove)
+		if err == nil {
+			catalogDependencies := make([]APMDependency, 0, len(entries))
+			for _, entry := range entries {
+				catalogDependencies = append(catalogDependencies, skillDependencyFromCatalog(opts.LibraryPath, entry))
+			}
+			ownership := ownershipForDependencies(catalogDependencies, []string{filepath.Join(opts.LibraryPath, "skills")})
+			err = document.mutateAPM(manifest.Dependencies.APM, ownership)
+		}
 	case LibraryTypePlugin:
 		manifest.Dependencies.APM, err = applyPluginPick(manifest.Dependencies.APM, opts.LibraryPath, entriesByName, opts.Add, opts.Remove)
+		if err == nil {
+			catalogDependencies := make([]APMDependency, 0, len(entries))
+			for _, entry := range entries {
+				catalogDependencies = append(catalogDependencies, pluginDependencyFromCatalog(opts.LibraryPath, entry))
+			}
+			ownership := ownershipForDependencies(catalogDependencies, []string{filepath.Join(opts.LibraryPath, "plugins")})
+			err = document.mutateAPM(manifest.Dependencies.APM, ownership)
+		}
 	case LibraryTypeMCP:
 		manifest.Dependencies.MCP, err = applyMCPPick(manifest.Dependencies.MCP, entriesByName, opts.Add, opts.Remove)
-	case LibraryTypeInstruction:
-		err = applyContentPick(opts.Project.Root, opts.LibraryPath, entriesByName, opts.Add, opts.Remove, LibraryTypeInstruction)
-	case LibraryTypePrompt:
-		err = applyContentPick(opts.Project.Root, opts.LibraryPath, entriesByName, opts.Add, opts.Remove, LibraryTypePrompt)
+		if err == nil {
+			err = document.mutateMCP(manifest.Dependencies.MCP, catalogEntryNamesSet(entries))
+		}
 	default:
 		err = NewExitError(ExitGeneral, "error: invalid library type: "+string(opts.Type))
 	}
 	if err != nil {
 		return err
 	}
-	if err := WriteAPMManifestAtomic(opts.Project.ManifestPath, manifest); err != nil {
+	if err := document.repairIdentity(opts.Project.Root, false); err != nil {
+		return err
+	}
+	if err := document.write(); err != nil {
 		return err
 	}
 
@@ -123,10 +159,11 @@ func ApplySkillSelection(opts SkillSelectionOptions) error {
 	if err != nil {
 		return err
 	}
-	manifest, err := ReadAPMManifest(opts.Project.ManifestPath)
+	document, err := loadManifestDocument(opts.Project.ManifestPath)
 	if err != nil {
 		return err
 	}
+	manifest := document.projection
 	if err := EnsureAPM(opts.Runner); err != nil {
 		return err
 	}
@@ -151,7 +188,18 @@ func ApplySkillSelection(opts SkillSelectionOptions) error {
 		return err
 	}
 	manifest.Dependencies.APM = dependencies
-	if err := WriteAPMManifestAtomic(opts.Project.ManifestPath, manifest); err != nil {
+	catalogDependencies := make([]APMDependency, 0, len(skills))
+	for _, entry := range skills {
+		catalogDependencies = append(catalogDependencies, skillDependencyFromCatalog(opts.LibraryPath, entry))
+	}
+	ownership := ownershipForDependencies(catalogDependencies, []string{filepath.Join(opts.LibraryPath, "skills")})
+	if err := document.mutateAPM(manifest.Dependencies.APM, ownership); err != nil {
+		return err
+	}
+	if err := document.repairIdentity(opts.Project.Root, false); err != nil {
+		return err
+	}
+	if err := document.write(); err != nil {
 		return err
 	}
 	if hasAddedDependencies(previous, dependencies) {
@@ -325,10 +373,8 @@ func applyMCPPick(current []MCPDependency, entriesByName map[string]CatalogEntry
 		byName[name] = mcpDependencyFromCatalog(entry)
 	}
 	for _, name := range normalizeSkills(remove) {
-		if _, ok := byName[name]; !ok {
-			if _, ok := entriesByName[name]; !ok {
-				return nil, NewExitError(ExitGeneral, "error: unknown mcp: "+name)
-			}
+		if _, ok := entriesByName[name]; !ok {
+			return nil, NewExitError(ExitGeneral, "error: unknown mcp: "+name)
 		}
 		delete(byName, name)
 	}
@@ -345,6 +391,14 @@ func mcpDependencyFromCatalog(entry CatalogEntry) MCPDependency {
 		Name: entry.Name, Transport: entry.Transport, Registry: false,
 		Command: entry.Command, Args: entry.Args, Env: mcpEnvironment(entry.Env), URL: entry.URL,
 	}
+}
+
+func catalogEntryNamesSet(entries []CatalogEntry) map[string]struct{} {
+	names := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		names[entry.Name] = struct{}{}
+	}
+	return names
 }
 
 func mcpEnvironment(entries []string) map[string]string {

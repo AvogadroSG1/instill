@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestWriteAPMManifestAtomicWritesYAMLDependencies(t *testing.T) {
+func TestManifestFixtureWritesYAMLDependencies(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "apm.yml")
 	manifest := APMManifest{
@@ -22,9 +22,7 @@ func TestWriteAPMManifestAtomicWritesYAMLDependencies(t *testing.T) {
 		},
 	}
 
-	err := WriteAPMManifestAtomic(path, manifest)
-
-	requireNoError(t, err)
+	writeAPMManifestForTest(t, path, manifest)
 	data := readFile(t, path)
 	requireContains(t, data, "name: my-project")
 	requireContains(t, data, "version: 1.0.0")
@@ -53,7 +51,7 @@ func TestReadAPMManifestPreservesOmittedAndFalseMCPRegistry(t *testing.T) {
 	requireEqual(t, false, manifest.Dependencies.MCP[1].Registry)
 }
 
-func TestAPMManifestRoundTripPreservesUnmatchedMCPDependencyFields(t *testing.T) {
+func TestReadAPMManifestProjectsUnmatchedMCPDependencyFields(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "apm.yml")
 	requireNoError(t, os.WriteFile(path, []byte(`name: preservation
@@ -72,17 +70,14 @@ dependencies:
 
 	manifest, err := ReadAPMManifest(path)
 	requireNoError(t, err)
-	requireNoError(t, WriteAPMManifestAtomic(path, manifest))
-	roundTripped, err := ReadAPMManifest(path)
-	requireNoError(t, err)
-	requireEqual(t, manifest.Dependencies.MCP, roundTripped.Dependencies.MCP)
+	requireEqual(t, "platform", manifest.Dependencies.MCP[0].Extra["x-owner"])
 
 	data := readFile(t, path)
 	requireContains(t, data, "registry: https://registry.example.test")
 	requireContains(t, data, "Authorization: ${TOKEN}")
 	requireContains(t, data, "version: 2.4.1")
 	requireContains(t, data, "package: '@example/server'")
-	requireContains(t, data, "- search")
+	requireContains(t, data, "tools: [search, fetch]")
 	requireContains(t, data, "x-owner: platform")
 }
 

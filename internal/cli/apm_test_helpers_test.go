@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/AvogadroSG1/instill/internal/instill"
+	"gopkg.in/yaml.v3"
 )
 
 type catalogFixture struct {
@@ -48,8 +49,12 @@ func createAPMProjectRoot(t *testing.T, manifest instill.APMManifest) string {
 	t.Helper()
 
 	root := t.TempDir()
-	if err := instill.WriteAPMManifestAtomic(filepath.Join(root, "apm.yml"), manifest); err != nil {
-		t.Fatalf("WriteAPMManifestAtomic() error = %v", err)
+	data, err := yaml.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("yaml.Marshal() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "apm.yml"), data, 0o644); err != nil {
+		t.Fatalf("WriteFile(apm.yml) error = %v", err)
 	}
 	return root
 }

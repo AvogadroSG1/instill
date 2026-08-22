@@ -203,6 +203,82 @@ func TestInitProjectWithSelectTargetsErrorAborts(t *testing.T) {
 	assertPathMissing(t, filepath.Join(root, "apm.yml"))
 }
 
+func TestInitForcePreservesUnknownManifestContent(t *testing.T) {
+	root := t.TempDir()
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		skills: []CatalogEntry{{Type: LibraryTypeSkill, Name: "docker", Path: "docker/SKILL.md"}},
+	})
+	manifestPath := ProjectAPMPath(root)
+	requireNoError(t, os.WriteFile(manifestPath, []byte(`# user comment
+name: 'old'
+version: "9.9.9"
+target: legacy
+x-user: &user {quoted: "value", flow: [one, two]} # preserve line
+x-copy: *user
+dependencies:
+  lsp: [{name: gopls, x-style: 'quoted'}] # preserve lsp
+  apm:
+    - owner/remote#main # opaque shorthand
+    - {marketplace: private, name: opaque} # opaque mapping
+  mcp:
+    - io.example/server # opaque mcp
+`), 0o640))
+	before := mustManifestNode(t, manifestPath)
+
+	err := InitProject(InitProjectOptions{
+		Root: root, LibraryPath: library, Skills: []string{"docker"}, Targets: []string{"codex"}, TargetsSet: true,
+		Force: true, Runner: recordingRunner(nil, nil), Stdout: &bytes.Buffer{},
+	})
+	requireNoError(t, err)
+	data := readFile(t, manifestPath)
+	for _, preserved := range []string{"# user comment", "target: legacy", "x-user:", "lsp:", "owner/remote#main", "marketplace: private", "io.example/server"} {
+		requireContains(t, data, preserved)
+	}
+	info, err := os.Stat(manifestPath)
+	requireNoError(t, err)
+	requireEqual(t, os.FileMode(0o640), info.Mode().Perm())
+	manifest, err := ReadAPMManifest(manifestPath)
+	requireNoError(t, err)
+	requireEqual(t, filepath.Base(root), manifest.Name)
+	requireEqual(t, "0.1.0", manifest.Version)
+	requireEqual(t, []string{"codex"}, manifest.Targets)
+	after := mustManifestNode(t, manifestPath)
+	assertNodeGraphEqualExcept(t, before, after, map[string]struct{}{
+		"name": {}, "version": {}, "targets": {}, "dependencies.apm": {}, "dependencies.mcp": {},
+	})
+	beforeRoot, _ := apmManifestMapping(before)
+	afterRoot, _ := apmManifestMapping(after)
+	beforeDependencies := mappingValue(beforeRoot, "dependencies")
+	afterDependencies := mappingValue(afterRoot, "dependencies")
+	beforeAPM := mappingValue(beforeDependencies, "apm")
+	afterAPM := mappingValue(afterDependencies, "apm")
+	assertNodeSemantics(t, beforeAPM.Content[0], afterAPM.Content[0])
+	assertNodeSemantics(t, beforeAPM.Content[1], afterAPM.Content[1])
+	assertNodeSemantics(t, mappingValue(beforeDependencies, "mcp").Content[0], mappingValue(afterDependencies, "mcp").Content[0])
+	if mappingValue(afterRoot, "x-copy").Alias != mappingValue(afterRoot, "x-user") {
+		t.Fatal("init --force changed preserved alias target identity")
+	}
+}
+
+func TestInitForceCancellationLeavesManifestUnchanged(t *testing.T) {
+	root := t.TempDir()
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	path := ProjectAPMPath(root)
+	original := "name: existing\nversion: 1.0.0\nx-user: keep\n"
+	requireNoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+	err := InitProject(InitProjectOptions{
+		Root: root, LibraryPath: library, Force: true, Runner: recordingRunner(nil, nil),
+		SelectSkills: func() (InitialSkillSelectionPlan, bool, error) {
+			return InitialSkillSelectionPlan{}, false, nil
+		},
+	})
+	if err == nil {
+		t.Fatal("InitProject() error = nil, want cancellation")
+	}
+	requireEqual(t, original, readFile(t, path))
+}
+
 func assertPathMissing(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Stat(path); !os.IsNotExist(err) {

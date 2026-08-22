@@ -40,47 +40,21 @@ type GitDependency struct {
 }
 
 type APMManifest struct {
-	Name         string          `yaml:"name"`
-	Version      string          `yaml:"version"`
+	Name         string          `yaml:"name,omitempty"`
+	Version      string          `yaml:"version,omitempty"`
 	Targets      []string        `yaml:"targets,omitempty"`
 	Dependencies APMDependencies `yaml:"dependencies"`
 }
 
 func ReadAPMManifest(path string) (APMManifest, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // Manifest path is discovered under the selected project root.
+	document, err := loadManifestDocument(path)
 	if err != nil {
-		return APMManifest{}, NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot read manifest: %v", err))
+		return APMManifest{}, err
 	}
-
-	var manifest APMManifest
-	if err := yaml.Unmarshal(data, &manifest); err != nil {
-		return APMManifest{}, NewExitError(ExitGeneral, fmt.Sprintf("error: malformed manifest: %v", err))
+	if !document.existed {
+		return APMManifest{}, NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot read manifest: %v", os.ErrNotExist))
 	}
-
-	manifest.Dependencies.APM = normalizeAPMDependencies(manifest.Dependencies.APM)
-	if manifest.Dependencies.MCP == nil {
-		manifest.Dependencies.MCP = []MCPDependency{}
-	}
-
-	return manifest, nil
-}
-
-func WriteAPMManifestAtomic(path string, manifest APMManifest) error {
-	manifest.Dependencies.APM = normalizeAPMDependencies(manifest.Dependencies.APM)
-	if manifest.Dependencies.MCP == nil {
-		manifest.Dependencies.MCP = []MCPDependency{}
-	}
-
-	data, err := yaml.Marshal(manifest)
-	if err != nil {
-		return NewExitError(ExitGeneral, fmt.Sprintf("error: cannot encode manifest: %v", err))
-	}
-
-	if err := writeFileAtomic(path, data, 0o644); err != nil {
-		return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot write manifest: %v", err))
-	}
-
-	return nil
+	return document.projection, nil
 }
 
 func (d *APMDependency) UnmarshalYAML(node *yaml.Node) error {

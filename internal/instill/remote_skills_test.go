@@ -111,8 +111,8 @@ func TestPickAddsAndRemovesRemoteSkillWithoutChangingLocalDependencies(t *testin
 	manifest, err := ReadAPMManifest(project.ManifestPath)
 	requireNoError(t, err)
 	requireEqual(t, []APMDependency{
-		{Git: &GitDependency{Repository: "https://github.com/owner/example.git", Path: "skills/example", Ref: remoteSkillSHA}},
 		{Local: filepath.Join(library, "skills", "local")},
+		{Git: &GitDependency{Repository: "https://github.com/owner/example.git", Path: "skills/example", Ref: remoteSkillSHA}},
 	}, manifest.Dependencies.APM)
 
 	requireNoError(t, Pick(PickOptions{Project: project, LibraryPath: library, Type: LibraryTypeSkill, Remove: []string{"example"}, Runner: recordingRunner(nil, nil)}))
@@ -127,7 +127,7 @@ func TestAPMManifestRoundTripPreservesUnknownAPMDependencyObject(t *testing.T) {
 
 	manifest, err := ReadAPMManifest(path)
 	requireNoError(t, err)
-	requireNoError(t, WriteAPMManifestAtomic(path, manifest))
+	writeAPMManifestForTest(t, path, manifest)
 	data := readFile(t, path)
 	requireContains(t, data, "x-owner: platform")
 }

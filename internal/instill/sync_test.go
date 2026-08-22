@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestSyncProjectRunsInstallThenCompileAndReportsSummary(t *testing.T) {
@@ -94,6 +97,78 @@ func TestSyncProjectRepairsCatalogMCPAndPreservesRegistryDependency(t *testing.T
 		"apm install --legacy-skill-paths --root " + project.Root,
 		"apm compile --root " + project.Root,
 	})
+}
+
+func TestSyncCommitsManifestChangesOnce(t *testing.T) {
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		mcp: []CatalogEntry{{Type: LibraryTypeMCP, Name: "local", Transport: "stdio", Command: "new-command"}},
+	})
+	root := t.TempDir()
+	requireNoError(t, os.MkdirAll(filepath.Join(root, ".codex"), 0o755))
+	path := ProjectAPMPath(root)
+	requireNoError(t, os.WriteFile(path, []byte(`x-user: {keep: true}
+dependencies:
+  lsp: [{name: gopls}]
+  mcp:
+    - {name: local, registry: true, command: old-command, x-owner: user}
+    - io.example/opaque
+`), 0o644))
+	project := Project{Root: root, ManifestPath: path}
+	metrics := &manifestIOMetrics{}
+
+	requireNoError(t, SyncProject(SyncOptions{Project: project, LibraryPath: library, Runner: recordingRunner(nil, nil), Stdout: ioDiscard(), manifestMetrics: metrics}))
+	requireEqual(t, 1, metrics.authoritativeLoads)
+	requireEqual(t, 1, metrics.authoritativeParses)
+	requireEqual(t, 1, metrics.rawDigestRereads)
+	requireEqual(t, 1, metrics.atomicReplacements)
+	requireEqual(t, []string{"authoritative-load", "authoritative-parse", "raw-digest-reread", "atomic-replacement"}, metrics.events)
+	manifest, err := ReadAPMManifest(path)
+	requireNoError(t, err)
+	requireEqual(t, filepath.Base(root), manifest.Name)
+	requireEqual(t, "0.1.0", manifest.Version)
+	requireEqual(t, []string{"codex"}, manifest.Targets)
+	requireEqual(t, "new-command", manifest.Dependencies.MCP[0].Command)
+	data := readFile(t, path)
+	for _, preserved := range []string{"x-user:", "lsp:", "x-owner: user", "io.example/opaque"} {
+		requireContains(t, data, preserved)
+	}
+}
+
+func TestSyncNoManifestChangePerformsNoWrite(t *testing.T) {
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	root := t.TempDir()
+	path := ProjectAPMPath(root)
+	original := "name: project\nversion: 1.0.0\ntargets: []\ndependencies: {apm: [], mcp: []}\n"
+	requireNoError(t, os.WriteFile(path, []byte(original), 0o644))
+	before, err := os.Stat(path)
+	requireNoError(t, err)
+	time.Sleep(10 * time.Millisecond)
+
+	project := Project{Root: root, ManifestPath: path}
+	metrics := &manifestIOMetrics{}
+	requireNoError(t, SyncProject(SyncOptions{Project: project, LibraryPath: library, Runner: recordingRunner(nil, nil), Stdout: ioDiscard(), manifestMetrics: metrics}))
+	requireEqual(t, 1, metrics.authoritativeLoads)
+	requireEqual(t, 1, metrics.authoritativeParses)
+	requireEqual(t, 0, metrics.rawDigestRereads)
+	requireEqual(t, 0, metrics.atomicReplacements)
+	requireEqual(t, []string{"authoritative-load", "authoritative-parse"}, metrics.events)
+	after, err := os.Stat(path)
+	requireNoError(t, err)
+	requireEqual(t, original, readFile(t, path))
+	requireEqual(t, before.ModTime(), after.ModTime())
+}
+
+func TestSyncAlreadyReconciledWithMissingIdentityWritesOneRepair(t *testing.T) {
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	root := t.TempDir()
+	path := ProjectAPMPath(root)
+	requireNoError(t, os.WriteFile(path, []byte("targets: []\ndependencies: {apm: [], mcp: []}\n"), 0o644))
+	project := Project{Root: root, ManifestPath: path}
+	metrics := &manifestIOMetrics{}
+	assertSingleManifestRepairBy(t, path, metrics, func() error {
+		return SyncProject(SyncOptions{Project: project, LibraryPath: library, Runner: recordingRunner(nil, nil), Stdout: ioDiscard(), manifestMetrics: metrics})
+	})
+	requireEqual(t, []string{"authoritative-load", "authoritative-parse", "raw-digest-reread", "atomic-replacement"}, metrics.events)
 }
 
 func TestSyncProjectRejectsMalformedMCPCatalogBeforeAPMInstall(t *testing.T) {
@@ -329,6 +404,32 @@ func TestProjectStatusReportsOrphanedCopiedContentWithoutLockData(t *testing.T) 
 	requireContains(t, stdout.String(), "removed from library: instruction orphaned")
 }
 
+func TestProjectStatusDoesNotReportOpaqueAPMScalarsAsRemovedSkills(t *testing.T) {
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	root := t.TempDir()
+	path := ProjectAPMPath(root)
+	requireNoError(t, os.WriteFile(path, []byte(`name: project
+version: 1.0.0
+dependencies:
+  apm:
+    - owner/repository#main
+    - !custom /library/skills/tagged
+    - /library/skills/local
+`), 0o644))
+	project := Project{Root: root, ManifestPath: path}
+
+	manifest, err := ReadAPMManifest(path)
+	requireNoError(t, err)
+	if len(manifest.Dependencies.APM) != 1 || manifest.Dependencies.APM[0].Local != "/library/skills/local" {
+		t.Fatalf("typed APM projection = %#v, want only ordinary local path", manifest.Dependencies.APM)
+	}
+	var stdout bytes.Buffer
+	requireNoError(t, ProjectStatus(StatusOptions{Project: project, LibraryPath: library, Runner: recordingRunner(nil, nil), Stdout: &stdout}))
+	requireContains(t, stdout.String(), "removed from library: skill local")
+	requireNotContains(t, stdout.String(), "owner/repository")
+	requireNotContains(t, stdout.String(), "tagged")
+}
+
 type catalogLibrarySeed struct {
 	skills       []CatalogEntry
 	plugins      []CatalogEntry
@@ -369,13 +470,21 @@ func createAPMProject(t *testing.T, manifest APMManifest) Project {
 
 	root := t.TempDir()
 	path := filepath.Join(root, "apm.yml")
-	requireNoError(t, WriteAPMManifestAtomic(path, manifest))
+	writeAPMManifestForTest(t, path, manifest)
 	return Project{
 		Root:             root,
 		ManifestPath:     path,
 		SymlinkDir:       filepath.Join(root, ".claude", "skills"),
 		AgentsSymlinkDir: filepath.Join(root, ".agents", "skills"),
 	}
+}
+
+func writeAPMManifestForTest(t *testing.T, path string, manifest APMManifest) {
+	t.Helper()
+	normalizeAPMManifest(&manifest)
+	data, err := yaml.Marshal(manifest)
+	requireNoError(t, err)
+	requireNoError(t, os.WriteFile(path, data, 0o644))
 }
 
 func recordingRunner(calls *[]string, responses map[string][]byte) CommandRunner {

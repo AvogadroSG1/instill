@@ -213,8 +213,9 @@ func TestPickSerializesMCPEnvironmentAsMappingAndSplitsFirstEquals(t *testing.T)
 	})
 
 	requireNoError(t, err)
-	data := readFile(t, project.ManifestPath)
-	requireContains(t, data, "env:\n            DSN: scheme://host?a=b\n            TOKEN: ${TOKEN}")
+	manifest, readErr := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, readErr)
+	requireEqual(t, map[string]string{"DSN": "scheme://host?a=b", "TOKEN": "${TOKEN}"}, manifest.Dependencies.MCP[0].Env)
 }
 
 func TestPickAddsSelfDefinedHTTPMCPDependency(t *testing.T) {
@@ -509,7 +510,7 @@ func TestPickRemovalDeletesCopiedInstruction(t *testing.T) {
 	})
 }
 
-func TestPickRemovalDeletesStaleMCPDependencyMissingFromCatalog(t *testing.T) {
+func TestPickRemovalRejectsUserOwnedMCPDependencyMissingFromCatalog(t *testing.T) {
 	t.Parallel()
 
 	library := createCatalogLibrary(t, catalogLibrarySeed{})
@@ -533,13 +534,16 @@ func TestPickRemovalDeletesStaleMCPDependencyMissingFromCatalog(t *testing.T) {
 		Stdout:      &bytes.Buffer{},
 	})
 
-	requireNoError(t, err)
+	if err == nil {
+		t.Fatal("Pick() error = nil, want unknown MCP rejection")
+	}
+	requireContains(t, ErrorMessage(err), "unknown mcp: local-db")
 	manifest, readErr := ReadAPMManifest(project.ManifestPath)
 	requireNoError(t, readErr)
-	requireEqual(t, 0, len(manifest.Dependencies.MCP))
+	requireEqual(t, 1, len(manifest.Dependencies.MCP))
+	requireEqual(t, "local-db", manifest.Dependencies.MCP[0].Name)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm prune",
 	})
 }
 

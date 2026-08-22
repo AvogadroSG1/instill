@@ -21,6 +21,7 @@ type commandConfig struct {
 	runner       instill.CommandRunner
 	isTTY        func(*os.File) bool
 	pickTUI      func(instill.PickTUIOptions) error
+	initPicker   func(instill.PickSkillsTUIOptions) (instill.InitialSkillSelectionPlan, bool, error)
 	targetPicker func(instill.TargetPickerOptions) ([]string, bool, error)
 }
 
