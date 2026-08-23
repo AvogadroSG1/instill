@@ -1,0 +1,190 @@
+internal/instill/reconcile.go
+  s_12c159e001605b::t_d9d7aa61bf0a34 34-35
+  s_12c159e001605b::t_59e8977ee80f36 121-123,125
+  s_12c159e001605b::t_af3416448074b7 59,136-137,140
+  s_12c159e001605b::t_39621dff87ee36 60-61,65,79-80,82-83,210-214
+  s_12c159e001605b::t_3afe3401778f54 32-33
+  s_12c159e001605b::t_6b0d03f29c123f 56-58
+  s_12c159e001605b::t_a53b96bdc76d1b 62-64
+  s_12c159e001605b::t_7326a7c05d3f4d 66-68
+  s_12c159e001605b::t_dadf619f7af863 78
+  s_12c159e001605b::t_dbe3bd5b6207ff 81
+  s_5c3284382463dd::t_c26a00bafc4fcf 4,15-17,20-21,23-26,37-55,69-71,129
+internal/instill/remote_plugin_test.go
+  s_12c159e001605b::t_150c6c392785db 5
+  s_12c159e001605b::t_74151c1d4e52d3 22,37,48,58,67,81,95,105,116,142,163,176,186,221,234,256
+internal/instill/remote_package_test.go
+  s_12c159e001605b::t_55bff43e236564 5
+  s_12c159e001605b::t_74151c1d4e52d3 98
+  s_31a727974077be::t_31dca4ce72c315 110
+internal/instill/remote_skill.go
+  s_12c159e001605b::t_63bc160b24ead2 16-19
+  s_12c159e001605b::t_6c336f49690bf1 64-66
+  s_12c159e001605b::t_c85041510b6cdb 121-123
+  s_12c159e001605b::t_f8ba16bcdc292a 9-12,22-24,26-42,45-47,52,60,70-102,107-112
+  s_12c159e001605b::t_447fd0e4dd53ef 69
+  s_5c3284382463dd::t_2bf36c02ef303f 4
+internal/instill/settings_local.go
+  s_12c159e001605b::t_16face34e06bf0 54-57,75-78
+  s_12c159e001605b::t_1caa2e7b5f635a 23,35,177-207
+  s_12c159e001605b::t_ba15ede1bbf896 8
+  s_12c159e001605b::t_597a1bc02c0ffb 20-22
+  s_12c159e001605b::t_b0d3bba03d7368 24-26,32-34
+  s_12c159e001605b::t_ea40417fe198bf 36
+  s_5c3284382463dd::t_c6c30fc6b8762e 5,15-19,27-31
+internal/instill/reconcile_test.go
+  s_12c159e001605b::t_8302d73333e28c 259-260
+  s_12c159e001605b::t_2138b906315e61 574-577
+  s_12c159e001605b::t_c2ba47365b77d5 226-228
+  s_12c159e001605b::t_ea5321cbf543b6 326-327
+  s_12c159e001605b::t_087cb134dfaa14 17,32,35-36,39,41,46,50-92
+  s_12c159e001605b::t_5c6e8ca9f46865 26,338-343
+  s_12c159e001605b::t_72c5fdce3a748d 28,48,93-136
+  s_12c159e001605b::t_42931b7a0b1ec6 15-16
+  s_12c159e001605b::t_11075e64df9f13 18-20,23-25
+  s_12c159e001605b::t_75846a61cea917 27
+  s_12c159e001605b::t_480c81f5db96e0 29-31
+  s_12c159e001605b::t_79b7854711225e 33-34
+  s_12c159e001605b::t_3631e61e511aa4 37-38
+  s_12c159e001605b::t_1ce6a6893c22c5 40
+  s_12c159e001605b::t_5ab187a964fe4c 42-45
+  s_12c159e001605b::t_bd489d0c3b7061 47
+  s_12c159e001605b::t_b981fa9afb06ca 49
+  s_5c3284382463dd::t_8937b36a00a0a9 6,21-22
+docs/adr/0007-bounded-remote-git-operations.md
+  s_12c159e001605b::t_ee8b1ddf789f84 62-66,69-78,88-101,109,113,115,118-131,135-140,145-150,162,171-178,180-181
+  s_12c159e001605b::t_a614c255f0692b 182
+  s_12c159e001605b::t_db413005f68fba 1-61,67-68,79-87,102-108,110-112,114,116-117,132-134,141-144,151-161,163-170,179,183-188
+internal/instill/remote_git.go
+  s_12c159e001605b::t_f9087b99615166 151,164,168,172
+  s_12c159e001605b::t_69b0c4b3a9aa05 5,8,13-14,20-29,31-67,82-84,88-90,94-100,104-111,114-137,144-145,147-148,150,153,163,166,170,174,181-185,189-191,193-198,208,210-212,223,225-227,245,247-249,313,337
+  s_12c159e001605b::t_4d5302bb811766 68-81,85-87,91-93,101-103
+  s_12c159e001605b::t_e49f886ce12932 192
+  s_12c159e001605b::t_cdddc42e2a9fea 4
+  s_12c159e001605b::t_301f736cfce3c8 310-312
+  s_12c159e001605b::t_d5d861aded7f5c 334-336
+  s_12c159e001605b::t_84acea350a5eba 338
+  s_5c3284382463dd::t_c57680f9cfe1e4 331-333
+internal/instill/mutation_lock_test.go
+  s_12c159e001605b::t_74151c1d4e52d3 60-562,600-621
+  s_12c159e001605b::t_4a496c4145256f 565
+  s_31a727974077be::t_391befa8facec1 1-59,563-564,566-599,622-1057
+internal/instill/remote_skills_test.go
+  s_12c159e001605b::t_74151c1d4e52d3 41,56,70,185,193-216
+  s_12c159e001605b::t_72c396603540dd 5
+  s_31a727974077be::t_268da2457ec8f2 217-231,250
+internal/cli/library_test.go
+  s_12c159e001605b::t_d8830ed881d7d8 5
+  s_12c159e001605b::t_e562dbd9f4042d 173-209
+internal/instill/remote_git_bounds_test.go
+  s_12c159e001605b::t_cdef702a523341 7,20,24-25,81,88,96,107,115,130-131,138-142,150,153,155,157-164,166-172,203-220,225-253,263
+  s_12c159e001605b::t_786b8662eb3851 1-6,8-19,21-23,26-80,82-87,89-95,97-106,108-114,116-129,132-137,143-149,151-152,154,156,165,173-202,221-224,254-262,264-279
+.gitignore
+  s_12c159e001605b::t_f4fced45c8c448 22-24
+internal/instill/remote_plugin.go
+  s_12c159e001605b::t_2cf0bd7bd0f7a7 31-34,44-46,50,61
+  s_12c159e001605b::t_c244b5b24a2773 132-133
+  s_12c159e001605b::t_3572f3cade1a57 38-41
+  s_12c159e001605b::t_eef2f02cf6c951 55,58,67-69,74,82,92-96,99-100,112,115,118,121,123-124
+  s_12c159e001605b::t_22b67d92b144e7 86-88
+  s_31a727974077be::t_7cec276c113da4 5,48-49,52-54,56-57,59-60,62-64,91,97-98,101-111,113-114,116-117,119-120,122,125-127
+internal/cli/root.go
+  s_12c159e001605b::t_d8f46ac34c4c84 34-38,42-46,54,57
+  s_12c159e001605b::t_0d1df9a168201e 7,11-12
+  s_12c159e001605b::t_8e5134973fe5f0 33,40-41,55-56,59
+internal/cli/library.go
+  s_12c159e001605b::t_bdcb6328a9e605 53,71,73
+  s_12c159e001605b::t_7ab90fc11cf9e0 106,113,115
+.github/workflows/ci.yml
+  s_12c159e001605b::t_bc015c93799dd6 68,93-108
+.opencode/commands/telemetry-inspect.md
+  s_12c159e001605b::t_05291bc0b33bad 9
+.opencode/commands/telemetry-report.md
+  s_12c159e001605b::t_75febfe5c5bf6b 8
+README.md
+  s_12c159e001605b::t_ef0c39e24f3595 50,65-72,140,207
+docs/adr/0006-advisory-locking-for-library-and-project-mutations.md
+  s_12c159e001605b::t_a8910fe261b63a 1-447
+go.mod
+  s_12c159e001605b::t_d2ca1172c28224 8
+internal/instill/add_hooks.go
+  s_12c159e001605b::t_ff3260f576f736 4,19-28
+internal/instill/apm_manifest_document.go
+  s_12c159e001605b::t_0d31387d4a7e37 73,766
+internal/instill/apm_manifest_document_test.go
+  s_12c159e001605b::t_3f00433fb65987 711-713
+internal/instill/apm_runner.go
+  s_12c159e001605b::t_ac24cc36c58ada 4,50-58,69-77,88-96
+internal/instill/apm_runner_test.go
+  s_12c159e001605b::t_e9192e41c4f731 126,131,146,151,166,171,183,191,194,215-259
+internal/instill/atomic.go
+  s_12c159e001605b::t_28d91a78f3e173 11
+internal/instill/catalog.go
+  s_12c159e001605b::t_396fcc114cae2a 5,44,99-139,179-181,186-188,191-194,262,270-277
+internal/instill/catalog_test.go
+  s_12c159e001605b::t_0ebbf2ac84e239 5,257-283,435-453,582-589
+internal/instill/categories.go
+  s_12c159e001605b::t_281e250726648d 4,39-47
+internal/instill/categorize.go
+  s_12c159e001605b::t_93f83e2f301bb1 4,16-25,56
+internal/instill/errors.go
+  s_12c159e001605b::t_55a4db7056a0ec 3-6,18,26-30,39-54
+internal/instill/import.go
+  s_12c159e001605b::t_5bfe6010f50f3e 4,27-38,73,116-127,179,197,230-238,257,266,274-280,283-295,732-735
+internal/instill/import_test.go
+  s_12c159e001605b::t_eb58bbda3236ab 970-983
+internal/instill/init_project.go
+  s_12c159e001605b::t_00ab486cc62eb1 4,6,43,52,54-56,64,70-106,145,151-153,158
+internal/instill/lock.go
+  s_12c159e001605b::t_20b4bfea5b06be 1-274
+internal/instill/lock_provider_unix.go
+  s_12c159e001605b::t_2725cd79af2413 1-40
+internal/instill/lock_provider_windows.go
+  s_12c159e001605b::t_ee2c925acf2149 1-47
+internal/instill/lock_test.go
+  s_12c159e001605b::t_4ff9fdb8a85562 1-558
+internal/instill/manifest.go
+  s_12c159e001605b::t_86dd1a47449ece 4,39-48
+internal/instill/pick_skills.go
+  s_12c159e001605b::t_ac90bfc0928a18 4,47-61,83,86,90,95,143-145,150,155,174-188,233-235,237,242
+internal/instill/sync.go
+  s_12c159e001605b::t_9c447576d11a50 4,36-47,91-94,97
+internal/instill/targets.go
+  s_12c159e001605b::t_f7663d29362af9 4,20-28
+internal/instill/umask_unix_test.go
+  s_12c159e001605b::t_8580156600f5d6 1-10
+internal/instill/umask_windows_test.go
+  s_12c159e001605b::t_ecc37903b25213 1-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "25a6eea42c606659a669310b2fd1e6c8342e37ce",
+  "prompts": {},
+  "sessions": {
+    "s_12c159e001605b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c7a4978c-b491-4b15-b37f-4c9e45cdffa6",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    },
+    "s_31a727974077be": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "99027771-ffdf-487b-9e00-b624f44455d1",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    },
+    "s_5c3284382463dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a6ad727255e6f5964",
+        "model": "unknown"
+      },
+      "human_author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    }
+  }
+}
