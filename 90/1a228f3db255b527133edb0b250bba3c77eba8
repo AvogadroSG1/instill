@@ -1,0 +1,57 @@
+apm.yml
+  s_6c85d161101474::t_b1e88be6e3ed80 9
+.gitignore
+  s_6c85d161101474::t_3b833785d0a32e 17
+README.md
+  s_6c85d161101474::t_6080d134d73efe 25
+internal/instill/catalog_test.go
+  s_6c85d161101474::t_bf91d3b95c8740 359-377
+internal/instill/skill_picker_test.go
+  s_6c85d161101474::t_6d65383b60654e 735,789
+test/instill.bats
+  s_6c85d161101474::t_5680c9cc6669a6 89-104
+internal/instill/apm_runner.go
+  s_6c85d161101474::t_a9b50715cddf61 62
+internal/instill/catalog.go
+  s_6c85d161101474::t_c79ae60e3d65ed 512-525
+test/test_helper/common.bash
+  s_6c85d161101474::t_a300cd4e61f662 14-18
+apm.lock.yaml
+  s_6c85d161101474::t_89ba29e32d40fd 2-3,11-13,15-16,25-31,38,46-47,55-57,64-65,73-74,82-83,91-92,100-101,109-110,114,118-120,123,127-128,132,136-137,141,145-146,150,154-155,159,163-164
+test/test_helper/fake_apm.bash
+  s_6c85d161101474::t_422b620f583921 22-48,50-51,64
+  s_6c85d161101474::t_0cccbe52845030 49,133,217
+  s_6c85d161101474::t_41ffeebdd1020b 106-132,134-135,158
+  s_6c85d161101474::t_eee41feab5ac92 210-216
+internal/instill/sync_test.go
+  s_6c85d161101474::t_798d1d623d01ed 41,150
+  s_6c85d161101474::t_5ba4bb6b151b1b 47-99
+internal/instill/apm_runner_test.go
+  s_6c85d161101474::t_40cd5a0f166eb4 182
+  s_6c85d161101474::t_4ca11acf03cfc1 194
+internal/instill/sync.go
+  s_6c85d161101474::t_52a46985c59b38 336-406
+  s_6c85d161101474::t_58b45b252ebad5 94-101
+internal/instill/pick_skills_test.go
+  s_6c85d161101474::t_70f924cb06ac6a 39,71,195,272,303,376
+internal/instill/init_project_test.go
+  s_6c85d161101474::t_e36c84d5808c17 84
+.agents/skills/git-pushing/SKILL.md
+  s_6c85d161101474::t_df9c76c31c4f2d 3,8,10,12,14-16,18-19,21-26,30,35-47,51,53,56-57,59,63,69,81,85-94,96,98,102-109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "901a228f3db255b527133edb0b250bba3c77eba8",
+  "prompts": {},
+  "sessions": {
+    "s_6c85d161101474": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "03790fef-be57-4d9b-8af7-8bbcd6fffb38",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    }
+  }
+}
