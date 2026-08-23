@@ -191,14 +191,14 @@ func ProjectStatus(opts StatusOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := reportContentStatus(opts.Stdout, opts.Project.Root, opts.LibraryPath, LibraryTypeInstruction, instructionCatalog, lock.Instructions); err != nil {
+	if err := reportContentStatus(opts.Stdout, opts.Project.Root, opts.LibraryPath, LibraryTypeInstruction, instructionCatalog); err != nil {
 		return err
 	}
 	promptCatalog, err := LoadCatalog(opts.LibraryPath, LibraryTypePrompt)
 	if err != nil {
 		return err
 	}
-	return reportContentStatus(opts.Stdout, opts.Project.Root, opts.LibraryPath, LibraryTypePrompt, promptCatalog, lock.Prompts)
+	return reportContentStatus(opts.Stdout, opts.Project.Root, opts.LibraryPath, LibraryTypePrompt, promptCatalog)
 }
 
 func countProjectContent(dir string, pattern string) (int, error) {
@@ -210,14 +210,7 @@ func countProjectContent(dir string, pattern string) (int, error) {
 }
 
 type apmLock struct {
-	Instructions []apmLockEntry      `yaml:"instructions"`
-	Prompts      []apmLockEntry      `yaml:"prompts"`
 	Dependencies []apmLockDependency `yaml:"dependencies"`
-}
-
-type apmLockEntry struct {
-	Name   string `yaml:"name"`
-	SHA256 string `yaml:"sha256"`
 }
 
 // apmLockDependency mirrors the subset of the APM 0.28 lockfile dependency
@@ -557,7 +550,7 @@ func reportMCPStatus(stdout io.Writer, dependencies []MCPDependency, catalog []C
 	return nil
 }
 
-func reportContentStatus(stdout io.Writer, projectRoot string, libraryPath string, typ LibraryType, catalog []CatalogEntry, lockEntries []apmLockEntry) error {
+func reportContentStatus(stdout io.Writer, projectRoot string, libraryPath string, typ LibraryType, catalog []CatalogEntry) error {
 	catalogByName := make(map[string]CatalogEntry, len(catalog))
 	catalogBySanitizedName := make(map[string]string, len(catalog))
 	for _, entry := range catalog {
@@ -589,24 +582,20 @@ func reportContentStatus(stdout io.Writer, projectRoot string, libraryPath strin
 		}
 	}
 
-	lockByName := make(map[string]apmLockEntry, len(lockEntries))
-	for _, entry := range lockEntries {
-		lockByName[entry.Name] = entry
-	}
-	for name := range installedNames {
-		lockEntry, ok := lockByName[name]
-		if !ok {
-			continue
-		}
+	for _, name := range projectContent {
 		catalogEntry, ok := catalogByName[name]
 		if !ok {
 			continue
 		}
-		currentHash, hashErr := fileSHA256(filepath.Join(libraryPath, libraryTypeDir(typ), catalogEntry.Path))
+		projectHash, hashErr := fileSHA256(projectContentPath(projectRoot, typ, name))
 		if hashErr != nil {
 			return hashErr
 		}
-		if currentHash != "" && lockEntry.SHA256 != "" && currentHash != lockEntry.SHA256 {
+		libraryHash, hashErr := fileSHA256(filepath.Join(libraryPath, libraryTypeDir(typ), catalogEntry.Path))
+		if hashErr != nil {
+			return hashErr
+		}
+		if projectHash != "" && libraryHash != "" && projectHash != libraryHash {
 			if err := writeLine(stdout, "hash mismatch: "+string(typ)+" "+name); err != nil {
 				return err
 			}

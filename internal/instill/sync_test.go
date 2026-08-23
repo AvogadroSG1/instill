@@ -273,16 +273,6 @@ func TestProjectStatusReportsRemovedAvailableAndHashMismatch(t *testing.T) {
 		[]byte("# stale instruction\n"),
 		0o644,
 	))
-	requireNoError(t, os.WriteFile(
-		filepath.Join(project.Root, "apm.lock.yaml"),
-		[]byte(strings.Join([]string{
-			"instructions:",
-			"  - name: python-rules",
-			"    sha256: deadbeef",
-			"",
-		}, "\n")),
-		0o644,
-	))
 
 	calls := []string{}
 	var stdout bytes.Buffer
@@ -299,6 +289,54 @@ func TestProjectStatusReportsRemovedAvailableAndHashMismatch(t *testing.T) {
 	requireContains(t, got, "removed from library: skill missing")
 	requireContains(t, got, "available in library: skill golang-cli")
 	requireContains(t, got, "hash mismatch: instruction python-rules")
+}
+
+func TestProjectStatusNoContentMismatchWhenProjectCopyMatchesLibrary(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		instructions: []CatalogEntry{
+			{Type: LibraryTypeInstruction, Name: "python-rules", Path: "python-rules/INSTRUCTION.md"},
+		},
+		prompts: []CatalogEntry{
+			{Type: LibraryTypePrompt, Name: "debug", Path: "debug/PROMPT.md"},
+		},
+	})
+	project := createAPMProject(t, APMManifest{})
+	copyContent := func(sourceRel []string, destRel []string) {
+		data, err := os.ReadFile(filepath.Join(append([]string{library}, sourceRel...)...))
+		requireNoError(t, err)
+		dest := filepath.Join(append([]string{project.Root}, destRel...)...)
+		requireNoError(t, os.MkdirAll(filepath.Dir(dest), 0o755))
+		requireNoError(t, os.WriteFile(dest, data, 0o644))
+	}
+	copyContent(
+		[]string{"instructions", "python-rules", "INSTRUCTION.md"},
+		[]string{".apm", "instructions", "python-rules.instructions.md"},
+	)
+	copyContent(
+		[]string{"prompts", "debug", "PROMPT.md"},
+		[]string{".apm", "prompts", "debug.prompt.md"},
+	)
+	// A legacy lock with bogus hashes MUST NOT produce mismatch reports:
+	// content drift is judged against the library, never the lockfile.
+	requireNoError(t, os.WriteFile(
+		filepath.Join(project.Root, "apm.lock.yaml"),
+		[]byte(strings.Join([]string{
+			"instructions:",
+			"  - name: python-rules",
+			"    sha256: deadbeef",
+			"prompts:",
+			"  - name: debug",
+			"    sha256: deadbeef",
+			"",
+		}, "\n")),
+		0o644,
+	))
+
+	got := runProjectStatus(t, library, project)
+
+	requireNotContains(t, got, "hash mismatch:")
 }
 
 func TestProjectStatusSupportsNestedSkillsAndMultiTypeDrift(t *testing.T) {
@@ -350,23 +388,6 @@ func TestProjectStatusSupportsNestedSkillsAndMultiTypeDrift(t *testing.T) {
 	requireNoError(t, os.WriteFile(
 		filepath.Join(project.Root, ".apm", "prompts", "debug.prompt.md"),
 		[]byte("# stale prompt\n"),
-		0o644,
-	))
-	requireNoError(t, os.WriteFile(
-		filepath.Join(project.Root, "apm.lock.yaml"),
-		[]byte(strings.Join([]string{
-			"instructions:",
-			"  - name: python-rules",
-			"    sha256: deadbeef",
-			"  - name: missing-instruction",
-			"    sha256: cafebabe",
-			"prompts:",
-			"  - name: debug",
-			"    sha256: deadbeef",
-			"  - name: missing-prompt",
-			"    sha256: cafebabe",
-			"",
-		}, "\n")),
 		0o644,
 	))
 
