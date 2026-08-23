@@ -3,6 +3,7 @@ package instill
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -373,6 +374,82 @@ func TestScanLibraryIgnoresNestedSkillMarkerInsideSkillDirectory(t *testing.T) {
 		Name: "docker",
 		Path: "docker/SKILL.md",
 	}}, skills)
+}
+
+func TestScanLibraryIgnoresNestedPluginMarkerInsidePluginDirectory(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writePluginMarker := func(rel string, name string) {
+		path := filepath.Join(root, "plugins", filepath.FromSlash(rel))
+		requireNoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		requireNoError(t, os.WriteFile(path, []byte(fmt.Sprintf("{\"name\":%q,\"description\":\"d\"}\n", name)), 0o644))
+	}
+	writePluginMarker("foo/.claude-plugin/plugin.json", "foo")
+	writePluginMarker("foo/examples/bar/.claude-plugin/plugin.json", "bar")
+	writePluginMarker("flat/plugin.json", "flat")
+	writePluginMarker("flat/examples/plugin.json", "flat-example")
+
+	var stdout bytes.Buffer
+	requireNoError(t, ScanLibrary(root, &stdout))
+
+	plugins, err := LoadCatalog(root, LibraryTypePlugin)
+	requireNoError(t, err)
+	names := make([]string, 0, len(plugins))
+	for _, entry := range plugins {
+		names = append(names, entry.Name)
+	}
+	requireEqual(t, []string{"flat", "foo"}, names)
+}
+
+func TestScanLibraryIgnoresNestedInstructionAndPromptMarkers(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	mustWriteCatalogMarker(t, filepath.Join(root, "instructions", "x", "INSTRUCTION.md"))
+	mustWriteCatalogMarker(t, filepath.Join(root, "instructions", "x", "sub", "INSTRUCTION.md"))
+	mustWriteCatalogMarker(t, filepath.Join(root, "prompts", "y", "PROMPT.md"))
+	mustWriteCatalogMarker(t, filepath.Join(root, "prompts", "y", "sub", "PROMPT.md"))
+
+	var stdout bytes.Buffer
+	requireNoError(t, ScanLibrary(root, &stdout))
+
+	instructions, err := LoadCatalog(root, LibraryTypeInstruction)
+	requireNoError(t, err)
+	requireEqual(t, []CatalogEntry{{Type: LibraryTypeInstruction, Name: "x", Path: "x/INSTRUCTION.md"}}, instructions)
+
+	prompts, err := LoadCatalog(root, LibraryTypePrompt)
+	requireNoError(t, err)
+	requireEqual(t, []CatalogEntry{{Type: LibraryTypePrompt, Name: "y", Path: "y/PROMPT.md"}}, prompts)
+}
+
+func TestScanLibraryIgnoresNestedMCPConfigInsideServerDirectory(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	requireNoError(t, os.MkdirAll(filepath.Join(root, "mcp", "db", "fixtures"), 0o755))
+	requireNoError(t, os.WriteFile(
+		filepath.Join(root, "mcp", "db", "config.json"),
+		[]byte("{\"transport\":\"stdio\",\"command\":\"db-mcp\"}\n"),
+		0o644,
+	))
+	requireNoError(t, os.WriteFile(
+		filepath.Join(root, "mcp", "db", "fixtures", "config.json"),
+		[]byte("{\"not\":\"an mcp config\"}\n"),
+		0o644,
+	))
+
+	var stdout bytes.Buffer
+	requireNoError(t, ScanLibrary(root, &stdout))
+
+	mcpEntries, err := LoadCatalog(root, LibraryTypeMCP)
+	requireNoError(t, err)
+	requireEqual(t, []CatalogEntry{{
+		Type:      LibraryTypeMCP,
+		Name:      "db",
+		Transport: "stdio",
+		Command:   "db-mcp",
+	}}, mcpEntries)
 }
 
 func TestScanLibraryWritesCatalogsAndPreservesManualMetadata(t *testing.T) {

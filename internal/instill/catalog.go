@@ -510,14 +510,27 @@ func discoverCatalogEntries(root string, typ LibraryType) ([]CatalogEntry, error
 			return walkErr
 		}
 		if d.IsDir() {
-			// Once a skill root is found, do not descend into its subtree: a
-			// SKILL.md nested below another SKILL.md (e.g. bundled examples)
-			// must not become its own catalog entry. Plugins are excluded
-			// because their marker lives under a .claude-plugin/ subdirectory,
-			// so parent-based pruning would stop discovery before it starts.
-			if typ == LibraryTypeSkill && path != baseDir {
+			// Once an entry root is found, do not descend into its subtree: a
+			// marker file (SKILL.md, INSTRUCTION.md, PROMPT.md, config.json)
+			// nested below another entry's root (e.g. bundled examples or
+			// fixtures) must not become its own catalog entry, and must not
+			// abort the scan if it is malformed.
+			if typ != LibraryTypePlugin && path != baseDir {
 				if _, statErr := os.Stat(filepath.Join(filepath.Dir(path), marker)); statErr == nil {
 					return filepath.SkipDir
+				}
+			}
+			// Plugin markers live either flat at the root (R/plugin.json) or
+			// nested under R/.claude-plugin/plugin.json or
+			// R/.codex-plugin/plugin.json. Prune any directory whose parent
+			// is a plugin root, except the marker directory itself, which
+			// must still be entered so its plugin.json file is visited.
+			if typ == LibraryTypePlugin && path != baseDir {
+				base := filepath.Base(path)
+				if base != ".claude-plugin" && base != ".codex-plugin" {
+					if isPluginRoot(filepath.Dir(path)) {
+						return filepath.SkipDir
+					}
 				}
 			}
 			return nil
@@ -586,6 +599,22 @@ func discoverCatalogEntries(root string, typ LibraryType) ([]CatalogEntry, error
 
 	sortCatalogEntries(entries)
 	return entries, nil
+}
+
+// isPluginRoot reports whether dir is a plugin root, i.e. it directly
+// contains a plugin.json marker, either flat (dir/plugin.json) or nested
+// under a .claude-plugin/ or .codex-plugin/ subdirectory.
+func isPluginRoot(dir string) bool {
+	for _, candidate := range []string{
+		filepath.Join(dir, "plugin.json"),
+		filepath.Join(dir, ".claude-plugin", "plugin.json"),
+		filepath.Join(dir, ".codex-plugin", "plugin.json"),
+	} {
+		if _, err := os.Stat(candidate); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func mergeCatalogEntry(existing CatalogEntry, discovered CatalogEntry) CatalogEntry {
