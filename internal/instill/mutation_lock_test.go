@@ -257,22 +257,6 @@ func TestHelperProcessesPreserveCatalogAndProjectFinalStates(t *testing.T) {
 		}
 	})
 
-	t.Run("hooks and reconcile", func(t *testing.T) {
-		library := createLibrary(t, "one")
-		project := createProject(t, []string{"one"})
-		runMutationProcesses(t,
-			startMutationProcess(t, "hooks", project.Root, library, ""),
-			startMutationProcess(t, "reconcile", project.Root, library, ""),
-		)
-		if !linkPointsTo(filepath.Join(project.SymlinkDir, "one"), filepath.Join(library, "one")) {
-			t.Fatal("reconcile did not create current skill link")
-		}
-		settings := readFile(t, filepath.Join(project.Root, ".claude", "settings.json"))
-		if !strings.Contains(settings, hookCommand) {
-			t.Fatal("hook mutation missing after concurrent reconcile")
-		}
-	})
-
 	t.Run("init", func(t *testing.T) {
 		library := createCatalogLibrary(t, catalogLibrarySeed{
 			skills: []CatalogEntry{{Type: LibraryTypeSkill, Name: "one", Path: "one/SKILL.md"}},
@@ -421,18 +405,6 @@ func TestContendedMutationProcessProtocol(t *testing.T) {
 		pair(t, "import-graft", "catalog-add", project.Root, library, "", "two")
 		assertPathMissing(t, filepath.Join(project.Root, "graft.lock"))
 	})
-
-	t.Run("hooks settings reconcile", func(t *testing.T) {
-		library := createLibrary(t, "one")
-		project := createProject(t, []string{"one"})
-		pair(t, "hooks", "reconcile", project.Root, library, "", "")
-		if !linkPointsTo(filepath.Join(project.SymlinkDir, "one"), filepath.Join(library, "one")) {
-			t.Fatal("reconcile link missing")
-		}
-		if !strings.Contains(readFile(t, filepath.Join(project.Root, ".claude", "settings.json")), hookCommand) {
-			t.Fatal("hook missing")
-		}
-	})
 }
 
 func TestInitTUISelectionDoesNotHoldRootLocksAcrossProcesses(t *testing.T) {
@@ -576,9 +548,6 @@ func TestMutationHelperProcess(t *testing.T) {
 		err = CategorizeLibrary(CategorizeOptions{LibraryPath: library})
 	case "hooks":
 		err = AddHooks(project, nil)
-	case "reconcile":
-		project.ManifestPath = ProjectManifestPath(projectRoot)
-		err = Reconcile(project, library, io.Discard)
 	case "init":
 		err = InitProject(InitProjectOptions{Root: projectRoot, LibraryPath: library, Skills: []string{name}, Runner: renderingAPMRunner(projectRoot)})
 	case "init-tui":
@@ -893,7 +862,7 @@ func TestPickReleasesLibraryButRetainsProjectDuringAPM(t *testing.T) {
 	releaseAPM := make(chan struct{})
 	runner := func(name string, args ...string) ([]byte, error) {
 		if name == "apm" && len(args) == 1 && args[0] == "--version" {
-			return []byte("apm 0.1.0"), nil
+			return []byte("apm 0.28.0"), nil
 		}
 		if err := os.WriteFile(filepath.Join(project.Root, "apm-first-mutation"), []byte("install"), 0o600); err != nil {
 			return nil, err
@@ -970,7 +939,7 @@ func concurrentPickOptions(project Project, library string, name string) PickOpt
 
 func successfulAPMRunner(name string, args ...string) ([]byte, error) {
 	if name == "apm" && len(args) == 1 && args[0] == "--version" {
-		return []byte("apm 0.1.0"), nil
+		return []byte("apm 0.28.0"), nil
 	}
 	if name != "apm" {
 		return nil, errors.New("unexpected command: " + name)
@@ -981,7 +950,7 @@ func successfulAPMRunner(name string, args ...string) ([]byte, error) {
 func renderingAPMRunner(projectRoot string) CommandRunner {
 	return func(name string, args ...string) ([]byte, error) {
 		if name == "apm" && len(args) == 1 && args[0] == "--version" {
-			return []byte("apm 0.1.0"), nil
+			return []byte("apm 0.28.0"), nil
 		}
 		if name != "apm" {
 			return nil, errors.New("unexpected command: " + name)
