@@ -1,0 +1,29 @@
+test/test_helper/fake_apm.bash
+  s_6c85d161101474::t_f26b92e15ac273 54,138,202
+internal/instill/apm_runner.go
+  s_6c85d161101474::t_1938894b8b8051 32-39
+  s_6c85d161101474::t_008406b9516b13 14
+internal/cli/apm_test_helpers_test.go
+  s_6c85d161101474::t_b3e7a9ec5c9098 69
+internal/instill/apm_runner_test.go
+  s_6c85d161101474::t_5ae36427871d46 24
+  s_6c85d161101474::t_f530ea9bab0876 86-135
+  s_6c85d161101474::t_c60cf385004325 71
+  s_6c85d161101474::t_108b4a019a1af2 136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "6029f644d56c4f9006a4df71b9ac2257b2baa006",
+  "prompts": {},
+  "sessions": {
+    "s_6c85d161101474": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "03790fef-be57-4d9b-8af7-8bbcd6fffb38",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    }
+  }
+}
