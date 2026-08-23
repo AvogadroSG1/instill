@@ -2,6 +2,7 @@ package instill
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -483,6 +484,143 @@ dependencies:
 	requireNotContains(t, stdout.String(), "tagged")
 }
 
+func createDriftFixture(t *testing.T) (library string, project Project, scriptPath string) {
+	t.Helper()
+
+	library = createCatalogLibrary(t, catalogLibrarySeed{
+		skills: []CatalogEntry{{Type: LibraryTypeSkill, Name: "git-pushing", Path: "git-pushing/SKILL.md"}},
+	})
+	scriptPath = filepath.Join(library, "skills", "git-pushing", "scripts", "smart_commit.sh")
+	requireNoError(t, os.MkdirAll(filepath.Dir(scriptPath), 0o755))
+	requireNoError(t, os.WriteFile(scriptPath, []byte("#!/bin/sh\necho push\n"), 0o644))
+	project = createAPMProject(t, APMManifest{Dependencies: APMDependencies{
+		APM: localDependencies(filepath.Join(library, "skills", "git-pushing")),
+	}})
+	return library, project, scriptPath
+}
+
+func writeDriftLock(t *testing.T, library string, project Project, includeScriptHash bool) {
+	t.Helper()
+
+	skillHash, err := fileSHA256(filepath.Join(library, "skills", "git-pushing", "SKILL.md"))
+	requireNoError(t, err)
+	scriptHash, err := fileSHA256(filepath.Join(library, "skills", "git-pushing", "scripts", "smart_commit.sh"))
+	requireNoError(t, err)
+	lock := fmt.Sprintf(`lockfile_version: '1'
+apm_version: 0.28.0
+dependencies:
+- repo_url: _local/git-pushing
+  name: git-pushing
+  version: 0.0.0
+  package_type: claude_skill
+  source: local
+  local_path: %s
+  deployed_files:
+  - .agents/skills/git-pushing
+  - .agents/skills/git-pushing/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/git-pushing/SKILL.md: sha256:%s
+    .claude/skills/git-pushing/SKILL.md: sha256:%s
+`, filepath.Join(library, "skills", "git-pushing"), skillHash, skillHash)
+	if includeScriptHash {
+		lock += fmt.Sprintf(`    .agents/skills/git-pushing/scripts/smart_commit.sh: sha256:%s
+    .claude/skills/git-pushing/scripts/smart_commit.sh: sha256:%s
+`, scriptHash, scriptHash)
+	}
+	lock += `- repo_url: github.com/example/remote-skill
+  name: remote-skill
+  version: 1.0.0
+  package_type: claude_skill
+  source: git
+  deployed_file_hashes:
+    .agents/skills/remote-skill/SKILL.md: sha256:0000000000000000000000000000000000000000000000000000000000000000
+`
+	requireNoError(t, os.WriteFile(filepath.Join(project.Root, "apm.lock.yaml"), []byte(lock), 0o644))
+}
+
+func runProjectStatus(t *testing.T, library string, project Project) string {
+	t.Helper()
+
+	var stdout bytes.Buffer
+	requireNoError(t, ProjectStatus(StatusOptions{
+		Project:     project,
+		LibraryPath: library,
+		Runner:      recordingRunner(nil, nil),
+		Stdout:      &stdout,
+	}))
+	return stdout.String()
+}
+
+func TestProjectStatusReportsSkillSupportingFileDrift(t *testing.T) {
+	t.Parallel()
+
+	library, project, scriptPath := createDriftFixture(t)
+	writeDriftLock(t, library, project, true)
+	requireNoError(t, os.WriteFile(scriptPath, []byte("#!/bin/sh\necho changed\n"), 0o644))
+
+	got := runProjectStatus(t, library, project)
+
+	requireContains(t, got, "hash mismatch: skill git-pushing")
+	if count := strings.Count(got, "hash mismatch: skill git-pushing"); count != 1 {
+		t.Fatalf("expected exactly one drift line, got %d in output:\n%s", count, got)
+	}
+}
+
+func TestProjectStatusReportsSkillDriftForDeletedLibraryFile(t *testing.T) {
+	t.Parallel()
+
+	library, project, scriptPath := createDriftFixture(t)
+	writeDriftLock(t, library, project, true)
+	requireNoError(t, os.Remove(scriptPath))
+
+	got := runProjectStatus(t, library, project)
+
+	requireContains(t, got, "hash mismatch: skill git-pushing")
+}
+
+func TestProjectStatusReportsSkillDriftForAddedLibraryFile(t *testing.T) {
+	t.Parallel()
+
+	library, project, _ := createDriftFixture(t)
+	writeDriftLock(t, library, project, false)
+
+	got := runProjectStatus(t, library, project)
+
+	requireContains(t, got, "hash mismatch: skill git-pushing")
+}
+
+func TestProjectStatusNoSkillDriftWhenLockMatchesLibrary(t *testing.T) {
+	t.Parallel()
+
+	library, project, _ := createDriftFixture(t)
+	writeDriftLock(t, library, project, true)
+
+	got := runProjectStatus(t, library, project)
+
+	requireNotContains(t, got, "hash mismatch: skill")
+}
+
+func TestProjectStatusSkillDriftToleratesMalformedOrLegacyLock(t *testing.T) {
+	t.Parallel()
+
+	for name, lock := range map[string]string{
+		"empty":     "",
+		"malformed": "dependencies: [oops",
+		"legacy":    "instructions:\n  - name: python-rules\n    sha256: deadbeef\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			library, project, _ := createDriftFixture(t)
+			requireNoError(t, os.WriteFile(filepath.Join(project.Root, "apm.lock.yaml"), []byte(lock), 0o644))
+
+			got := runProjectStatus(t, library, project)
+
+			requireNotContains(t, got, "hash mismatch: skill")
+		})
+	}
+}
+
 type catalogLibrarySeed struct {
 	skills       []CatalogEntry
 	plugins      []CatalogEntry
@@ -552,7 +690,7 @@ func recordingRunner(calls *[]string, responses map[string][]byte) CommandRunner
 			}
 		}
 		if command == "apm --version" {
-			return []byte("apm 0.1.0\n"), nil
+			return []byte("apm 0.28.0\n"), nil
 		}
 		return []byte("ok\n"), nil
 	}

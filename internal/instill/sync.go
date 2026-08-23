@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -165,7 +166,14 @@ func ProjectStatus(opts StatusOptions) error {
 	if err := validateTypedGitCatalogs(skillCatalog, pluginCatalog); err != nil {
 		return err
 	}
+	lock, err := readAPMLock(filepath.Join(opts.Project.Root, "apm.lock.yaml"))
+	if err != nil {
+		return err
+	}
 	if err := reportSkillStatus(opts.Stdout, opts.LibraryPath, manifest.Dependencies.APM, skillCatalog); err != nil {
+		return err
+	}
+	if err := reportSkillContentDrift(opts.Stdout, opts.LibraryPath, lock.Dependencies); err != nil {
 		return err
 	}
 	if err := reportPluginStatus(opts.Stdout, opts.LibraryPath, manifest.Dependencies.APM, pluginCatalog); err != nil {
@@ -179,10 +187,6 @@ func ProjectStatus(opts StatusOptions) error {
 		return err
 	}
 
-	lock, err := readAPMLock(filepath.Join(opts.Project.Root, "apm.lock.yaml"))
-	if err != nil {
-		return err
-	}
 	instructionCatalog, err := LoadCatalog(opts.LibraryPath, LibraryTypeInstruction)
 	if err != nil {
 		return err
@@ -206,13 +210,25 @@ func countProjectContent(dir string, pattern string) (int, error) {
 }
 
 type apmLock struct {
-	Instructions []apmLockEntry `yaml:"instructions"`
-	Prompts      []apmLockEntry `yaml:"prompts"`
+	Instructions []apmLockEntry      `yaml:"instructions"`
+	Prompts      []apmLockEntry      `yaml:"prompts"`
+	Dependencies []apmLockDependency `yaml:"dependencies"`
 }
 
 type apmLockEntry struct {
 	Name   string `yaml:"name"`
 	SHA256 string `yaml:"sha256"`
+}
+
+// apmLockDependency mirrors the subset of the APM 0.28 lockfile dependency
+// shape instill needs to detect skill content drift. deployed_files and
+// deployments are intentionally not modeled here.
+type apmLockDependency struct {
+	Name               string            `yaml:"name"`
+	PackageType        string            `yaml:"package_type"`
+	Source             string            `yaml:"source"`
+	LocalPath          string            `yaml:"local_path"`
+	DeployedFileHashes map[string]string `yaml:"deployed_file_hashes"`
 }
 
 func readAPMLock(path string) (apmLock, error) {
@@ -283,6 +299,108 @@ func reportSkillStatus(stdout io.Writer, libraryPath string, dependencies []APMD
 		}
 	}
 	return nil
+}
+
+// reportSkillContentDrift compares each locked local claude_skill dependency
+// against the library files it was hashed from, reporting a mismatch line
+// when the library has drifted since the last apm install.
+func reportSkillContentDrift(stdout io.Writer, libraryPath string, dependencies []apmLockDependency) error {
+	skillsRoot := filepath.Join(libraryPath, "skills")
+	for _, dependency := range dependencies {
+		if dependency.PackageType != "claude_skill" || dependency.Source != "local" || dependency.LocalPath == "" {
+			continue
+		}
+		if !isUnderDir(skillsRoot, dependency.LocalPath) {
+			continue
+		}
+		drifted, err := skillLockDependencyDrifted(dependency)
+		if err != nil {
+			return err
+		}
+		if !drifted {
+			continue
+		}
+		if err := writeLine(stdout, "hash mismatch: skill "+skillDependencyName(libraryPath, dependency.LocalPath)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// skillLockDependencyDrifted reports whether the library files backing dep
+// no longer match the hashes recorded at install time, covering modified,
+// deleted, and newly added supporting files.
+func skillLockDependencyDrifted(dep apmLockDependency) (bool, error) {
+	if _, err := os.Stat(dep.LocalPath); err != nil {
+		if os.IsNotExist(err) {
+			// Removed-from-library is already reported by reportSkillStatus.
+			return false, nil
+		}
+		return false, NewExitError(ExitFilesystem, "error: cannot inspect skill directory: "+err.Error())
+	}
+
+	base := dep.Name
+	if base == "" {
+		base = filepath.Base(dep.LocalPath)
+	}
+	agentsPrefix := ".agents/skills/" + base + "/"
+	claudePrefix := ".claude/skills/" + base + "/"
+	expected := make(map[string]string, len(dep.DeployedFileHashes))
+	for key, hash := range dep.DeployedFileHashes {
+		var rel string
+		switch {
+		case strings.HasPrefix(key, agentsPrefix):
+			rel = strings.TrimPrefix(key, agentsPrefix)
+		case strings.HasPrefix(key, claudePrefix):
+			rel = strings.TrimPrefix(key, claudePrefix)
+		default:
+			continue
+		}
+		if _, exists := expected[rel]; exists {
+			continue
+		}
+		expected[rel] = strings.TrimPrefix(hash, "sha256:")
+	}
+	if len(expected) == 0 {
+		return false, nil
+	}
+
+	for rel, want := range expected {
+		got, err := fileSHA256(filepath.Join(dep.LocalPath, filepath.FromSlash(rel)))
+		if err != nil {
+			return false, err
+		}
+		if got != want {
+			return true, nil
+		}
+	}
+
+	drifted := false
+	walkErr := filepath.WalkDir(dep.LocalPath, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		rel, err := filepath.Rel(dep.LocalPath, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if _, ok := expected[rel]; !ok {
+			drifted = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return false, NewExitError(ExitFilesystem, "error: cannot inspect skill directory: "+walkErr.Error())
+	}
+	return drifted, nil
 }
 
 func reportPluginStatus(stdout io.Writer, libraryPath string, dependencies []APMDependency, catalog []CatalogEntry) error {
