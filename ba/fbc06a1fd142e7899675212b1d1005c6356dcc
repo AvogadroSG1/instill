@@ -1,0 +1,23 @@
+internal/instill/testhelpers_shared_test.go
+  s_6c85d161101474::t_1a6aab80ff490c 1-61
+internal/instill/mutation_lock_test.go
+  s_6c85d161101474::t_bc4450299bbb85 953
+  s_6c85d161101474::t_644b420bc06603 942
+  s_6c85d161101474::t_f4bcbffc3ffe21 865
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "bafbc06a1fd142e7899675212b1d1005c6356dcc",
+  "prompts": {},
+  "sessions": {
+    "s_6c85d161101474": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "03790fef-be57-4d9b-8af7-8bbcd6fffb38",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    }
+  }
+}
