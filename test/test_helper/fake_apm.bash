@@ -51,7 +51,7 @@ deploy_skill_deps() {
 
 case "${1:-}" in
   --version)
-    printf 'apm 0.1.0\n'
+    printf 'apm 0.28.0\n'
     ;;
   install)
     project="$(project_arg "$@")"
@@ -135,7 +135,7 @@ deploy_skill_deps() {
 
 case "${1:-}" in
   --version)
-    printf 'apm 0.1.0\n'
+    printf 'apm 0.28.0\n'
     ;;
   install)
     project="$(project_arg "$@")"
@@ -199,7 +199,7 @@ project_arg() {
 
 case "${1:-}" in
   --version)
-    printf 'apm 0.1.0\n'
+    printf 'apm 0.28.0\n'
     ;;
   install)
     project="$(project_arg "$@")"

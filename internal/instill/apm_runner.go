@@ -11,7 +11,7 @@ import (
 
 const (
 	APMBrewFormula = "apm"
-	MinAPMVersion  = "0.1.0"
+	MinAPMVersion  = "0.22.0"
 )
 
 type CommandRunner func(name string, args ...string) ([]byte, error)
@@ -29,8 +29,14 @@ func EnsureAPM(runner CommandRunner) error {
 		if err := runCommand(runner, "brew", "upgrade", APMBrewFormula); err != nil {
 			return wrapCommandError("brew", err)
 		}
-		_, err = apmVersion(runner)
-		return wrapAPMEnvironmentError(err)
+		version, err = apmVersion(runner)
+		if err != nil {
+			return wrapAPMEnvironmentError(err)
+		}
+		if !versionAtLeast(version, MinAPMVersion) {
+			return NewExitError(ExitEnvironment, fmt.Sprintf("error: apm %s is below required minimum %s; upgrade apm manually", version, MinAPMVersion))
+		}
+		return nil
 	}
 	if !isCommandMissing(err) {
 		return wrapAPMEnvironmentError(err)

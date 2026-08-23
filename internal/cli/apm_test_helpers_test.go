@@ -66,7 +66,7 @@ func recordingRunner(calls *[]string) instill.CommandRunner {
 			*calls = append(*calls, command)
 		}
 		if command == "apm --version" {
-			return []byte("apm 0.1.0\n"), nil
+			return []byte("apm 0.28.0\n"), nil
 		}
 		return []byte("ok\n"), nil
 	}

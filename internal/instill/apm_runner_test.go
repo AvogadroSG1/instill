@@ -21,7 +21,7 @@ func TestEnsureAPMInstallsWithBrewWhenMissing(t *testing.T) {
 			if len(calls) == 1 {
 				return nil, exec.ErrNotFound
 			}
-			return []byte("apm 0.1.0\n"), nil
+			return []byte("apm 0.28.0\n"), nil
 		case "brew --version", "brew install apm":
 			return []byte("ok\n"), nil
 		default:
@@ -68,7 +68,7 @@ func TestEnsureAPMUpgradesWhenVersionOutdated(t *testing.T) {
 			if len(calls) == 1 {
 				return []byte("apm 0.0.9\n"), nil
 			}
-			return []byte("apm 0.1.0\n"), nil
+			return []byte("apm 0.28.0\n"), nil
 		case "brew upgrade apm":
 			return []byte("ok\n"), nil
 		default:
@@ -81,6 +81,57 @@ func TestEnsureAPMUpgradesWhenVersionOutdated(t *testing.T) {
 
 	requireNoError(t, err)
 	requireEqual(t, []string{"apm --version", "brew upgrade apm", "apm --version"}, calls)
+}
+
+func TestEnsureAPMRequiresConvergedSkillDeploymentVersion(t *testing.T) {
+	calls := []string{}
+	runner := func(name string, args ...string) ([]byte, error) {
+		command := strings.TrimSpace(name + " " + strings.Join(args, " "))
+		calls = append(calls, command)
+
+		switch command {
+		case "apm --version":
+			if len(calls) == 1 {
+				return []byte("apm 0.21.0\n"), nil
+			}
+			return []byte("apm 0.28.0\n"), nil
+		case "brew upgrade apm":
+			return []byte("ok\n"), nil
+		default:
+			t.Fatalf("unexpected command: %s", command)
+			return nil, nil
+		}
+	}
+
+	err := EnsureAPM(runner)
+
+	requireNoError(t, err)
+	requireEqual(t, []string{"apm --version", "brew upgrade apm", "apm --version"}, calls)
+}
+
+func TestEnsureAPMFailsWhenUpgradeDoesNotReachMinimum(t *testing.T) {
+	runner := func(name string, args ...string) ([]byte, error) {
+		command := strings.TrimSpace(name + " " + strings.Join(args, " "))
+		switch command {
+		case "apm --version":
+			return []byte("apm 0.0.9\n"), nil
+		case "brew upgrade apm":
+			return []byte("ok\n"), nil
+		default:
+			t.Fatalf("unexpected command: %s", command)
+			return nil, nil
+		}
+	}
+
+	err := EnsureAPM(runner)
+
+	if err == nil {
+		t.Fatal("EnsureAPM() error = nil, want below-minimum version error")
+	}
+	requireEqual(t, ExitEnvironment, ExitCode(err))
+	if msg := ErrorMessage(err); !strings.Contains(msg, MinAPMVersion) {
+		t.Fatalf("error message %q does not name required minimum %q", msg, MinAPMVersion)
+	}
 }
 
 func TestEnsureAPMAcceptsDescriptiveVersionOutput(t *testing.T) {
