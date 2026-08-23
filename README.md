@@ -47,6 +47,7 @@ Expected library shape:
 
 ```text
 ~/path/to/agent-library/
+  .instill.lock
   skills/catalog.csv
   skills/golang-testing/SKILL.md
   plugins/catalog.csv
@@ -60,6 +61,14 @@ Expected library shape:
 ```
 
 Run `instill library scan` to create or refresh catalog CSV files from library content.
+
+### Concurrent Mutations
+
+Instill serializes cooperating Library and Project mutations with an exclusive advisory lock on the persistent `<root>/.instill.lock` file. The file remains after a command exits and is not evidence that a process currently owns the lock. Scans and imported content ignore it.
+
+Lock acquisition has one 10-second timeout for the complete ordered root set. Unrelated roots can mutate concurrently. Commands that update both the Library and a Project release the Library lock after publishing catalog-derived Project state, while retaining the Project lock through APM install, prune, or compile.
+
+Local filesystems are the supported correctness baseline. Advisory locks do not prevent changes by editors, scripts, older Instill versions, or any other non-cooperating process. NFS, SMB, FUSE, container bind mounts, and other network or virtual filesystems vary by server, client, and mount configuration; successful acquisition confirms participation in the local advisory protocol but MUST NOT be treated as verified cross-host exclusion.
 
 ### Remote Skills
 
@@ -128,6 +137,7 @@ Project artifacts:
 
 ```text
 your-project/
+  .instill.lock            # persistent advisory lock file
   apm.yml                  # committed APM manifest
   apm.lock.yaml            # APM lockfile when produced by APM
   .apm/
@@ -194,4 +204,4 @@ MIT — see [LICENSE](./LICENSE).
 [build-badge]: https://img.shields.io/github/actions/workflow/status/AvogadroSg1/instill/test.yml?branch=main
 [build-url]: https://github.com/AvogadroSg1/instill/actions
 
-*Authored By Peter O'Connor with Assistance from OpenCode (openai/gpt-5.6-sol) · 2026-08-22 · Repository-backed plugin documentation*
+*Authored By Peter O'Connor with Assistance from OpenCode (openai/gpt-5.6-sol) · 2026-08-22 · Advisory locking and repository-backed package documentation*

@@ -1,6 +1,7 @@
 package instill
 
 import (
+	"context"
 	"io"
 	"strings"
 )
@@ -12,6 +13,16 @@ type CategorizeOptions struct {
 }
 
 func CategorizeLibrary(opts CategorizeOptions) error {
+	return withRootLocks(context.Background(), []string{opts.LibraryPath}, func(ctx context.Context, held *heldLocks) error {
+		return categorizeLibraryLocked(ctx, held, opts)
+	})
+}
+
+func categorizeLibraryLocked(ctx context.Context, held *heldLocks, opts CategorizeOptions) error {
+	if err := held.requireContext(ctx, opts.LibraryPath); err != nil {
+		return err
+	}
+	emitMutationTestEvent("dependent-read:categories")
 	stdout := opts.Stdout
 	if stdout == nil {
 		stdout = io.Discard
@@ -42,7 +53,7 @@ func CategorizeLibrary(opts CategorizeOptions) error {
 		categories[category] = append(categories[category], skill)
 	}
 
-	if err := WriteCategoriesAtomic(opts.LibraryPath, categories); err != nil {
+	if err := writeCategoriesLocked(ctx, held, opts.LibraryPath, categories); err != nil {
 		return err
 	}
 	return nil

@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -709,7 +708,9 @@ func TestManifestWritePreservesOriginalFileMode(t *testing.T) {
 func TestManifestNewFileModeHonorsProcessUmask(t *testing.T) {
 	const helperEnv = "INSTILL_UMASK_TEST_HELPER"
 	if os.Getenv(helperEnv) == "1" {
-		syscall.Umask(0o077)
+		if !setTestUmask(0o077) {
+			return
+		}
 		path := os.Getenv("INSTILL_UMASK_TEST_PATH")
 		document, err := loadManifestDocument(path)
 		requireNoError(t, err)

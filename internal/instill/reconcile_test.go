@@ -3,6 +3,7 @@ package instill
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,6 +11,128 @@ import (
 	"testing"
 	"time"
 )
+
+func TestReconcileManifestRereadsAuthoritativeManifestUnderLock(t *testing.T) {
+	library := createLibrary(t, "current", "stale")
+	project := createProject(t, []string{"current"})
+
+	err := ReconcileManifest(project, Manifest{Skills: []string{"stale"}}, library, io.Discard)
+	requireNoError(t, err)
+	manifest, err := ReadManifest(project.ManifestPath)
+	requireNoError(t, err)
+	requireEqual(t, []string{"current"}, manifest.Skills)
+	if !linkPointsTo(filepath.Join(project.SymlinkDir, "current"), filepath.Join(library, "current")) {
+		t.Fatal("reconcile did not apply authoritative current manifest")
+	}
+	assertPathMissing(t, filepath.Join(project.SymlinkDir, "stale"))
+}
+
+func TestReconcileManifestWithPreviousUsesPreviousOwnershipAndAuthoritativeFinal(t *testing.T) {
+	library := createLibrary(t, "current", "previous", "stale")
+	project := createProject(t, []string{"current"})
+	writeSettingsLocalForTest(t, project, `{"permissions":{"allow":["Skill(previous)","Bash(read:*)"]}}`)
+
+	err := ReconcileManifestWithPrevious(
+		project,
+		Manifest{Skills: []string{"previous"}},
+		Manifest{Skills: []string{"stale"}},
+		library,
+		io.Discard,
+	)
+	requireNoError(t, err)
+	manifest, err := ReadManifest(project.ManifestPath)
+	requireNoError(t, err)
+	requireEqual(t, []string{"current"}, manifest.Skills)
+	assertSettingsAllow(t, project, []string{"Bash(read:*)", "Skill(current)"})
+	assertPathMissing(t, filepath.Join(project.SymlinkDir, "stale"))
+}
+
+func TestReconcilePermissionOnlyRevocationFlipsChangedAndPrintsOK(t *testing.T) {
+	library := createLibrary(t, "current")
+	project := createProject(t, []string{"current"})
+	if err := Reconcile(project, library, io.Discard); err != nil {
+		t.Fatalf("converging Reconcile() error = %v", err)
+	}
+	writeSettingsLocalForTest(t, project, `{"permissions":{"allow":["Bash(read:*)","Skill(current)","Skill(old)"]}}`)
+
+	var stdout bytes.Buffer
+	err := ReconcileManifestWithPrevious(
+		project,
+		Manifest{Skills: []string{"current", "old"}},
+		Manifest{Skills: []string{"current"}},
+		library,
+		&stdout,
+	)
+	if err != nil {
+		t.Fatalf("ReconcileManifestWithPrevious() error = %v", err)
+	}
+	assertSettingsAllow(t, project, []string{"Bash(read:*)", "Skill(current)"})
+	if !strings.Contains(stdout.String(), "ok: 1 skills linked") {
+		t.Fatalf("output = %q, want ok line for permission-only revocation", stdout.String())
+	}
+}
+
+func TestReconcilePermissionOnlyAdditionFlipsChangedAndPrintsOK(t *testing.T) {
+	library := createLibrary(t, "current")
+	project := createProject(t, []string{"current"})
+	if err := Reconcile(project, library, io.Discard); err != nil {
+		t.Fatalf("converging Reconcile() error = %v", err)
+	}
+	writeSettingsLocalForTest(t, project, `{"permissions":{"allow":["Bash(read:*)"]}}`)
+
+	var stdout bytes.Buffer
+	if err := Reconcile(project, library, &stdout); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	assertSettingsAllow(t, project, []string{"Bash(read:*)", "Skill(current)"})
+	if !strings.Contains(stdout.String(), "ok: 1 skills linked") {
+		t.Fatalf("output = %q, want ok line for permission-only addition", stdout.String())
+	}
+}
+
+func TestReconcileNormalizesSettingsLocalFormattingWithoutSemanticChange(t *testing.T) {
+	t.Parallel()
+
+	library := createLibrary(t, "docker")
+	project := createProject(t, []string{"docker"})
+	if err := Reconcile(project, library, io.Discard); err != nil {
+		t.Fatalf("converging Reconcile() error = %v", err)
+	}
+
+	settingsPath := filepath.Join(project.Root, claudeDirName, settingsLocalFileName)
+	reformatted := "{\n    \"permissions\": {\n        \"allow\": [\n            \"Skill(docker)\"\n        ]\n    }\n}\n"
+	if err := os.WriteFile(settingsPath, []byte(reformatted), 0o644); err != nil {
+		t.Fatalf("WriteFile(reformatted settings.local) error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := Reconcile(project, library, &stdout); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	if stdout.String() != "" {
+		t.Fatalf("output = %q, want silent formatting-only normalization", stdout.String())
+	}
+	assertSettingsAllow(t, project, []string{"Skill(docker)"})
+
+	data, err := os.ReadFile(settingsPath) //nolint:gosec // Test reads t.TempDir settings file.
+	if err != nil {
+		t.Fatalf("ReadFile(settings.local) error = %v", err)
+	}
+	if string(data) == reformatted {
+		t.Fatal("settings.local was not rewritten to canonical formatting")
+	}
+	wantData, err := json.MarshalIndent(map[string]any{
+		"permissions": map[string]any{"allow": []any{"Skill(docker)"}},
+	}, "", "  ")
+	if err != nil {
+		t.Fatalf("MarshalIndent(want) error = %v", err)
+	}
+	wantData = append(wantData, '\n')
+	if string(data) != string(wantData) {
+		t.Fatalf("settings.local = %s, want canonical formatting %s", data, wantData)
+	}
+}
 
 func TestReconcileCreatesMissingSymlinks(t *testing.T) {
 	t.Parallel()
@@ -100,6 +223,9 @@ func TestReconcileSilentWhenNoChangesNeeded(t *testing.T) {
 	if err := os.Symlink(filepath.Join(library, "docker"), filepath.Join(project.SymlinkDir, "docker")); err != nil {
 		t.Fatalf("Symlink() error = %v", err)
 	}
+	if err := Reconcile(project, library, io.Discard); err != nil {
+		t.Fatalf("converging Reconcile() error = %v", err)
+	}
 
 	var stdout bytes.Buffer
 	if err := Reconcile(project, library, &stdout); err != nil {
@@ -130,8 +256,8 @@ func TestReconcileGrantsFinalSkillPermissions(t *testing.T) {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 
-	if stdout.String() != "" {
-		t.Fatalf("output = %q, want silent permission-only change", stdout.String())
+	if !strings.Contains(stdout.String(), "ok: 1 skills linked") {
+		t.Fatalf("output = %q, want ok line for permission-only change", stdout.String())
 	}
 	assertSettingsAllow(t, project, []string{"Bash(go test ./...)", "Skill(docker)"})
 }
@@ -197,8 +323,8 @@ func TestReconcileCreatesSettingsLocalForFinalSkillPermissions(t *testing.T) {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 
-	if stdout.String() != "" {
-		t.Fatalf("output = %q, want silent permission-only change", stdout.String())
+	if !strings.Contains(stdout.String(), "ok: 1 skills linked") {
+		t.Fatalf("output = %q, want ok line for permission-only change", stdout.String())
 	}
 	assertSettingsAllow(t, project, []string{"Skill(docker)"})
 }
@@ -209,6 +335,12 @@ func TestReconcileDoesNotRewriteSettingsLocalWhenPermissionsUnchanged(t *testing
 	library := createLibrary(t, "docker")
 	project := createProject(t, []string{"docker"})
 	createSkillSymlink(t, project, library, "docker")
+	if err := os.MkdirAll(project.AgentsSymlinkDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(.agents/skills) error = %v", err)
+	}
+	if err := os.Symlink(filepath.Join(library, "docker"), filepath.Join(project.AgentsSymlinkDir, "docker")); err != nil {
+		t.Fatalf("Symlink(.agents/skills/docker) error = %v", err)
+	}
 	writeSettingsLocalForTest(t, project, `{
   "permissions": {
     "allow": [
@@ -439,9 +571,10 @@ func createProject(t *testing.T, skills []string) Project {
 
 	root := t.TempDir()
 	project := Project{
-		Root:         root,
-		ManifestPath: filepath.Join(root, claudeDirName, manifestFileName),
-		SymlinkDir:   filepath.Join(root, claudeDirName, skillsDirName),
+		Root:             root,
+		ManifestPath:     filepath.Join(root, claudeDirName, manifestFileName),
+		SymlinkDir:       filepath.Join(root, claudeDirName, skillsDirName),
+		AgentsSymlinkDir: filepath.Join(root, agentsDirName, skillsDirName),
 	}
 	if err := os.MkdirAll(project.SymlinkDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%s) error = %v", project.SymlinkDir, err)

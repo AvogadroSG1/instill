@@ -4,9 +4,12 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/AvogadroSG1/instill/internal/instill"
 	"github.com/spf13/cobra"
@@ -27,8 +30,20 @@ type commandConfig struct {
 
 // Execute is the entry point for the instill CLI. It runs the root Cobra
 // command wired with os.Stdin/Stdout/Stderr and returns the process exit code.
+// The command context is cancelled on SIGINT/SIGTERM so bounded remote Git
+// operations (ADR 0007) stop promptly on Ctrl-C. Only remote-git paths watch
+// the context, so a command blocked elsewhere (e.g. an interactive stdin
+// prompt) would otherwise survive Ctrl-C indefinitely: once the context is
+// done, a goroutine calls stop to restore default signal handling, so a
+// second SIGINT/SIGTERM terminates the process immediately.
 func Execute() int {
-	return execute(commandConfig{
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
+	return executeContext(ctx, commandConfig{
 		stdin:  os.Stdin,
 		stdout: os.Stdout,
 		stderr: os.Stderr,
@@ -36,8 +51,12 @@ func Execute() int {
 }
 
 func execute(cfg commandConfig) int {
+	return executeContext(context.Background(), cfg)
+}
+
+func executeContext(ctx context.Context, cfg commandConfig) int {
 	root := newRootCommand(cfg)
-	if err := root.Execute(); err != nil {
+	if err := root.ExecuteContext(ctx); err != nil {
 		code := instill.ExitCode(err)
 		_, _ = fmt.Fprintln(cfg.stderr, instill.ErrorMessage(err))
 		return code

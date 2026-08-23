@@ -1,6 +1,7 @@
 package instill
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,16 @@ const (
 
 // AddHooks adds the instill SessionStart hook to .claude/settings.json.
 func AddHooks(project Project, stdout io.Writer) error {
+	return withRootLocks(context.Background(), []string{project.Root}, func(ctx context.Context, held *heldLocks) error {
+		return addHooksLocked(ctx, held, project, stdout)
+	})
+}
+
+func addHooksLocked(ctx context.Context, held *heldLocks, project Project, stdout io.Writer) error {
+	if err := held.requireContext(ctx, project.Root); err != nil {
+		return err
+	}
+	emitMutationTestEvent("dependent-read:hooks")
 	if stdout == nil {
 		stdout = io.Discard
 	}

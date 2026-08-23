@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strconv"
 	"strings"
@@ -166,6 +167,43 @@ func TestLibraryUpdateRemotePlugin(t *testing.T) {
 	})
 	if code == 0 || !strings.Contains(stderr.String(), "cannot access remote repository") {
 		t.Fatalf("execute() = %d, stderr = %q, want actionable repository error", code, stderr.String())
+	}
+}
+
+// TestLibraryAddRemoteSkillPropagatesCommandContext proves the ADR 0007 CLI
+// wiring: the remote add command passes cmd.Context() into the domain, so an
+// already-cancelled command context aborts the operation with
+// context.Canceled instead of running to completion.
+func TestLibraryAddRemoteSkillPropagatesCommandContext(t *testing.T) {
+	library := t.TempDir()
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var stdout, stderr bytes.Buffer
+	cfg := commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"library", "add", "--type", "skill", "--repository", "owner/example"},
+		runner: func(name string, args ...string) ([]byte, error) {
+			return []byte("0123456789abcdef0123456789abcdef01234567\tHEAD\n"), nil
+		},
+	}
+	root := newRootCommand(cfg)
+	err := root.ExecuteContext(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ExecuteContext() error = %v, want context.Canceled", err)
+	}
+	if instill.ExitCode(err) != instill.ExitGeneral {
+		t.Fatalf("ExitCode(err) = %d, want %d", instill.ExitCode(err), instill.ExitGeneral)
+	}
+	entries, loadErr := instill.LoadCatalog(library, instill.LibraryTypeSkill)
+	if loadErr != nil {
+		t.Fatalf("LoadCatalog() error = %v", loadErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("entries = %#v, want no catalog mutation after cancellation", entries)
 	}
 }
 

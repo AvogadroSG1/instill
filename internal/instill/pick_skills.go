@@ -1,6 +1,7 @@
 package instill
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -43,6 +44,21 @@ func Pick(opts PickOptions) error {
 	if len(opts.Add) == 0 && len(opts.Remove) == 0 {
 		return NewExitError(ExitGeneral, "error: no items specified")
 	}
+	if err := EnsureAPM(opts.Runner); err != nil {
+		return err
+	}
+	return withRootLocks(context.Background(), []string{opts.LibraryPath, opts.Project.Root}, func(ctx context.Context, held *heldLocks) error {
+		return pickLocked(ctx, held, opts)
+	})
+}
+
+func pickLocked(ctx context.Context, held *heldLocks, opts PickOptions) error {
+	if err := held.requireContext(ctx, opts.LibraryPath); err != nil {
+		return err
+	}
+	if err := held.requireContext(ctx, opts.Project.Root); err != nil {
+		return err
+	}
 	skills, plugins, err := loadTypedPackageCatalogs(opts.LibraryPath)
 	if err != nil {
 		return err
@@ -64,24 +80,21 @@ func Pick(opts PickOptions) error {
 		entriesByName[entry.Name] = entry
 	}
 	if opts.Type == LibraryTypeInstruction || opts.Type == LibraryTypePrompt {
-		if err := EnsureAPM(opts.Runner); err != nil {
-			return err
-		}
 		if err := applyContentPick(opts.Project.Root, opts.LibraryPath, entriesByName, opts.Add, opts.Remove, opts.Type); err != nil {
 			return err
 		}
+		if err := held.release(ctx, opts.LibraryPath); err != nil {
+			return err
+		}
 		if len(normalizeSkills(opts.Add)) > 0 {
-			if err := RunAPMInstall(opts.Runner, opts.Project.Root); err != nil {
+			if err := runAPMInstallLocked(ctx, held, opts.Runner, opts.Project.Root); err != nil {
 				return err
 			}
 		}
 		if len(normalizeSkills(opts.Remove)) > 0 {
-			return RunAPMPrune(opts.Runner, opts.Project.Root)
+			return runAPMPruneLocked(ctx, held, opts.Runner, opts.Project.Root)
 		}
 		return nil
-	}
-	if err := EnsureAPM(opts.Runner); err != nil {
-		return err
 	}
 	document, err := loadManifestDocumentObserved(opts.Project.ManifestPath, opts.manifestMetrics)
 	if err != nil {
@@ -127,16 +140,19 @@ func Pick(opts PickOptions) error {
 	if err := document.write(); err != nil {
 		return err
 	}
+	if err := held.release(ctx, opts.LibraryPath); err != nil {
+		return err
+	}
 
 	added := len(normalizeSkills(opts.Add)) > 0
 	removed := len(normalizeSkills(opts.Remove)) > 0
 	if added {
-		if err := RunAPMInstall(opts.Runner, opts.Project.Root); err != nil {
+		if err := runAPMInstallLocked(ctx, held, opts.Runner, opts.Project.Root); err != nil {
 			return err
 		}
 	}
 	if removed {
-		return RunAPMPrune(opts.Runner, opts.Project.Root)
+		return runAPMPruneLocked(ctx, held, opts.Runner, opts.Project.Root)
 	}
 	return nil
 }
@@ -155,6 +171,21 @@ func PickSkills(opts PickSkillsOptions) error {
 
 // ApplySkillSelection replaces the project skill dependency set.
 func ApplySkillSelection(opts SkillSelectionOptions) error {
+	if err := EnsureAPM(opts.Runner); err != nil {
+		return err
+	}
+	return withRootLocks(context.Background(), []string{opts.LibraryPath, opts.Project.Root}, func(ctx context.Context, held *heldLocks) error {
+		return applySkillSelectionLocked(ctx, held, opts)
+	})
+}
+
+func applySkillSelectionLocked(ctx context.Context, held *heldLocks, opts SkillSelectionOptions) error {
+	if err := held.requireContext(ctx, opts.LibraryPath); err != nil {
+		return err
+	}
+	if err := held.requireContext(ctx, opts.Project.Root); err != nil {
+		return err
+	}
 	skills, _, err := loadTypedPackageCatalogs(opts.LibraryPath)
 	if err != nil {
 		return err
@@ -164,9 +195,6 @@ func ApplySkillSelection(opts SkillSelectionOptions) error {
 		return err
 	}
 	manifest := document.projection
-	if err := EnsureAPM(opts.Runner); err != nil {
-		return err
-	}
 	previous := append([]APMDependency{}, manifest.Dependencies.APM...)
 	entriesByName := make(map[string]CatalogEntry, len(skills))
 	for _, entry := range skills {
@@ -202,13 +230,16 @@ func ApplySkillSelection(opts SkillSelectionOptions) error {
 	if err := document.write(); err != nil {
 		return err
 	}
+	if err := held.release(ctx, opts.LibraryPath); err != nil {
+		return err
+	}
 	if hasAddedDependencies(previous, dependencies) {
-		if err := RunAPMInstall(opts.Runner, opts.Project.Root); err != nil {
+		if err := runAPMInstallLocked(ctx, held, opts.Runner, opts.Project.Root); err != nil {
 			return err
 		}
 	}
 	if hasRemovedDependencies(previous, dependencies) {
-		return RunAPMPrune(opts.Runner, opts.Project.Root)
+		return runAPMPruneLocked(ctx, held, opts.Runner, opts.Project.Root)
 	}
 	return nil
 }

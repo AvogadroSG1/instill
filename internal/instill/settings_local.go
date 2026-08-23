@@ -2,14 +2,38 @@ package instill
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
 func reconcileSettingsLocalPermissions(path string, previousSkills, finalSkills []string) (bool, error) {
+	projectRoot := filepath.Dir(filepath.Dir(path))
+	var changed bool
+	err := withRootLocks(context.Background(), []string{projectRoot}, func(ctx context.Context, held *heldLocks) error {
+		var err error
+		changed, err = reconcileSettingsLocalPermissionsLocked(ctx, held, projectRoot, path, previousSkills, finalSkills)
+		return err
+	})
+	return changed, err
+}
+
+func reconcileSettingsLocalPermissionsLocked(
+	ctx context.Context,
+	held *heldLocks,
+	projectRoot string,
+	path string,
+	previousSkills []string,
+	finalSkills []string,
+) (bool, error) {
+	if err := held.requireContext(ctx, projectRoot); err != nil {
+		return false, err
+	}
+	emitMutationTestEvent("dependent-read:settings")
 	settings, mode, existing, err := readSettingsLocalTree(path)
 	if err != nil {
 		return false, err
@@ -27,6 +51,10 @@ func reconcileSettingsLocalPermissions(path string, previousSkills, finalSkills 
 	if err != nil {
 		return false, err
 	}
+	// beforeSkills is read from the still-unmodified raw value; the call above
+	// already proved it well-formed, so re-reading it here cannot fail.
+	beforeSkills := skillPermissionEntries(rawAllowStrings(permissions["allow"]))
+	afterSkills := skillPermissionEntries(allow)
 	permissions["allow"] = allow
 
 	data, err := json.MarshalIndent(settings, "", "  ")
@@ -44,7 +72,10 @@ func reconcileSettingsLocalPermissions(path string, previousSkills, finalSkills 
 	if err := writeFileAtomic(path, data, mode); err != nil {
 		return false, NewExitError(ExitFilesystem, "error: cannot write settings.local.json: "+err.Error())
 	}
-	return true, nil
+	// The file is normalized whenever its bytes differ, but the returned bool
+	// reflects only a genuine Skill permission set change: a formatting-only
+	// rewrite (different indent or key order from another tool) stays silent.
+	return !maps.Equal(beforeSkills, afterSkills), nil
 }
 
 func readSettingsLocalTree(path string) (map[string]any, os.FileMode, []byte, error) {
@@ -141,6 +172,37 @@ func reconcileAllowPermissions(existing any, previousSkills, finalSkills []strin
 	}
 
 	return allow, nil
+}
+
+// rawAllowStrings extracts permissions.allow entries as strings from the raw
+// decoded JSON value. Callers MUST only use it after reconcileAllowPermissions
+// has already validated the same value, so a malformed entry cannot occur
+// here; anything unexpected is silently dropped rather than erroring twice.
+func rawAllowStrings(existing any) []string {
+	values, ok := existing.([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if entry, ok := value.(string); ok {
+			result = append(result, entry)
+		}
+	}
+	return result
+}
+
+// skillPermissionEntries filters values down to the Skill(...) permission
+// entries, as a set, so semantic-change comparison ignores formatting and the
+// order or presence of unrelated manually-managed entries such as Bash(...).
+func skillPermissionEntries(values []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(values))
+	for _, v := range values {
+		if strings.HasPrefix(v, "Skill(") {
+			set[v] = struct{}{}
+		}
+	}
+	return set
 }
 
 func skillPermissionSet(skills []string) map[string]struct{} {

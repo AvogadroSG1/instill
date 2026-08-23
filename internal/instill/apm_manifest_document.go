@@ -70,6 +70,7 @@ func loadManifestDocument(path string) (*manifestDocument, error) {
 }
 
 func loadManifestDocumentObserved(path string, metrics *manifestIOMetrics) (*manifestDocument, error) {
+	emitMutationTestEvent("dependent-read:manifest:" + path)
 	if metrics != nil {
 		metrics.authoritativeLoads++
 		metrics.events = append(metrics.events, "authoritative-load")
@@ -762,6 +763,7 @@ func (d *manifestDocument) write() error {
 			writer = writeNewFileAtomic
 		}
 	}
+	emitMutationTestEvent("first-write:" + d.path)
 	if err := writer(d.path, encoded.Bytes(), d.mode); err != nil {
 		return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot write manifest: %v", err))
 	}

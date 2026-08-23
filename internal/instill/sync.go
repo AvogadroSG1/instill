@@ -1,6 +1,7 @@
 package instill
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -30,6 +31,18 @@ type StatusOptions struct {
 
 func SyncProject(opts SyncOptions) error {
 	if err := EnsureAPM(opts.Runner); err != nil {
+		return err
+	}
+	return withRootLocks(context.Background(), []string{opts.LibraryPath, opts.Project.Root}, func(ctx context.Context, held *heldLocks) error {
+		return syncProjectLocked(ctx, held, opts)
+	})
+}
+
+func syncProjectLocked(ctx context.Context, held *heldLocks, opts SyncOptions) error {
+	if err := held.requireContext(ctx, opts.LibraryPath); err != nil {
+		return err
+	}
+	if err := held.requireContext(ctx, opts.Project.Root); err != nil {
 		return err
 	}
 	document, err := loadManifestDocumentObserved(opts.Project.ManifestPath, opts.manifestMetrics)
@@ -75,10 +88,13 @@ func SyncProject(opts SyncOptions) error {
 	if err := document.write(); err != nil {
 		return err
 	}
-	if err := RunAPMInstall(opts.Runner, opts.Project.Root); err != nil {
+	if err := held.release(ctx, opts.LibraryPath); err != nil {
 		return err
 	}
-	if err := RunAPMCompile(opts.Runner, opts.Project.Root); err != nil {
+	if err := runAPMInstallLocked(ctx, held, opts.Runner, opts.Project.Root); err != nil {
+		return err
+	}
+	if err := runAPMCompileLocked(ctx, held, opts.Runner, opts.Project.Root); err != nil {
 		return err
 	}
 

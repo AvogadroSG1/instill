@@ -123,11 +123,12 @@ func TestEnsureAPMReturnsExitEnvironmentWhenVersionCheckFailsForOtherReason(t *t
 }
 
 func TestRunAPMInstallIncludesOutputOnFailure(t *testing.T) {
+	root := t.TempDir()
 	runner := func(name string, args ...string) ([]byte, error) {
 		return []byte("error: unresolved dependency 'foo/bar'\n"), errors.New("exit status 2")
 	}
 
-	err := RunAPMInstall(runner, "/tmp/project")
+	err := RunAPMInstall(runner, root)
 
 	if err == nil {
 		t.Fatal("RunAPMInstall() error = nil, want error")
@@ -142,11 +143,12 @@ func TestRunAPMInstallIncludesOutputOnFailure(t *testing.T) {
 }
 
 func TestRunAPMInstallEmptyOutputStillReportsExitCode(t *testing.T) {
+	root := t.TempDir()
 	runner := func(name string, args ...string) ([]byte, error) {
 		return nil, errors.New("exit status 1")
 	}
 
-	err := RunAPMInstall(runner, "/tmp/project")
+	err := RunAPMInstall(runner, root)
 
 	if err == nil {
 		t.Fatal("RunAPMInstall() error = nil, want error")
@@ -161,11 +163,12 @@ func TestRunAPMInstallEmptyOutputStillReportsExitCode(t *testing.T) {
 }
 
 func TestRunAPMCompileIncludesOutputOnFailure(t *testing.T) {
+	root := t.TempDir()
 	runner := func(name string, args ...string) ([]byte, error) {
 		return []byte("compile error: invalid skill reference\n"), errors.New("exit status 2")
 	}
 
-	err := RunAPMCompile(runner, "/tmp/project")
+	err := RunAPMCompile(runner, root)
 
 	if err == nil {
 		t.Fatal("RunAPMCompile() error = nil, want error")
@@ -177,6 +180,7 @@ func TestRunAPMCompileIncludesOutputOnFailure(t *testing.T) {
 }
 
 func TestRunAPMInstallPassesLegacySkillPathsFlag(t *testing.T) {
+	root := t.TempDir()
 	calls := []string{}
 	runner := func(name string, args ...string) ([]byte, error) {
 		command := strings.TrimSpace(name + " " + strings.Join(args, " "))
@@ -184,10 +188,10 @@ func TestRunAPMInstallPassesLegacySkillPathsFlag(t *testing.T) {
 		return []byte("ok\n"), nil
 	}
 
-	err := RunAPMInstall(runner, "/tmp/project")
+	err := RunAPMInstall(runner, root)
 
 	requireNoError(t, err)
-	requireEqual(t, []string{"apm install --legacy-skill-paths --root /tmp/project"}, calls)
+	requireEqual(t, []string{"apm install --legacy-skill-paths --root " + root}, calls)
 }
 
 func TestRunAPMPruneRunsFromProjectRootWithoutRootOption(t *testing.T) {
@@ -206,6 +210,51 @@ func TestRunAPMPruneRunsFromProjectRootWithoutRootOption(t *testing.T) {
 	cwd, readErr := os.ReadFile(cwdFile)
 	requireNoError(t, readErr)
 	requireEqual(t, projectRoot, strings.TrimSpace(string(cwd)))
+}
+
+func TestAPMCommandsHoldProjectLockThroughRunnerCompletion(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(CommandRunner, string) error
+	}{
+		{name: "install", run: RunAPMInstall},
+		{name: "prune", run: RunAPMPrune},
+		{name: "compile", run: RunAPMCompile},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			started := make(chan struct{})
+			release := make(chan struct{})
+			runner := func(string, ...string) ([]byte, error) {
+				if err := os.WriteFile(filepath.Join(root, "apm-first-mutation"), []byte(test.name), 0o600); err != nil {
+					return nil, err
+				}
+				close(started)
+				<-release
+				return nil, nil
+			}
+			errCh := make(chan error, 1)
+			go func() {
+				errCh <- test.run(runner, root)
+			}()
+			<-started
+			if got := readFile(t, filepath.Join(root, "apm-first-mutation")); got != test.name {
+				t.Fatalf("first APM mutation = %q, want %q", got, test.name)
+			}
+			waiter := startRootLockWaiterProcess(t, root)
+			waiter.waitFor(t, "attempt")
+			waiter.waitFor(t, "contended")
+			waiter.checkBlocked(t)
+			close(release)
+			if err := <-errCh; err != nil {
+				t.Fatalf("APM command error = %v", err)
+			}
+			waiter.waitFor(t, "acquired")
+			waiter.release(t)
+			waiter.wait(t)
+		})
+	}
 }
 
 func requireNoError(t *testing.T, err error) {

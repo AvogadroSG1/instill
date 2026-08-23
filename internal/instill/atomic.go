@@ -8,6 +8,7 @@ import (
 )
 
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	emitMutationTestEvent("first-write:" + path)
 	dir := filepath.Dir(path)
 	file, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
 	if err != nil {

@@ -1,7 +1,9 @@
 package instill
 
 import (
+	"context"
 	"io"
+	"os"
 	"path/filepath"
 )
 
@@ -37,11 +39,8 @@ func InitProject(opts InitProjectOptions) error {
 		AgentsSymlinkDir: filepath.Join(root, agentsDirName, skillsDirName),
 	}
 
-	if HasAPMManifest(root) && !opts.Force {
-		return NewExitError(ExitGeneral, "error: manifest already exists; use --force to reinitialize")
-	}
-
 	manifest := APMManifest{Name: filepath.Base(root), Version: "0.1.0"}
+	targetsSelected := opts.TargetsSet || len(opts.Targets) > 0
 	if opts.TargetsSet || len(opts.Targets) > 0 {
 		manifest.Targets = normalizeStringSlice(opts.Targets)
 	} else if opts.SelectTargets != nil {
@@ -50,16 +49,11 @@ func InitProject(opts InitProjectOptions) error {
 			return err
 		}
 		manifest.Targets = normalizeStringSlice(selected)
-	} else {
-		manifest.Targets = DetectHarnessTargets(root)
+		targetsSelected = true
 	}
-	if len(opts.Skills) > 0 {
-		dependencies, err := resolveSkillDependencies(opts.LibraryPath, opts.Skills)
-		if err != nil {
-			return err
-		}
-		manifest.Dependencies.APM = dependencies
-	} else if opts.SelectSkills != nil {
+
+	skillNames := normalizeSkills(opts.Skills)
+	if len(opts.Skills) == 0 && opts.SelectSkills != nil {
 		plan, confirmed, selectErr := opts.SelectSkills()
 		if selectErr != nil {
 			return selectErr
@@ -67,16 +61,49 @@ func InitProject(opts InitProjectOptions) error {
 		if !confirmed {
 			return NewExitError(ExitGeneral, "initialization cancelled")
 		}
-		dependencies, resolveErr := resolveSkillDependencies(opts.LibraryPath, plan.Skills)
-		if resolveErr != nil {
-			return resolveErr
-		}
-		manifest.Dependencies.APM = dependencies
+		skillNames = normalizeSkills(plan.Skills)
 	}
 
 	if err := EnsureAPM(opts.Runner); err != nil {
 		return err
 	}
+	return withRootLocks(context.Background(), []string{opts.LibraryPath, root}, func(ctx context.Context, held *heldLocks) error {
+		return initProjectLocked(ctx, held, opts, project, manifest, skillNames, targetsSelected)
+	})
+}
+
+func initProjectLocked(
+	ctx context.Context,
+	held *heldLocks,
+	opts InitProjectOptions,
+	project Project,
+	manifest APMManifest,
+	skillNames []string,
+	targetsSelected bool,
+) error {
+	if err := held.requireContext(ctx, opts.LibraryPath); err != nil {
+		return err
+	}
+	if err := held.requireContext(ctx, project.Root); err != nil {
+		return err
+	}
+	if !opts.Force {
+		_, err := os.Stat(project.ManifestPath)
+		if err == nil {
+			return NewExitError(ExitGeneral, "error: manifest already exists; use --force to reinitialize")
+		}
+		if !os.IsNotExist(err) {
+			return NewExitError(ExitFilesystem, "error: cannot inspect manifest: "+err.Error())
+		}
+	}
+	if !targetsSelected {
+		manifest.Targets = DetectHarnessTargets(project.Root)
+	}
+	dependencies, err := resolveSkillDependencies(opts.LibraryPath, skillNames)
+	if err != nil {
+		return err
+	}
+	manifest.Dependencies.APM = dependencies
 	document, err := loadManifestDocument(project.ManifestPath)
 	if err != nil {
 		return err
@@ -115,17 +142,20 @@ func InitProject(opts InitProjectOptions) error {
 	if err := document.setTargets(manifest.Targets, false); err != nil {
 		return err
 	}
-	if err := document.repairIdentity(root, opts.Force); err != nil {
+	if err := document.repairIdentity(project.Root, opts.Force); err != nil {
 		return err
 	}
 	if err := document.write(); err != nil {
+		return err
+	}
+	if err := held.release(ctx, opts.LibraryPath); err != nil {
 		return err
 	}
 
 	if len(manifest.Dependencies.APM) == 0 {
 		return nil
 	}
-	return RunAPMInstall(opts.Runner, root)
+	return runAPMInstallLocked(ctx, held, opts.Runner, project.Root)
 }
 
 func HasAPMManifest(root string) bool {

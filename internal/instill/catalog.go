@@ -2,6 +2,7 @@ package instill
 
 import (
 	"bytes"
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -40,6 +41,7 @@ type CatalogEntry struct {
 }
 
 func LoadCatalog(root string, typ LibraryType) ([]CatalogEntry, error) {
+	emitMutationTestEvent("dependent-read:catalog:" + string(typ))
 	path, headers, err := catalogFileSpec(root, typ)
 	if err != nil {
 		return nil, err
@@ -94,6 +96,47 @@ func catalogExists(root string, typ LibraryType) (bool, error) {
 }
 
 func WriteCatalog(root string, typ LibraryType, entries []CatalogEntry) error {
+	return withRootLocks(context.Background(), []string{root}, func(ctx context.Context, held *heldLocks) error {
+		return writeCatalogLocked(ctx, held, root, typ, entries)
+	})
+}
+
+func writeCatalogLocked(ctx context.Context, held *heldLocks, root string, typ LibraryType, entries []CatalogEntry) error {
+	if err := held.requireContext(ctx, root); err != nil {
+		return err
+	}
+	if (typ == LibraryTypeSkill || typ == LibraryTypePlugin) && hasGitCatalogEntries(entries) {
+		skills := entries
+		plugins := entries
+		var err error
+		if typ == LibraryTypeSkill {
+			plugins, err = LoadCatalog(root, LibraryTypePlugin)
+		} else {
+			skills, err = LoadCatalog(root, LibraryTypeSkill)
+		}
+		if err != nil {
+			return err
+		}
+		if err := validateTypedGitCatalogs(skills, plugins); err != nil {
+			return err
+		}
+	}
+	return writeCatalogRawLocked(ctx, held, root, typ, entries)
+}
+
+func hasGitCatalogEntries(entries []CatalogEntry) bool {
+	for _, entry := range entries {
+		if entry.Source == "git" {
+			return true
+		}
+	}
+	return false
+}
+
+func writeCatalogRawLocked(ctx context.Context, held *heldLocks, root string, typ LibraryType, entries []CatalogEntry) error {
+	if err := held.requireContext(ctx, root); err != nil {
+		return err
+	}
 	path, headers, err := catalogFileSpec(root, typ)
 	if err != nil {
 		return err
@@ -133,15 +176,22 @@ func WriteCatalog(root string, typ LibraryType, entries []CatalogEntry) error {
 }
 
 func ScanLibrary(root string, stdout io.Writer) error {
-	return scanLibraryTypes(root, stdout, []LibraryType{LibraryTypeSkill, LibraryTypePlugin, LibraryTypeMCP, LibraryTypeInstruction, LibraryTypePrompt})
+	return withRootLocks(context.Background(), []string{root}, func(ctx context.Context, held *heldLocks) error {
+		return scanLibraryTypesLocked(ctx, held, root, stdout, []LibraryType{LibraryTypeSkill, LibraryTypePlugin, LibraryTypeMCP, LibraryTypeInstruction, LibraryTypePrompt})
+	})
 }
 
 // ScanLibraryType rebuilds one typed catalog without changing other catalog files.
 func ScanLibraryType(root string, typ LibraryType, stdout io.Writer) error {
-	return scanLibraryTypes(root, stdout, []LibraryType{typ})
+	return withRootLocks(context.Background(), []string{root}, func(ctx context.Context, held *heldLocks) error {
+		return scanLibraryTypesLocked(ctx, held, root, stdout, []LibraryType{typ})
+	})
 }
 
-func scanLibraryTypes(root string, stdout io.Writer, types []LibraryType) error {
+func scanLibraryTypesLocked(ctx context.Context, held *heldLocks, root string, stdout io.Writer, types []LibraryType) error {
+	if err := held.requireContext(ctx, root); err != nil {
+		return err
+	}
 	if stdout == nil {
 		stdout = io.Discard
 	}
@@ -209,7 +259,7 @@ func scanLibraryTypes(root string, stdout io.Writer, types []LibraryType) error 
 			}
 		}
 
-		if err := WriteCatalog(root, typ, merged); err != nil {
+		if err := writeCatalogLocked(ctx, held, root, typ, merged); err != nil {
 			return err
 		}
 	}
@@ -217,12 +267,14 @@ func scanLibraryTypes(root string, stdout io.Writer, types []LibraryType) error 
 }
 
 func AddCatalogEntry(root string, entry CatalogEntry) error {
-	entries, err := LoadCatalog(root, entry.Type)
-	if err != nil {
-		return err
-	}
-	entries = append(entries, entry)
-	return WriteCatalog(root, entry.Type, entries)
+	return withRootLocks(context.Background(), []string{root}, func(ctx context.Context, held *heldLocks) error {
+		entries, err := LoadCatalog(root, entry.Type)
+		if err != nil {
+			return err
+		}
+		entries = append(entries, entry)
+		return writeCatalogLocked(ctx, held, root, entry.Type, entries)
+	})
 }
 
 func ShowCatalog(root string, typ LibraryType, filter string, stdout io.Writer) error {

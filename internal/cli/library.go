@@ -50,7 +50,7 @@ func newLibraryAddCommand(cfg commandConfig) *cobra.Command {
 		Use:   "add",
 		Short: "Add a catalog entry to the configured library",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if repository == "" && entry.Name == "" {
 				return instill.NewExitError(instill.ExitGeneral, "error: required flag(s) \"name\" not set")
 			}
@@ -68,9 +68,9 @@ func newLibraryAddCommand(cfg commandConfig) *cobra.Command {
 					if entry.Name != "" {
 						return instill.NewExitError(instill.ExitGeneral, "error: --name is only used to select a remote plugin")
 					}
-					return instill.AddRemoteSkill(libraryPath, repository, cfg.runner)
+					return instill.AddRemoteSkill(cmd.Context(), libraryPath, repository, cfg.runner)
 				case instill.LibraryTypePlugin:
-					return instill.AddRemotePlugin(libraryPath, repository, entry.Name, cfg.runner)
+					return instill.AddRemotePlugin(cmd.Context(), libraryPath, repository, entry.Name, cfg.runner)
 				default:
 					return instill.NewExitError(instill.ExitGeneral, "error: --repository is only supported for skills and plugins")
 				}
@@ -103,16 +103,16 @@ func newLibraryUpdateCommand(cfg commandConfig) *cobra.Command {
 		Use:   "update",
 		Short: "Refresh a remote skill or plugin default-branch commit pin",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			libraryPath, err := instill.ResolveLibraryPath(instill.ConfigResolverOptions{Stdin: cfg.stdin, Stderr: cfg.stderr})
 			if err != nil {
 				return err
 			}
 			switch typ {
 			case instill.LibraryTypeSkill:
-				return instill.UpdateRemoteSkill(libraryPath, name, cfg.runner)
+				return instill.UpdateRemoteSkill(cmd.Context(), libraryPath, name, cfg.runner)
 			case instill.LibraryTypePlugin:
-				return instill.UpdateRemotePlugin(libraryPath, name, cfg.runner)
+				return instill.UpdateRemotePlugin(cmd.Context(), libraryPath, name, cfg.runner)
 			default:
 				return instill.NewExitError(instill.ExitGeneral, "error: update is only supported for skills and plugins")
 			}

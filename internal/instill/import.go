@@ -1,6 +1,7 @@
 package instill
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -23,6 +24,18 @@ type ImportDirectoryOptions struct {
 }
 
 func ImportOldInstill(opts ImportOptions) error {
+	return withRootLocks(context.Background(), []string{opts.LibraryPath, opts.Project.Root}, func(ctx context.Context, held *heldLocks) error {
+		return importOldInstillLocked(ctx, held, opts)
+	})
+}
+
+func importOldInstillLocked(ctx context.Context, held *heldLocks, opts ImportOptions) error {
+	if err := held.requireContext(ctx, opts.LibraryPath); err != nil {
+		return err
+	}
+	if err := held.requireContext(ctx, opts.Project.Root); err != nil {
+		return err
+	}
 	legacyManifestPath := ProjectManifestPath(opts.Project.Root)
 	legacyManifest, err := ReadManifest(legacyManifestPath)
 	if err != nil {
@@ -57,7 +70,7 @@ func ImportOldInstill(opts ImportOptions) error {
 		existing = append(existing, entry)
 		entriesByName[skill] = entry
 	}
-	if err := WriteCatalog(opts.LibraryPath, LibraryTypeSkill, existing); err != nil {
+	if err := writeCatalogLocked(ctx, held, opts.LibraryPath, LibraryTypeSkill, existing); err != nil {
 		return err
 	}
 
@@ -100,6 +113,18 @@ func ImportOldInstill(opts ImportOptions) error {
 }
 
 func ImportGraft(opts ImportOptions) error {
+	return withRootLocks(context.Background(), []string{opts.LibraryPath, opts.Project.Root}, func(ctx context.Context, held *heldLocks) error {
+		return importGraftLocked(ctx, held, opts)
+	})
+}
+
+func importGraftLocked(ctx context.Context, held *heldLocks, opts ImportOptions) error {
+	if err := held.requireContext(ctx, opts.LibraryPath); err != nil {
+		return err
+	}
+	if err := held.requireContext(ctx, opts.Project.Root); err != nil {
+		return err
+	}
 	names, err := readGraftLock(filepath.Join(opts.Project.Root, "graft.lock"))
 	if err != nil {
 		return err
@@ -151,7 +176,7 @@ func ImportGraft(opts ImportOptions) error {
 			entry.Description = current.Description
 		}
 		entriesByName[name] = entry
-		if err := writeMCPConfigMarker(opts.LibraryPath, entry); err != nil {
+		if err := writeMCPConfigMarkerLocked(ctx, held, opts.LibraryPath, entry); err != nil {
 			return err
 		}
 		dependencies = append(dependencies, MCPDependency{
@@ -169,7 +194,7 @@ func ImportGraft(opts ImportOptions) error {
 	for _, entry := range entriesByName {
 		merged = append(merged, entry)
 	}
-	if err := WriteCatalog(opts.LibraryPath, LibraryTypeMCP, merged); err != nil {
+	if err := writeCatalogLocked(ctx, held, opts.LibraryPath, LibraryTypeMCP, merged); err != nil {
 		return err
 	}
 	manifest.Dependencies.MCP = mergeMCPDependencies(manifest.Dependencies.MCP, dependencies)
@@ -202,6 +227,15 @@ func ImportClaude(opts ImportOptions) error {
 	if err != nil {
 		return err
 	}
+	return withRootLocks(context.Background(), []string{opts.LibraryPath}, func(ctx context.Context, held *heldLocks) error {
+		return importClaudeLocked(ctx, held, opts, servers)
+	})
+}
+
+func importClaudeLocked(ctx context.Context, held *heldLocks, opts ImportOptions, servers map[string]mcpServer) error {
+	if err := held.requireContext(ctx, opts.LibraryPath); err != nil {
+		return err
+	}
 
 	existing, err := LoadCatalog(opts.LibraryPath, LibraryTypeMCP)
 	if err != nil {
@@ -220,7 +254,7 @@ func ImportClaude(opts ImportOptions) error {
 			existing = append(existing, entry)
 		}
 		entriesByName[name] = entry
-		if err := writeMCPConfigMarker(opts.LibraryPath, entry); err != nil {
+		if err := writeMCPConfigMarkerLocked(ctx, held, opts.LibraryPath, entry); err != nil {
 			return err
 		}
 	}
@@ -229,7 +263,7 @@ func ImportClaude(opts ImportOptions) error {
 	for _, entry := range entriesByName {
 		merged = append(merged, entry)
 	}
-	return WriteCatalog(opts.LibraryPath, LibraryTypeMCP, merged)
+	return writeCatalogLocked(ctx, held, opts.LibraryPath, LibraryTypeMCP, merged)
 }
 
 func ImportDirectory(opts ImportDirectoryOptions) error {
@@ -237,12 +271,28 @@ func ImportDirectory(opts ImportDirectoryOptions) error {
 	if strings.TrimSpace(source) == "" {
 		source = opts.LibraryPath
 	}
-	if source != opts.LibraryPath {
-		if err := importDirectoryContent(source, opts.LibraryPath); err != nil {
+	identities, err := canonicalRoots([]string{source, opts.LibraryPath})
+	if err != nil {
+		return filesystemError("error: cannot resolve directory import roots", err)
+	}
+	sameRoot := len(identities) == 1
+	return withRootLocks(context.Background(), []string{opts.LibraryPath}, func(ctx context.Context, held *heldLocks) error {
+		if err := held.requireContext(ctx, opts.LibraryPath); err != nil {
 			return err
 		}
-	}
-	return ScanLibrary(opts.LibraryPath, nil)
+		if !sameRoot {
+			if err := importDirectoryContent(source, opts.LibraryPath); err != nil {
+				return err
+			}
+		}
+		return scanLibraryTypesLocked(ctx, held, opts.LibraryPath, nil, []LibraryType{
+			LibraryTypeSkill,
+			LibraryTypePlugin,
+			LibraryTypeMCP,
+			LibraryTypeInstruction,
+			LibraryTypePrompt,
+		})
+	})
 }
 
 func removeImportedMCPServers(path string, document map[string]json.RawMessage, imported map[string]struct{}) error {
@@ -679,7 +729,10 @@ func catalogEntryFromMCPServer(name string, server mcpServer, redactEnv bool) Ca
 	return entry
 }
 
-func writeMCPConfigMarker(libraryPath string, entry CatalogEntry) error {
+func writeMCPConfigMarkerLocked(ctx context.Context, held *heldLocks, libraryPath string, entry CatalogEntry) error {
+	if err := held.requireContext(ctx, libraryPath); err != nil {
+		return err
+	}
 	markerPath, err := mcpConfigMarkerPath(libraryPath, entry.Name)
 	if err != nil {
 		return err

@@ -2,6 +2,7 @@ package instill
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -253,6 +254,33 @@ func TestWriteCatalogWritesPluginSchema(t *testing.T) {
 	requireEqual(t, want, got)
 }
 
+func TestPublicCatalogWritesPreserveCrossCatalogGitIdentity(t *testing.T) {
+	root := t.TempDir()
+	skill := CatalogEntry{
+		Type:       LibraryTypeSkill,
+		Name:       "repo",
+		Path:       "skills/repo",
+		Source:     "git",
+		Repository: "https://github.com/owner/repo.git",
+		Ref:        remotePluginSHA,
+	}
+	plugin := skill
+	plugin.Type = LibraryTypePlugin
+	plugin.Name = "plugin"
+	requireNoError(t, WriteCatalog(root, LibraryTypeSkill, []CatalogEntry{skill}))
+
+	err := WriteCatalog(root, LibraryTypePlugin, []CatalogEntry{plugin})
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("WriteCatalog() error = %v, want cross-catalog ambiguity", err)
+	}
+	assertPathMissing(t, filepath.Join(root, "plugins", "catalog.csv"))
+
+	err = AddCatalogEntry(root, plugin)
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("AddCatalogEntry() error = %v, want cross-catalog ambiguity", err)
+	}
+}
+
 func TestWriteCatalogWritesMCPSchema(t *testing.T) {
 	t.Parallel()
 
@@ -404,6 +432,25 @@ func TestScanLibraryWritesCatalogsAndPreservesManualMetadata(t *testing.T) {
 	}}, prompts)
 }
 
+func TestScanLibraryIgnoresPersistentInstillLock(t *testing.T) {
+	root := t.TempDir()
+	requireNoError(t, os.WriteFile(filepath.Join(root, lockFileName), []byte("persistent"), 0o600))
+	requireNoError(t, ScanLibrary(root, nil))
+	for _, typ := range []LibraryType{
+		LibraryTypeSkill,
+		LibraryTypePlugin,
+		LibraryTypeMCP,
+		LibraryTypeInstruction,
+		LibraryTypePrompt,
+	} {
+		entries, err := LoadCatalog(root, typ)
+		requireNoError(t, err)
+		if len(entries) != 0 {
+			t.Fatalf("LoadCatalog(%s) = %v, want no lock-file entry", typ, entries)
+		}
+	}
+}
+
 func TestScanLibraryRemovesEntriesWhoseContentIsMissing(t *testing.T) {
 	t.Parallel()
 
@@ -531,4 +578,12 @@ func mustWriteCatalogMarker(t *testing.T, path string) {
 		content = []byte("{}\n")
 	}
 	requireNoError(t, os.WriteFile(path, content, 0o644))
+}
+
+func writeCatalogFixtureRaw(t *testing.T, root string, typ LibraryType, entries []CatalogEntry) {
+	t.Helper()
+	err := withRootLocks(context.Background(), []string{root}, func(ctx context.Context, held *heldLocks) error {
+		return writeCatalogRawLocked(ctx, held, root, typ, entries)
+	})
+	requireNoError(t, err)
 }

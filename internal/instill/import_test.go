@@ -967,6 +967,20 @@ func TestImportDirectoryScansMarkersAndWritesCatalogs(t *testing.T) {
 	}
 }
 
+func TestImportDirectoryLocksOnlyLibraryAndUsesCanonicalIdentity(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "source")
+	writeTypedLibraryMarker(t, filepath.Join(source, "SKILL.md"), "# source\n")
+	library := t.TempDir()
+	requireNoError(t, ImportDirectory(ImportDirectoryOptions{LibraryPath: library, Path: source}))
+	assertPathMissing(t, filepath.Join(source, lockFileName))
+
+	marker := filepath.Join(library, "skills", "source", "SKILL.md")
+	before := readFile(t, marker)
+	alias := filepath.Join(library, "skills", "..")
+	requireNoError(t, ImportDirectory(ImportDirectoryOptions{LibraryPath: library, Path: alias}))
+	requireEqual(t, before, readFile(t, marker))
+}
+
 func readRawMCPServersForTest(t *testing.T, path string) map[string]json.RawMessage {
 	t.Helper()
 

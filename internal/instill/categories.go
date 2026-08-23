@@ -1,6 +1,7 @@
 package instill
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -35,6 +36,15 @@ func LoadCategoriesStrict(libraryPath string) (map[string][]string, error) {
 }
 
 func WriteCategoriesAtomic(libraryPath string, categories map[string][]string) error {
+	return withRootLocks(context.Background(), []string{libraryPath}, func(ctx context.Context, held *heldLocks) error {
+		return writeCategoriesLocked(ctx, held, libraryPath, categories)
+	})
+}
+
+func writeCategoriesLocked(ctx context.Context, held *heldLocks, libraryPath string, categories map[string][]string) error {
+	if err := held.requireContext(ctx, libraryPath); err != nil {
+		return err
+	}
 	normalized := make(map[string][]string, len(categories))
 	for category, skills := range categories {
 		category = strings.TrimSpace(category)

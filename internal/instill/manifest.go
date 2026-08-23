@@ -1,6 +1,7 @@
 package instill
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -35,6 +36,16 @@ func ReadManifest(path string) (Manifest, error) {
 
 // WriteManifestAtomic writes a normalized manifest using a unique temp file and rename.
 func WriteManifestAtomic(path string, manifest Manifest) error {
+	projectRoot := filepath.Dir(filepath.Dir(path))
+	return withRootLocks(context.Background(), []string{projectRoot}, func(ctx context.Context, held *heldLocks) error {
+		return writeManifestAtomicLocked(ctx, held, projectRoot, path, manifest)
+	})
+}
+
+func writeManifestAtomicLocked(ctx context.Context, held *heldLocks, projectRoot string, path string, manifest Manifest) error {
+	if err := held.requireContext(ctx, projectRoot); err != nil {
+		return err
+	}
 	manifest.Skills = normalizeSkills(manifest.Skills)
 	if err := ValidateSkillNames(manifest.Skills); err != nil {
 		return err

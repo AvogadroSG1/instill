@@ -1,6 +1,7 @@
 package instill
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -16,6 +17,15 @@ type SetTargetsOptions struct {
 
 // SetProjectTargets updates the targets in the project's APM manifest.
 func SetProjectTargets(opts SetTargetsOptions) error {
+	return withRootLocks(context.Background(), []string{opts.Project.Root}, func(ctx context.Context, held *heldLocks) error {
+		return setProjectTargetsLocked(ctx, held, opts)
+	})
+}
+
+func setProjectTargetsLocked(ctx context.Context, held *heldLocks, opts SetTargetsOptions) error {
+	if err := held.requireContext(ctx, opts.Project.Root); err != nil {
+		return err
+	}
 	document, err := loadManifestDocumentObserved(opts.Project.ManifestPath, opts.manifestMetrics)
 	if err != nil {
 		return err

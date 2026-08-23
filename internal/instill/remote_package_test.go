@@ -2,6 +2,7 @@ package instill
 
 import (
 	"bytes"
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -94,7 +95,7 @@ func TestRemoteRegistrationRejectsCrossCatalogIdentityCollisionWithoutMutation(t
 	root := t.TempDir()
 	skill := CatalogEntry{Type: LibraryTypeSkill, Name: "repo", Path: "skills/repo", Source: "git", Repository: "https://github.com/owner/repo.git", Ref: remotePluginSHA}
 	requireNoError(t, WriteCatalog(root, LibraryTypeSkill, []CatalogEntry{skill}))
-	err := AddRemotePlugin(root, "owner/repo", "", remotePluginRunner(t, remotePluginSHA, `{"plugins":[{"name":"plugin","source":"skills/repo"}]}`, `{"name":"plugin"}`))
+	err := AddRemotePlugin(context.Background(), root, "owner/repo", "", remotePluginRunner(t, remotePluginSHA, `{"plugins":[{"name":"plugin","source":"skills/repo"}]}`, `{"name":"plugin"}`))
 	if err == nil {
 		t.Fatal("AddRemotePlugin() error = nil, want cross-catalog collision")
 	}
@@ -106,7 +107,7 @@ func TestAmbiguousTypedGitIdentityFailsBeforeProjectMutation(t *testing.T) {
 	skill := CatalogEntry{Type: LibraryTypeSkill, Name: "repo", Path: "skills/repo", Source: "git", Repository: "https://github.com/owner/repo.git", Ref: remotePluginSHA}
 	plugin := CatalogEntry{Type: LibraryTypePlugin, Name: "plugin", Path: "skills/repo", Source: "git", Repository: "https://github.com/owner/repo.git", Ref: refreshedRemotePluginSHA}
 	requireNoError(t, WriteCatalog(library, LibraryTypeSkill, []CatalogEntry{skill}))
-	requireNoError(t, WriteCatalog(library, LibraryTypePlugin, []CatalogEntry{plugin}))
+	writeCatalogFixtureRaw(t, library, LibraryTypePlugin, []CatalogEntry{plugin})
 	project := createAPMProject(t, APMManifest{})
 	original := readFile(t, project.ManifestPath)
 

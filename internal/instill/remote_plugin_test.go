@@ -2,6 +2,7 @@ package instill
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -18,7 +19,7 @@ func TestAddRemotePluginInfersSingletonFromMarketplace(t *testing.T) {
 	root := t.TempDir()
 	runner := remotePluginRunner(t, remotePluginSHA, `{"plugins":[{"name":"impeccable","description":"Design tools","category":"design","source":"plugins/impeccable"}]}`, `{"name":"impeccable"}`)
 
-	err := AddRemotePlugin(root, "Owner/Repo", "", runner)
+	err := AddRemotePlugin(context.Background(), root, "Owner/Repo", "", runner)
 
 	requireNoError(t, err)
 	entries, err := LoadCatalog(root, LibraryTypePlugin)
@@ -33,7 +34,7 @@ func TestAddRemotePluginNormalizesOptionalGitSuffix(t *testing.T) {
 	for _, repository := range []string{"owner/repo", "owner/repo.git"} {
 		t.Run(repository, func(t *testing.T) {
 			root := t.TempDir()
-			err := AddRemotePlugin(root, repository, "", remotePluginRunner(t, remotePluginSHA, `{"plugins":[{"name":"plugin","source":"plugin"}]}`, `{"name":"plugin"}`))
+			err := AddRemotePlugin(context.Background(), root, repository, "", remotePluginRunner(t, remotePluginSHA, `{"plugins":[{"name":"plugin","source":"plugin"}]}`, `{"name":"plugin"}`))
 			requireNoError(t, err)
 			entries, loadErr := LoadCatalog(root, LibraryTypePlugin)
 			requireNoError(t, loadErr)
@@ -44,7 +45,7 @@ func TestAddRemotePluginNormalizesOptionalGitSuffix(t *testing.T) {
 
 func TestAddRemotePluginCanonicalizesGitHubRepositoryCase(t *testing.T) {
 	root := t.TempDir()
-	requireNoError(t, AddRemotePlugin(root, "OWNER/Repo", "", remotePluginRunner(t, remotePluginSHA, `{"plugins":[{"name":"plugin","source":"Plugin"}]}`, `{"name":"plugin"}`)))
+	requireNoError(t, AddRemotePlugin(context.Background(), root, "OWNER/Repo", "", remotePluginRunner(t, remotePluginSHA, `{"plugins":[{"name":"plugin","source":"Plugin"}]}`, `{"name":"plugin"}`)))
 	entries, err := LoadCatalog(root, LibraryTypePlugin)
 	requireNoError(t, err)
 	requireEqual(t, "https://github.com/owner/repo.git", entries[0].Repository)
@@ -54,7 +55,7 @@ func TestAddRemotePluginCanonicalizesGitHubRepositoryCase(t *testing.T) {
 func TestAddRemotePluginSelectsNamedPluginFromMultiPluginMarketplace(t *testing.T) {
 	root := t.TempDir()
 	marketplace := `{"plugins":[{"name":"beta","source":"plugins/beta"},{"name":"alpha","source":"plugins/alpha"}]}`
-	requireNoError(t, AddRemotePlugin(root, "owner/repo", "alpha", remotePluginRunner(t, remotePluginSHA, marketplace, `{"name":"alpha"}`)))
+	requireNoError(t, AddRemotePlugin(context.Background(), root, "owner/repo", "alpha", remotePluginRunner(t, remotePluginSHA, marketplace, `{"name":"alpha"}`)))
 	entries, err := LoadCatalog(root, LibraryTypePlugin)
 	requireNoError(t, err)
 	requireEqual(t, "alpha", entries[0].Name)
@@ -63,7 +64,7 @@ func TestAddRemotePluginSelectsNamedPluginFromMultiPluginMarketplace(t *testing.
 func TestAddRemotePluginRequiresNameForMultiPluginMarketplace(t *testing.T) {
 	root := t.TempDir()
 	marketplace := `{"plugins":[{"name":"beta","source":"beta"},{"name":"alpha","source":"alpha"}]}`
-	err := AddRemotePlugin(root, "owner/repo", "", remotePluginRunner(t, remotePluginSHA, marketplace, ""))
+	err := AddRemotePlugin(context.Background(), root, "owner/repo", "", remotePluginRunner(t, remotePluginSHA, marketplace, ""))
 	if err == nil || !strings.Contains(ErrorMessage(err), "alpha, beta") {
 		t.Fatalf("AddRemotePlugin() error = %v, want sorted available names", err)
 	}
@@ -77,7 +78,7 @@ func TestAddRemotePluginRejectsUnknownMarketplaceNameWithoutMutation(t *testing.
 	} {
 		root := t.TempDir()
 		original := pluginCatalogBytes(t, root)
-		err := AddRemotePlugin(root, "owner/repo", "missing", remotePluginRunner(t, remotePluginSHA, marketplace, ""))
+		err := AddRemotePlugin(context.Background(), root, "owner/repo", "missing", remotePluginRunner(t, remotePluginSHA, marketplace, ""))
 		if err == nil || !strings.Contains(ErrorMessage(err), "alpha") {
 			t.Fatalf("AddRemotePlugin() error = %v, want available name", err)
 		}
@@ -91,7 +92,7 @@ func TestAddRemotePluginRejectsUnsafeNamesWithoutMutation(t *testing.T) {
 		original := pluginCatalogBytes(t, root)
 		marketplace, err := json.Marshal(pluginMarketplace{Plugins: []marketplacePlugin{{Name: name, Source: "plugin"}}})
 		requireNoError(t, err)
-		if err := AddRemotePlugin(root, "owner/repo", "", remotePluginRunner(t, remotePluginSHA, string(marketplace), "")); err == nil {
+		if err := AddRemotePlugin(context.Background(), root, "owner/repo", "", remotePluginRunner(t, remotePluginSHA, string(marketplace), "")); err == nil {
 			t.Fatalf("AddRemotePlugin() error = nil for name %q", name)
 		}
 		requireEqual(t, original, readFile(t, filepath.Join(root, "plugins", "catalog.csv")))
@@ -101,7 +102,7 @@ func TestAddRemotePluginRejectsUnsafeNamesWithoutMutation(t *testing.T) {
 func TestAddRemotePluginRejectsDuplicateMarketplaceNamesWithoutMutation(t *testing.T) {
 	root := t.TempDir()
 	original := pluginCatalogBytes(t, root)
-	err := AddRemotePlugin(root, "owner/repo", "same", remotePluginRunner(t, remotePluginSHA, `{"plugins":[{"name":"same","source":"one"},{"name":"same","source":"two"}]}`, ""))
+	err := AddRemotePlugin(context.Background(), root, "owner/repo", "same", remotePluginRunner(t, remotePluginSHA, `{"plugins":[{"name":"same","source":"one"},{"name":"same","source":"two"}]}`, ""))
 	if err == nil {
 		t.Fatal("AddRemotePlugin() error = nil, want duplicate name error")
 	}
@@ -112,7 +113,7 @@ func TestAddRemotePluginRejectsMalformedOrEmptyMarketplaceWithoutMutation(t *tes
 	for _, marketplace := range []string{"{", `{"plugins":[]}`} {
 		root := t.TempDir()
 		original := pluginCatalogBytes(t, root)
-		err := AddRemotePlugin(root, "owner/repo", "", remotePluginRunner(t, remotePluginSHA, marketplace, ""))
+		err := AddRemotePlugin(context.Background(), root, "owner/repo", "", remotePluginRunner(t, remotePluginSHA, marketplace, ""))
 		if err == nil {
 			t.Fatalf("AddRemotePlugin() error = nil for %q", marketplace)
 		}
@@ -138,7 +139,7 @@ func TestAddRemotePluginRejectsOversizedMetadataBeforeReading(t *testing.T) {
 				return base(name, args...)
 			}
 
-			if err := AddRemotePlugin(root, "owner/repo", "", runner); err == nil {
+			if err := AddRemotePlugin(context.Background(), root, "owner/repo", "", runner); err == nil {
 				t.Fatal("AddRemotePlugin() error = nil, want size limit error")
 			}
 			if showCalled {
@@ -159,7 +160,7 @@ func TestAddRemotePluginRejectsUnsafeSourcePathsWithoutMutation(t *testing.T) {
 			if source == "plugin\x00child" {
 				marketplace = "{\"plugins\":[{\"name\":\"plugin\",\"source\":\"plugin\\u0000child\"}]}"
 			}
-			err := AddRemotePlugin(root, "owner/repo", "", remotePluginRunner(t, remotePluginSHA, marketplace, ""))
+			err := AddRemotePlugin(context.Background(), root, "owner/repo", "", remotePluginRunner(t, remotePluginSHA, marketplace, ""))
 			if err == nil {
 				t.Fatalf("AddRemotePlugin() error = nil for source %q", source)
 			}
@@ -172,7 +173,7 @@ func TestAddRemotePluginRejectsSymlinkedSourceWithoutMutation(t *testing.T) {
 	root := t.TempDir()
 	original := pluginCatalogBytes(t, root)
 	runner := remotePluginRunnerWithModes(t, remotePluginSHA, `{"plugins":[{"name":"plugin","source":"plugin"}]}`, `{"name":"plugin"}`, "120000", "100644")
-	if err := AddRemotePlugin(root, "owner/repo", "", runner); err == nil {
+	if err := AddRemotePlugin(context.Background(), root, "owner/repo", "", runner); err == nil {
 		t.Fatal("AddRemotePlugin() error = nil, want symlink rejection")
 	}
 	requireEqual(t, original, readFile(t, filepath.Join(root, "plugins", "catalog.csv")))
@@ -182,7 +183,7 @@ func TestAddRemotePluginRejectsMissingOrInvalidPluginManifestWithoutMutation(t *
 	for _, manifest := range []string{"", "{", `{"name":"other"}`} {
 		root := t.TempDir()
 		original := pluginCatalogBytes(t, root)
-		err := AddRemotePlugin(root, "owner/repo", "", remotePluginRunner(t, remotePluginSHA, `{"plugins":[{"name":"plugin","source":"plugin"}]}`, manifest))
+		err := AddRemotePlugin(context.Background(), root, "owner/repo", "", remotePluginRunner(t, remotePluginSHA, `{"plugins":[{"name":"plugin","source":"plugin"}]}`, manifest))
 		if err == nil {
 			t.Fatalf("AddRemotePlugin() error = nil for manifest %q", manifest)
 		}
@@ -217,7 +218,7 @@ func TestUpdateRemotePluginRefreshesSHAAndPreservesCuratedMetadata(t *testing.T)
 	entry := CatalogEntry{Type: LibraryTypePlugin, Name: "plugin", Category: "curated", Description: "curated description", Path: "plugin", Source: "git", Repository: "https://github.com/owner/repo.git", Ref: remotePluginSHA}
 	requireNoError(t, WriteCatalog(root, LibraryTypePlugin, []CatalogEntry{entry}))
 
-	requireNoError(t, UpdateRemotePlugin(root, "plugin", remotePluginRunner(t, refreshedRemotePluginSHA, `{"plugins":[{"name":"plugin","category":"new","description":"new","source":"plugin"}]}`, `{"name":"plugin"}`)))
+	requireNoError(t, UpdateRemotePlugin(context.Background(), root, "plugin", remotePluginRunner(t, refreshedRemotePluginSHA, `{"plugins":[{"name":"plugin","category":"new","description":"new","source":"plugin"}]}`, `{"name":"plugin"}`)))
 	entries, err := LoadCatalog(root, LibraryTypePlugin)
 	requireNoError(t, err)
 	requireEqual(t, "curated", entries[0].Category)
@@ -230,7 +231,7 @@ func TestUpdateRemotePluginRejectsPackagePathChangeWithoutMutation(t *testing.T)
 	entry := CatalogEntry{Type: LibraryTypePlugin, Name: "plugin", Path: "plugin", Source: "git", Repository: "https://github.com/owner/repo.git", Ref: remotePluginSHA}
 	requireNoError(t, WriteCatalog(root, LibraryTypePlugin, []CatalogEntry{entry}))
 	original := readFile(t, filepath.Join(root, "plugins", "catalog.csv"))
-	err := UpdateRemotePlugin(root, "plugin", remotePluginRunner(t, refreshedRemotePluginSHA, `{"plugins":[{"name":"plugin","source":"moved"}]}`, `{"name":"plugin"}`))
+	err := UpdateRemotePlugin(context.Background(), root, "plugin", remotePluginRunner(t, refreshedRemotePluginSHA, `{"plugins":[{"name":"plugin","source":"moved"}]}`, `{"name":"plugin"}`))
 	if err == nil {
 		t.Fatal("UpdateRemotePlugin() error = nil, want path change error")
 	}
@@ -252,7 +253,7 @@ func TestUpdateRemotePluginFailurePreservesCatalogByteForByte(t *testing.T) {
 			entry := CatalogEntry{Type: LibraryTypePlugin, Name: "plugin", Path: "plugin", Source: "git", Repository: "https://github.com/owner/repo.git", Ref: remotePluginSHA}
 			requireNoError(t, WriteCatalog(root, LibraryTypePlugin, []CatalogEntry{entry}))
 			original := readFile(t, filepath.Join(root, "plugins", "catalog.csv"))
-			if err := UpdateRemotePlugin(root, "plugin", tt.runner); err == nil {
+			if err := UpdateRemotePlugin(context.Background(), root, "plugin", tt.runner); err == nil {
 				t.Fatal("UpdateRemotePlugin() error = nil, want update failure")
 			}
 			requireEqual(t, original, readFile(t, filepath.Join(root, "plugins", "catalog.csv")))

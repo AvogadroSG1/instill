@@ -65,6 +65,7 @@ jobs:
         goos:
           - darwin
           - linux
+          - windows
         goarch:
           - amd64
           - arm64
@@ -89,4 +90,19 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-        run: go build -o "dist/instill-${{ matrix.goos }}-${{ matrix.goarch }}" .
+        run: |
+          go build \
+            -o "dist/instill-${{ matrix.goos }}-${{ matrix.goarch }}" \
+            .
+
+      - name: Cross-compile Windows tests
+        if: matrix.goos == 'windows'
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          go test -c \
+            -o "dist/instill-tests-${{ matrix.goarch }}.exe" \
+            ./internal/instill
+          go test -c -o "dist/cli-tests-${{ matrix.goarch }}.exe" ./internal/cli

@@ -19,3 +19,6 @@
 
 # APM dependencies
 apm_modules/
+
+# Serena MCP project files
+.serena/

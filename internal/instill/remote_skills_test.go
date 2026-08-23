@@ -2,6 +2,7 @@ package instill
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -37,7 +38,7 @@ func TestAddRemoteSkillPinsVerifiedDefaultBranch(t *testing.T) {
 		}
 	}
 
-	err := AddRemoteSkill(root, "owner/example", runner)
+	err := AddRemoteSkill(context.Background(), root, "owner/example", runner)
 
 	requireNoError(t, err)
 	entries, err := LoadCatalog(root, LibraryTypeSkill)
@@ -52,7 +53,7 @@ func TestAddRemoteSkillPinsVerifiedDefaultBranch(t *testing.T) {
 func TestAddRemoteSkillAcceptsGitSuffix(t *testing.T) {
 	root := t.TempDir()
 
-	err := AddRemoteSkill(root, "owner/example.git", remoteSkillRunner(t, remoteSkillSHA))
+	err := AddRemoteSkill(context.Background(), root, "owner/example.git", remoteSkillRunner(t, remoteSkillSHA))
 
 	requireNoError(t, err)
 	entries, err := LoadCatalog(root, LibraryTypeSkill)
@@ -66,7 +67,7 @@ func TestAddRemoteSkillFailureDoesNotMutateCatalog(t *testing.T) {
 	original := []CatalogEntry{{Type: LibraryTypeSkill, Name: "local", Path: "local/SKILL.md"}}
 	requireNoError(t, WriteCatalog(root, LibraryTypeSkill, original))
 
-	err := AddRemoteSkill(root, "owner/example", func(string, ...string) ([]byte, error) {
+	err := AddRemoteSkill(context.Background(), root, "owner/example", func(string, ...string) ([]byte, error) {
 		return nil, errors.New("authentication failed")
 	})
 
@@ -181,12 +182,51 @@ func TestUpdateRemoteSkillPreservesUserMaintainedMetadata(t *testing.T) {
 	entry := CatalogEntry{Type: LibraryTypeSkill, Name: "example", Category: "custom", Description: "curated description", Path: "skills/example", Source: "git", Repository: "https://github.com/owner/example.git", Ref: remoteSkillSHA}
 	requireNoError(t, WriteCatalog(root, LibraryTypeSkill, []CatalogEntry{entry}))
 
-	requireNoError(t, UpdateRemoteSkill(root, "example", remoteSkillRunner(t, refreshedRemoteSkillSHA)))
+	requireNoError(t, UpdateRemoteSkill(context.Background(), root, "example", remoteSkillRunner(t, refreshedRemoteSkillSHA)))
 	entries, err := LoadCatalog(root, LibraryTypeSkill)
 	requireNoError(t, err)
 	requireEqual(t, "custom", entries[0].Category)
 	requireEqual(t, "curated description", entries[0].Description)
 	requireEqual(t, refreshedRemoteSkillSHA, entries[0].Ref)
+}
+
+func TestUpdateRemoteSkillRejectsStaleSnapshotAfterRemoteResolution(t *testing.T) {
+	root := t.TempDir()
+	entry := CatalogEntry{
+		Type:       LibraryTypeSkill,
+		Name:       "example",
+		Path:       "skills/example",
+		Source:     "git",
+		Repository: "https://github.com/owner/example.git",
+		Ref:        remoteSkillSHA,
+	}
+	requireNoError(t, WriteCatalog(root, LibraryTypeSkill, []CatalogEntry{entry}))
+	remoteStarted := make(chan struct{})
+	finishRemote := make(chan struct{})
+	baseRunner := remoteSkillRunner(t, refreshedRemoteSkillSHA)
+	runner := func(name string, args ...string) ([]byte, error) {
+		if name == "git" && len(args) > 0 && args[0] == "ls-remote" {
+			close(remoteStarted)
+			<-finishRemote
+		}
+		return baseRunner(name, args...)
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- UpdateRemoteSkill(context.Background(), root, "example", runner)
+	}()
+	<-remoteStarted
+	concurrent := entry
+	concurrent.Ref = remotePluginSHA
+	requireNoError(t, WriteCatalog(root, LibraryTypeSkill, []CatalogEntry{concurrent}))
+	close(finishRemote)
+	err := <-errCh
+	if err == nil || !strings.Contains(err.Error(), "concurrent catalog change") {
+		t.Fatalf("UpdateRemoteSkill() error = %v, want stale snapshot conflict", err)
+	}
+	entries, err := LoadCatalog(root, LibraryTypeSkill)
+	requireNoError(t, err)
+	requireEqual(t, remotePluginSHA, entries[0].Ref)
 }
 
 func remoteSkillRunner(t *testing.T, sha string) CommandRunner {
@@ -207,8 +247,7 @@ func remoteSkillRunner(t *testing.T, sha string) CommandRunner {
 		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " show "+sha+":skills/example/SKILL.md"):
 			return []byte("# example"), nil
 		default:
-			t.Fatalf("unexpected command: %s", command)
-			return nil, nil
+			return nil, errors.New("unexpected command: " + command)
 		}
 	}
 }

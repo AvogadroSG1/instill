@@ -1,6 +1,7 @@
 package instill
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -46,6 +47,15 @@ func EnsureAPM(runner CommandRunner) error {
 }
 
 func RunAPMInstall(runner CommandRunner, root string) error {
+	return withRootLocks(context.Background(), []string{root}, func(ctx context.Context, held *heldLocks) error {
+		return runAPMInstallLocked(ctx, held, runner, root)
+	})
+}
+
+func runAPMInstallLocked(ctx context.Context, held *heldLocks, runner CommandRunner, root string) error {
+	if err := held.requireContext(ctx, root); err != nil {
+		return err
+	}
 	if runner == nil {
 		runner = defaultCommandRunner
 	}
@@ -56,6 +66,15 @@ func RunAPMInstall(runner CommandRunner, root string) error {
 }
 
 func RunAPMCompile(runner CommandRunner, root string) error {
+	return withRootLocks(context.Background(), []string{root}, func(ctx context.Context, held *heldLocks) error {
+		return runAPMCompileLocked(ctx, held, runner, root)
+	})
+}
+
+func runAPMCompileLocked(ctx context.Context, held *heldLocks, runner CommandRunner, root string) error {
+	if err := held.requireContext(ctx, root); err != nil {
+		return err
+	}
 	if runner == nil {
 		runner = defaultCommandRunner
 	}
@@ -66,6 +85,15 @@ func RunAPMCompile(runner CommandRunner, root string) error {
 }
 
 func RunAPMPrune(runner CommandRunner, root string) error {
+	return withRootLocks(context.Background(), []string{root}, func(ctx context.Context, held *heldLocks) error {
+		return runAPMPruneLocked(ctx, held, runner, root)
+	})
+}
+
+func runAPMPruneLocked(ctx context.Context, held *heldLocks, runner CommandRunner, root string) error {
+	if err := held.requireContext(ctx, root); err != nil {
+		return err
+	}
 	var err error
 	if runner == nil {
 		err = runCommandInDir(root, "apm", "prune")

@@ -1,6 +1,7 @@
 package instill
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -11,29 +12,75 @@ import (
 // Reconcile reads the legacy project manifest and reconciles symlinks to match it.
 // Deprecated: supported commands must use the APM-backed sync path instead.
 func Reconcile(project Project, libraryPath string, stdout io.Writer) error {
-	manifest, err := ReadManifest(project.ManifestPath)
-	if err != nil {
-		return err
-	}
-	return ReconcileManifest(project, manifest, libraryPath, stdout)
+	return withRootLocks(context.Background(), []string{libraryPath, project.Root}, func(ctx context.Context, held *heldLocks) error {
+		return reconcileAuthoritativeLocked(ctx, held, project, nil, libraryPath, stdout)
+	})
 }
 
-// ReconcileManifest reconciles symlinks to match a previously validated legacy manifest.
+// ReconcileManifest uses manifest as the previous ownership boundary and
+// reconciles to the authoritative legacy manifest reread under the Project lock.
 // Deprecated: supported commands must use the APM-backed sync path instead.
-func ReconcileManifest(project Project, manifest Manifest, libraryPath string, stdout io.Writer) error {
-	return ReconcileManifestWithPrevious(project, manifest, manifest, libraryPath, stdout)
+func ReconcileManifest(project Project, previous Manifest, libraryPath string, stdout io.Writer) error {
+	return withRootLocks(context.Background(), []string{libraryPath, project.Root}, func(ctx context.Context, held *heldLocks) error {
+		return reconcileAuthoritativeLocked(ctx, held, project, &previous, libraryPath, stdout)
+	})
 }
 
 // ReconcileManifestWithPrevious reconciles legacy symlinks and permissions.
 // Deprecated: supported commands must use the APM-backed sync path instead.
 // The previous manifest is the ownership boundary for permissions that can be revoked.
+// The planned final value is retained for API compatibility; the authoritative
+// final manifest reread under lock supersedes a stale caller plan.
+// A permission-only settings.local.json change counts as a change and prints the ok line;
+// a formatting-only normalization (bytes differ but the Skill permission set does not) stays silent.
 func ReconcileManifestWithPrevious(
+	project Project,
+	previous Manifest,
+	plannedFinal Manifest,
+	libraryPath string,
+	stdout io.Writer,
+) error {
+	_ = plannedFinal
+	return withRootLocks(context.Background(), []string{libraryPath, project.Root}, func(ctx context.Context, held *heldLocks) error {
+		return reconcileAuthoritativeLocked(ctx, held, project, &previous, libraryPath, stdout)
+	})
+}
+
+func reconcileAuthoritativeLocked(
+	ctx context.Context,
+	held *heldLocks,
+	project Project,
+	previous *Manifest,
+	libraryPath string,
+	stdout io.Writer,
+) error {
+	emitMutationTestEvent("dependent-read:reconcile-manifest")
+	manifest, err := ReadManifest(project.ManifestPath)
+	if err != nil {
+		return err
+	}
+	ownership := manifest
+	if previous != nil {
+		ownership = *previous
+	}
+	return reconcileManifestWithPreviousLocked(ctx, held, project, ownership, manifest, libraryPath, stdout)
+}
+
+func reconcileManifestWithPreviousLocked(
+	ctx context.Context,
+	held *heldLocks,
 	project Project,
 	previousManifest Manifest,
 	manifest Manifest,
 	libraryPath string,
 	stdout io.Writer,
 ) error {
+	if err := held.requireContext(ctx, libraryPath); err != nil {
+		return err
+	}
+	if err := held.requireContext(ctx, project.Root); err != nil {
+		return err
+	}
 	changed := false
 	previousSkills := append([]string(nil), previousManifest.Skills...)
 
@@ -71,26 +118,26 @@ func ReconcileManifestWithPrevious(
 	}
 	changed = changed || claudeChanged
 
-	if project.AgentsSymlinkDir != "" {
-		agentsChanged, err := reconcileOneSymlinkDir(project.AgentsSymlinkDir, selected, finalSkills, libraryPath, io.Discard)
-		if err != nil {
-			return err
-		}
-		changed = changed || agentsChanged
+	agentsChanged, err := reconcileOneSymlinkDir(project.AgentsSymlinkDir, selected, finalSkills, libraryPath, io.Discard)
+	if err != nil {
+		return err
 	}
+	changed = changed || agentsChanged
 
 	normalized := normalizeSkills(finalSkills)
 	if !slices.Equal(manifest.Skills, normalized) {
-		if err := WriteManifestAtomic(project.ManifestPath, Manifest{Skills: normalized}); err != nil {
+		if err := writeManifestAtomicLocked(ctx, held, project.Root, project.ManifestPath, Manifest{Skills: normalized}); err != nil {
 			return err
 		}
 		changed = true
 	}
 
 	settingsLocalPath := filepath.Join(project.Root, claudeDirName, settingsLocalFileName)
-	if _, err := reconcileSettingsLocalPermissions(settingsLocalPath, previousSkills, finalSkills); err != nil {
+	settingsChanged, err := reconcileSettingsLocalPermissionsLocked(ctx, held, project.Root, settingsLocalPath, previousSkills, finalSkills)
+	if err != nil {
 		return err
 	}
+	changed = changed || settingsChanged
 
 	if changed {
 		if _, err := fmt.Fprintf(stdout, "ok: %d skills linked\n", len(normalized)); err != nil {
@@ -160,13 +207,11 @@ func ensureReconcileDirs(project Project) error {
 	if err := ensureRealDirectory(project.SymlinkDir, ".claude/skills directory"); err != nil {
 		return err
 	}
-	if project.AgentsSymlinkDir != "" {
-		if err := ensureRealDirectory(filepath.Join(project.Root, agentsDirName), ".agents directory"); err != nil {
-			return err
-		}
-		if err := ensureRealDirectory(project.AgentsSymlinkDir, ".agents/skills directory"); err != nil {
-			return err
-		}
+	if err := ensureRealDirectory(filepath.Join(project.Root, agentsDirName), ".agents directory"); err != nil {
+		return err
+	}
+	if err := ensureRealDirectory(project.AgentsSymlinkDir, ".agents/skills directory"); err != nil {
+		return err
 	}
 	return nil
 }
