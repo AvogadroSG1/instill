@@ -36,7 +36,7 @@ func TestPickAddsSkillPathAndRunsAPMInstall(t *testing.T) {
 	requireEqual(t, localDependencies(filepath.Join(library, "skills", "docker")), manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --legacy-skill-paths --root " + project.Root,
+		"apm install --root " + project.Root,
 	})
 }
 
@@ -68,7 +68,7 @@ func TestPickAddsPluginPathAndRunsAPMInstall(t *testing.T) {
 	requireEqual(t, localDependencies(filepath.Join(library, "plugins", "shortcuts-playground", "claude")), manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --legacy-skill-paths --root " + project.Root,
+		"apm install --root " + project.Root,
 	})
 }
 
@@ -192,7 +192,7 @@ func TestPickAddsMCPBlockAndRunsAPMInstall(t *testing.T) {
 	}}, manifest.Dependencies.MCP)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --legacy-skill-paths --root " + project.Root,
+		"apm install --root " + project.Root,
 	})
 }
 
@@ -269,7 +269,7 @@ func TestPickCopiesInstructionAndRunsAPMInstall(t *testing.T) {
 	requireContains(t, got, "# instruction python-rules")
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --legacy-skill-paths --root " + project.Root,
+		"apm install --root " + project.Root,
 	})
 }
 
@@ -300,7 +300,7 @@ func TestPickCopiesPromptAndRunsAPMInstall(t *testing.T) {
 	requireContains(t, got, "# prompt debug")
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --legacy-skill-paths --root " + project.Root,
+		"apm install --root " + project.Root,
 	})
 }
 
@@ -373,7 +373,7 @@ func TestPickMixedAddAndRemoveRunsInstallThenPrune(t *testing.T) {
 	requireEqual(t, localDependencies(filepath.Join(library, "skills", "golang")), manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --legacy-skill-paths --root " + project.Root,
+		"apm install --root " + project.Root,
 		"apm prune",
 	})
 }

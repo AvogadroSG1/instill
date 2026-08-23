@@ -6,4 +6,4 @@ targets:
     - claude
 dependencies:
     apm:
-        - /Users/poconnor/peter_code/ai_support/skills/workflow/git-pushing
+        - /Users/avogadro/peter_code/ai_support/skills/DevOps/git/git-pushing

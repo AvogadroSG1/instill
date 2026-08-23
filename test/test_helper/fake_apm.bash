@@ -19,6 +19,36 @@ project_arg() {
   return 1
 }
 
+has_flag() {
+  local wanted="$1"
+  shift
+  for value in "$@"; do
+    if [ "$value" = "$wanted" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+deploy_skill_deps() {
+  local project="$1"
+  shift
+  local dep name
+  while IFS= read -r dep; do
+    [ -n "$dep" ] || continue
+    [ -f "$dep/SKILL.md" ] || continue
+    name="$(basename "$dep")"
+    if has_flag "--legacy-skill-paths" "$@"; then
+      mkdir -p "$project/.agents/skills/$name"
+      cp "$dep/SKILL.md" "$project/.agents/skills/$name/SKILL.md"
+    else
+      rm -rf "$project/.agents/skills/$name"
+      mkdir -p "$project/.agents/skills"
+      cp -R "$dep" "$project/.agents/skills/$name"
+    fi
+  done < <(grep -E '^[[:space:]]*-[[:space:]]+/' "$project/apm.yml" 2>/dev/null | sed -E 's/^[[:space:]]*-[[:space:]]+//' || true)
+}
+
 case "${1:-}" in
   --version)
     printf 'apm 0.1.0\n'
@@ -31,6 +61,7 @@ case "${1:-}" in
       mkdir -p "$project/$harness"
       printf 'installed\n' > "$project/$harness/.apm-installed"
     done
+    deploy_skill_deps "$project" "$@"
     ;;
   compile)
     project="$(project_arg "$@")"
@@ -72,6 +103,36 @@ project_arg() {
   return 1
 }
 
+has_flag() {
+  local wanted="$1"
+  shift
+  for value in "$@"; do
+    if [ "$value" = "$wanted" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+deploy_skill_deps() {
+  local project="$1"
+  shift
+  local dep name
+  while IFS= read -r dep; do
+    [ -n "$dep" ] || continue
+    [ -f "$dep/SKILL.md" ] || continue
+    name="$(basename "$dep")"
+    if has_flag "--legacy-skill-paths" "$@"; then
+      mkdir -p "$project/.agents/skills/$name"
+      cp "$dep/SKILL.md" "$project/.agents/skills/$name/SKILL.md"
+    else
+      rm -rf "$project/.agents/skills/$name"
+      mkdir -p "$project/.agents/skills"
+      cp -R "$dep" "$project/.agents/skills/$name"
+    fi
+  done < <(grep -E '^[[:space:]]*-[[:space:]]+/' "$project/apm.yml" 2>/dev/null | sed -E 's/^[[:space:]]*-[[:space:]]+//' || true)
+}
+
 case "${1:-}" in
   --version)
     printf 'apm 0.1.0\n'
@@ -94,6 +155,7 @@ case "${1:-}" in
       mkdir -p "$project/$harness"
       printf 'installed\n' > "$project/$harness/.apm-installed"
     done
+    deploy_skill_deps "$project" "$@"
     ;;
   compile)
     project="$(project_arg "$@")"
@@ -145,6 +207,14 @@ case "${1:-}" in
     touch "$project/apm.lock.yaml"
     mkdir -p "$project/.claude"
     printf 'installed\n' > "$project/.claude/.apm-installed"
+    while IFS= read -r dep; do
+      [ -n "$dep" ] || continue
+      [ -f "$dep/SKILL.md" ] || continue
+      name="$(basename "$dep")"
+      rm -rf "$project/.claude/skills/$name"
+      mkdir -p "$project/.claude/skills"
+      cp -R "$dep" "$project/.claude/skills/$name"
+    done < <(grep -E '^[[:space:]]*-[[:space:]]+/' "$project/apm.yml" 2>/dev/null | sed -E 's/^[[:space:]]*-[[:space:]]+//' || true)
     ;;
   compile)
     project="$(project_arg "$@")"

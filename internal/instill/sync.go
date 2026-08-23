@@ -91,6 +91,14 @@ func syncProjectLocked(ctx context.Context, held *heldLocks, opts SyncOptions) e
 	if err := held.release(ctx, opts.LibraryPath); err != nil {
 		return err
 	}
+	// Stale symlinks from legacy (pre-APM) instill would let apm install copy
+	// skill content through them into the library, so remove them first.
+	if err := removeLegacyLibrarySymlinks(opts.Project.SymlinkDir, opts.LibraryPath); err != nil {
+		return err
+	}
+	if err := removeLegacyLibrarySymlinks(opts.Project.AgentsSymlinkDir, opts.LibraryPath); err != nil {
+		return err
+	}
 	if err := runAPMInstallLocked(ctx, held, opts.Runner, opts.Project.Root); err != nil {
 		return err
 	}
@@ -321,6 +329,77 @@ func reportPluginStatus(stdout io.Writer, libraryPath string, dependencies []APM
 		if err := writeLine(stdout, "available in library: plugin "+entry.Name); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func removeLegacyLibrarySymlinks(dir string, libraryPath string) error {
+	skillsRoot := filepath.Join(libraryPath, "skills")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot read symlink directory: %v", err))
+	}
+	for _, entry := range entries {
+		entryPath := filepath.Join(dir, entry.Name())
+		info, err := os.Lstat(entryPath)
+		if err != nil {
+			return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot read symlink: %v", err))
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if err := removeIfLegacyLibrarySymlink(entryPath, skillsRoot); err != nil {
+				return err
+			}
+			continue
+		}
+		if info.IsDir() {
+			if err := removeLegacyLibrarySymlinksOneLevel(entryPath, skillsRoot); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func removeLegacyLibrarySymlinksOneLevel(dir string, skillsRoot string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot read symlink directory: %v", err))
+	}
+	for _, entry := range entries {
+		entryPath := filepath.Join(dir, entry.Name())
+		info, err := os.Lstat(entryPath)
+		if err != nil {
+			return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot read symlink: %v", err))
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if err := removeIfLegacyLibrarySymlink(entryPath, skillsRoot); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func removeIfLegacyLibrarySymlink(linkPath string, skillsRoot string) error {
+	target, err := os.Readlink(linkPath)
+	if err != nil {
+		return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot read symlink: %v", err))
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(linkPath), target)
+	}
+	target = filepath.Clean(target)
+	if target != filepath.Clean(skillsRoot) && !isUnderDir(skillsRoot, target) {
+		return nil
+	}
+	if err := os.Remove(linkPath); err != nil {
+		return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot remove legacy symlink: %v", err))
 	}
 	return nil
 }

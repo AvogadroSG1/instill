@@ -22,6 +22,7 @@ flowchart LR
 - The **Library catalog** lives under `INSTILL_LIBRARY_PATH` and uses typed CSV files for skills, plugins, MCP servers, instructions, and prompts.
 - The **APM manifest** is the project-local `apm.yml` file committed with the project.
 - **Sync** means `instill sync` runs `apm install`, then `apm compile`, then reports installed counts.
+- **Skill deployment** is APM-owned: `apm install` copies each skill's full directory (including supporting files such as `scripts/`) into the shared `.agents/skills/<name>/` path used by converged harnesses; Claude Code receives its copy under `.claude/skills/`. instill no longer passes `--legacy-skill-paths`; on the next `apm install` APM prunes lock-tracked per-harness copies such as `.codex/skills/` automatically.
 - **Typed library entries** let one library manage skills, plugins, MCP servers, instructions, and prompts without overloading a skill-only manifest.
 
 ## Install

@@ -356,6 +356,25 @@ func TestWriteCatalogWritesPromptSchema(t *testing.T) {
 	requireEqual(t, want, got)
 }
 
+func TestScanLibraryIgnoresNestedSkillMarkerInsideSkillDirectory(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	mustWriteCatalogMarker(t, filepath.Join(root, "skills", "docker", "SKILL.md"))
+	mustWriteCatalogMarker(t, filepath.Join(root, "skills", "docker", "examples", "nested", "SKILL.md"))
+
+	var stdout bytes.Buffer
+	requireNoError(t, ScanLibrary(root, &stdout))
+
+	skills, err := LoadCatalog(root, LibraryTypeSkill)
+	requireNoError(t, err)
+	requireEqual(t, []CatalogEntry{{
+		Type: LibraryTypeSkill,
+		Name: "docker",
+		Path: "docker/SKILL.md",
+	}}, skills)
+}
+
 func TestScanLibraryWritesCatalogsAndPreservesManualMetadata(t *testing.T) {
 	t.Parallel()
 

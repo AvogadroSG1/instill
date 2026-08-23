@@ -509,7 +509,20 @@ func discoverCatalogEntries(root string, typ LibraryType) ([]CatalogEntry, error
 		if walkErr != nil {
 			return walkErr
 		}
-		if d.IsDir() || d.Name() != marker {
+		if d.IsDir() {
+			// Once a skill root is found, do not descend into its subtree: a
+			// SKILL.md nested below another SKILL.md (e.g. bundled examples)
+			// must not become its own catalog entry. Plugins are excluded
+			// because their marker lives under a .claude-plugin/ subdirectory,
+			// so parent-based pruning would stop discovery before it starts.
+			if typ == LibraryTypeSkill && path != baseDir {
+				if _, statErr := os.Stat(filepath.Join(filepath.Dir(path), marker)); statErr == nil {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		if d.Name() != marker {
 			return nil
 		}
 

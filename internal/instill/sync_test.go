@@ -38,10 +38,63 @@ func TestSyncProjectRunsInstallThenCompileAndReportsSummary(t *testing.T) {
 	requireNoError(t, err)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --legacy-skill-paths --root " + project.Root,
+		"apm install --root " + project.Root,
 		"apm compile --root " + project.Root,
 	})
 	requireContains(t, stdout.String(), "ok: synced 1 skills, 0 plugins, 1 mcp servers, 1 instructions, 1 prompts")
+}
+
+func TestSyncRemovesLegacyLibrarySymlinksBeforeAPMInstall(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		skills: []CatalogEntry{{Type: LibraryTypeSkill, Name: "docker", Path: "docker/SKILL.md"}},
+	})
+	project := createAPMProject(t, APMManifest{
+		Dependencies: APMDependencies{
+			APM: localDependencies(filepath.Join(library, "skills", "docker")),
+		},
+	})
+	librarySkill := filepath.Join(library, "skills", "docker")
+	groupDir := filepath.Join(project.AgentsSymlinkDir, "workflow")
+	requireNoError(t, os.MkdirAll(project.SymlinkDir, 0o755))
+	requireNoError(t, os.MkdirAll(groupDir, 0o755))
+	requireNoError(t, os.Symlink(librarySkill, filepath.Join(project.SymlinkDir, "docker")))
+	requireNoError(t, os.Symlink(librarySkill, filepath.Join(project.AgentsSymlinkDir, "docker")))
+	requireNoError(t, os.Symlink(librarySkill, filepath.Join(groupDir, "docker")))
+	foreignTarget := filepath.Join(project.Root, "foreign")
+	requireNoError(t, os.MkdirAll(foreignTarget, 0o755))
+	requireNoError(t, os.Symlink(foreignTarget, filepath.Join(project.AgentsSymlinkDir, "foreign")))
+
+	calls := []string{}
+	err := SyncProject(SyncOptions{
+		Project:     project,
+		LibraryPath: library,
+		Runner:      recordingRunner(&calls, nil),
+		Stdout:      ioDiscard(),
+	})
+
+	requireNoError(t, err)
+	for _, link := range []string{
+		filepath.Join(project.SymlinkDir, "docker"),
+		filepath.Join(project.AgentsSymlinkDir, "docker"),
+		filepath.Join(groupDir, "docker"),
+	} {
+		if _, lerr := os.Lstat(link); !os.IsNotExist(lerr) {
+			t.Fatalf("legacy library symlink %s should be removed before apm install, lstat err = %v", link, lerr)
+		}
+	}
+	if _, lerr := os.Lstat(filepath.Join(project.AgentsSymlinkDir, "foreign")); lerr != nil {
+		t.Fatalf("user-owned symlink should be preserved: %v", lerr)
+	}
+	if _, serr := os.Stat(filepath.Join(librarySkill, "SKILL.md")); serr != nil {
+		t.Fatalf("library skill content must be untouched: %v", serr)
+	}
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm install --root " + project.Root,
+		"apm compile --root " + project.Root,
+	})
 }
 
 func TestSyncProjectRepairsCatalogMCPAndPreservesRegistryDependency(t *testing.T) {
@@ -94,7 +147,7 @@ func TestSyncProjectRepairsCatalogMCPAndPreservesRegistryDependency(t *testing.T
 	}, manifest.Dependencies.MCP)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --legacy-skill-paths --root " + project.Root,
+		"apm install --root " + project.Root,
 		"apm compile --root " + project.Root,
 	})
 }

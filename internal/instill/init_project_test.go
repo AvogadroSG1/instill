@@ -81,7 +81,7 @@ func TestInitProjectWithSkillsWritesSkillPathsAndRunsAPMInstall(t *testing.T) {
 	}
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --legacy-skill-paths --root " + root,
+		"apm install --root " + root,
 	})
 }
 

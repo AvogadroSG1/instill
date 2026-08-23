@@ -86,6 +86,22 @@ setup() {
   [[ "$output" == *"ok: synced 1 skills, 0 plugins, 0 mcp servers, 1 instructions, 1 prompts"* ]]
 }
 
+@test "sync deploys skill supporting files to shared .agents/skills" {
+  make_skill docker
+  add_skill_file docker scripts/smart_commit.sh
+  make_project
+  scan_library
+
+  run "$INSTILL_BIN" init --skills docker
+  [ "$status" -eq 0 ]
+
+  run "$INSTILL_BIN" sync
+  [ "$status" -eq 0 ]
+  [ ! -L .agents/skills/docker ]
+  [ -f .agents/skills/docker/SKILL.md ]
+  [ -f .agents/skills/docker/scripts/smart_commit.sh ]
+}
+
 @test "pick adds MCP catalog entries to the APM manifest" {
   make_mcp local-db
   make_project

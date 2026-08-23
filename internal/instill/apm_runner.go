@@ -59,7 +59,7 @@ func runAPMInstallLocked(ctx context.Context, held *heldLocks, runner CommandRun
 	if runner == nil {
 		runner = defaultCommandRunner
 	}
-	if err := runCommand(runner, "apm", "install", "--legacy-skill-paths", "--root", root); err != nil {
+	if err := runCommand(runner, "apm", "install", "--root", root); err != nil {
 		return wrapCommandError("apm", err)
 	}
 	return nil

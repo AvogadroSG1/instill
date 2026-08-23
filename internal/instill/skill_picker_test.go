@@ -732,7 +732,7 @@ func TestApplySkillSelectionWritesDiffAndReconciles(t *testing.T) {
 	), manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --legacy-skill-paths --root " + project.Root,
+		"apm install --root " + project.Root,
 		"apm prune",
 	})
 }
@@ -786,7 +786,7 @@ func TestApplySkillSelectionWritesAPMManifestAndRunsAPMPruneOnRemoval(t *testing
 	), manifest.Dependencies.APM)
 	assertCommands(t, calls, []string{
 		"apm --version",
-		"apm install --legacy-skill-paths --root " + project.Root,
+		"apm install --root " + project.Root,
 		"apm prune",
 	})
 }

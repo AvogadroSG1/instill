@@ -11,6 +11,11 @@ make_skill() {
   printf '# %s\n' "$1" > "$INSTILL_LIBRARY_PATH/skills/$1/SKILL.md"
 }
 
+add_skill_file() {
+  mkdir -p "$INSTILL_LIBRARY_PATH/skills/$1/$(dirname "$2")"
+  printf '#!/bin/sh\necho %s\n' "$2" > "$INSTILL_LIBRARY_PATH/skills/$1/$2"
+}
+
 make_instruction() {
   mkdir -p "$INSTILL_LIBRARY_PATH/instructions/$1"
   printf '# %s instruction\n' "$1" > "$INSTILL_LIBRARY_PATH/instructions/$1/INSTRUCTION.md"
