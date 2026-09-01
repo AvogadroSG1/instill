@@ -1,0 +1,105 @@
+internal/instill/skill_picker.go
+  s_9aeed3ee8dc859::t_84a403710ecf54 263,265,293
+internal/instill/catalog_test.go
+  s_6a60c026197b8a::t_e4e1850eb0f5bc 198-214
+  s_6a60c026197b8a::t_1d9dc8000d4f96 215-232
+  s_6a60c026197b8a::t_12e41fb8a94646 37-41,67-74
+  s_6a60c026197b8a::t_90a36b34a55dd2 32-36,46-50,75-82,91-98,135-151,154-159
+  s_6a60c026197b8a::t_51772157cdfe64 13-31,42-45,51-66,83-90,99-134,152-153,160-197
+internal/instill/sync.go
+  s_5a55fb84148123::t_95f9deeaa3cf56 61-63,66,79
+  s_825bcd1d1c8787::t_69419d336bd8d9 170,187
+  s_825bcd1d1c8787::t_34e18ca771584d 194,623-628
+  s_5a55fb84148123::t_50046a95365c6c 64-65,67,208-232,353,356-363,510-516
+  s_825bcd1d1c8787::t_4821bacf3518d2 157-169,171-186,188-193,195-207,233-234,629
+  s_825bcd1d1c8787::t_85db98cf52c624 630
+internal/instill/pick_skills.go
+  s_9aeed3ee8dc859::t_10a3b89e6fb5ec 225,267,269-270,283,285-286,299-300,304,308,311,321-326,335,337,339,342-343,350,377-398,421-422
+  s_9aeed3ee8dc859::t_3403da7c1c0129 104,115,125
+  s_9aeed3ee8dc859::t_e9cd1c4ab7871b 327-330,344-346,348,399-420,599-602
+  s_9aeed3ee8dc859::t_84a403710ecf54 543,596-598,603
+internal/instill/apm_manifest_document.go
+  s_4f4e8f9db242c6::t_197eaf54beebe6 416,420,436
+  s_9aeed3ee8dc859::t_1b7b9f16ae2560 513
+  s_4f4e8f9db242c6::t_adceb8009876f9 353,415,417,419,421-435,437-443
+  s_4f4e8f9db242c6::t_561269157d4bd2 418
+internal/instill/sync_test.go
+  s_6a60c026197b8a::t_121febc59f28b6 32-33,56-67,98-126
+  s_6a60c026197b8a::t_844129b0bac645 141-225
+  s_6a60c026197b8a::t_f02e6eaae29cff 226-240,244-246
+  s_6a60c026197b8a::t_4ba052c11436dc 15-31,34-55,68-97,127-140
+internal/instill/apm_manifest_document_test.go
+  s_4f4e8f9db242c6::t_adceb8009876f9 140,177,273,360,390,401
+  s_6a60c026197b8a::t_00156a55fce60f 16-55
+  s_6a60c026197b8a::t_b22b2c41dc7396 56-73
+internal/instill/init_project.go
+  s_4f4e8f9db242c6::t_adceb8009876f9 129
+internal/instill/catalog.go
+  s_ec16565c5c0e5a::t_4ba995ef99781f 117-118,133-151
+  s_ec16565c5c0e5a::t_6c17c3625980e2 64,66,84-85,112-116,119-121
+  s_ec16565c5c0e5a::t_ddb03f0e4d5952 43-55,57-58,63,65,67-80,82-83,90-95,97-100,102-111,122-132,152-167
+  s_ec16565c5c0e5a::t_20635295627c8c 59-62,86-89,96,101
+  s_ec16565c5c0e5a::t_dfbe78477ad572 56,81
+internal/instill/import.go
+  s_4f4e8f9db242c6::t_adceb8009876f9 88
+internal/instill/pick_skills_test.go
+  s_6a60c026197b8a::t_25a7276c21e313 11-84
+internal/instill/skill_picker_test.go
+  s_6a60c026197b8a::t_bad2dcd23b48f5 696-717
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1c395057a8789740ad25f60d9c332bb9d279d988",
+  "prompts": {},
+  "sessions": {
+    "s_4f4e8f9db242c6": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa25d83e1ffeciaxVOC9ALcgL9",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    },
+    "s_5a55fb84148123": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa2590a11ffe8oxoFJSew0N65Q",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    },
+    "s_6a60c026197b8a": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa26eed28ffet9qbZhnuQgBBTD",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    },
+    "s_825bcd1d1c8787": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa26449ecffeupdOQMhkJLC5D2",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    },
+    "s_9aeed3ee8dc859": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa251e074ffe7bLX7DnCeHS98H",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    },
+    "s_ec16565c5c0e5a": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa26b7ac1ffeygw43lKsLE4fD7",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Peter O'Connor <poconnor@stackoverflow.com>"
+    }
+  }
+}
