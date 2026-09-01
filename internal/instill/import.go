@@ -85,7 +85,7 @@ func importOldInstillLocked(ctx context.Context, held *heldLocks, opts ImportOpt
 	manifest := document.projection
 	manifest.Dependencies.APM = mergeAPMDependencies(manifest.Dependencies.APM, dependencies)
 	ownership := ownershipForDependencies(dependencies, nil)
-	if err := document.mutateAPM(manifest.Dependencies.APM, ownership); err != nil {
+	if err := document.mutateAPM(manifest.Dependencies.APM, ownership, nil); err != nil {
 		return err
 	}
 	if err := document.repairIdentity(opts.Project.Root, false); err != nil {

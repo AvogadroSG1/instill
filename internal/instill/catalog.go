@@ -40,6 +40,131 @@ type CatalogEntry struct {
 	Ref         string
 }
 
+func matchCatalogEntryForLocalDependency(libraryPath string, typ LibraryType, localPath string, catalog []CatalogEntry) (CatalogEntry, bool) {
+	var typeDir string
+	switch typ {
+	case LibraryTypeSkill:
+		typeDir = "skills"
+	case LibraryTypePlugin:
+		typeDir = "plugins"
+	default:
+		return CatalogEntry{}, false
+	}
+
+	typeRoot := filepath.Clean(filepath.Join(libraryPath, typeDir))
+	localPath = filepath.Clean(localPath)
+	if localPath != typeRoot && !isUnderDir(typeRoot, localPath) {
+		return CatalogEntry{}, false
+	}
+	localRelative, err := filepath.Rel(typeRoot, localPath)
+	if err != nil {
+		return CatalogEntry{}, false
+	}
+
+	var exact, rootCandidate, suffix, leaf CatalogEntry
+	exactCount := 0
+	rootCandidateCount := 0
+	suffixCount := 0
+	leafCount := 0
+	for _, entry := range catalog {
+		if entry.Type != typ || entry.Source == "git" {
+			continue
+		}
+
+		var canonicalPath string
+		switch typ {
+		case LibraryTypeSkill:
+			canonicalPath = filepath.Clean(skillDependencyPath(libraryPath, entry))
+		case LibraryTypePlugin:
+			canonicalPath = filepath.Clean(pluginDependencyPath(libraryPath, entry))
+		}
+		if canonicalPath != typeRoot && !isUnderDir(typeRoot, canonicalPath) {
+			continue
+		}
+		rootCandidate = entry
+		rootCandidateCount++
+		canonicalRelative, err := filepath.Rel(typeRoot, canonicalPath)
+		if err != nil {
+			continue
+		}
+
+		if localPath == canonicalPath {
+			exact = entry
+			exactCount++
+			continue
+		}
+		if commonTrailingPathSegments(localRelative, canonicalRelative) >= 2 {
+			suffix = entry
+			suffixCount++
+			continue
+		}
+		if filepath.Base(localRelative) == filepath.Base(canonicalRelative) {
+			leaf = entry
+			leafCount++
+		}
+	}
+
+	if exactCount == 1 {
+		return exact, true
+	}
+	if exactCount > 1 {
+		return CatalogEntry{}, false
+	}
+	if localPath == typeRoot {
+		if rootCandidateCount != 1 {
+			return CatalogEntry{}, false
+		}
+		hasMarker, err := catalogRootMarkerExists(typeRoot, typ)
+		if err != nil || hasMarker {
+			return CatalogEntry{}, false
+		}
+		return rootCandidate, true
+	}
+	if suffixCount == 1 {
+		return suffix, true
+	}
+	if suffixCount > 1 {
+		return CatalogEntry{}, false
+	}
+	if leafCount == 1 {
+		return leaf, true
+	}
+	return CatalogEntry{}, false
+}
+
+func catalogRootMarkerExists(typeRoot string, typ LibraryType) (bool, error) {
+	markers := []string{catalogMarkerFileName(typ)}
+	if typ == LibraryTypePlugin {
+		markers = []string{
+			"plugin.json",
+			filepath.Join(".claude-plugin", "plugin.json"),
+			filepath.Join(".codex-plugin", "plugin.json"),
+		}
+	}
+	for _, marker := range markers {
+		if _, err := os.Stat(filepath.Join(typeRoot, marker)); err == nil {
+			return true, nil
+		} else if !os.IsNotExist(err) {
+			return false, err
+		}
+	}
+	return false, nil
+}
+
+func commonTrailingPathSegments(first, second string) int {
+	firstSegments := strings.Split(filepath.ToSlash(filepath.Clean(first)), "/")
+	secondSegments := strings.Split(filepath.ToSlash(filepath.Clean(second)), "/")
+
+	matched := 0
+	for i, j := len(firstSegments)-1, len(secondSegments)-1; i >= 0 && j >= 0; i, j = i-1, j-1 {
+		if firstSegments[i] != secondSegments[j] {
+			break
+		}
+		matched++
+	}
+	return matched
+}
+
 func LoadCatalog(root string, typ LibraryType) ([]CatalogEntry, error) {
 	emitMutationTestEvent("dependent-read:catalog:" + string(typ))
 	path, headers, err := catalogFileSpec(root, typ)

@@ -350,7 +350,7 @@ func (d *manifestDocument) setTargets(targets []string, onlyIfAbsent bool) error
 	return nil
 }
 
-func (d *manifestDocument) mutateAPM(desired []APMDependency, ownership apmMutationOwnership) error {
+func (d *manifestDocument) mutateAPM(desired []APMDependency, ownership apmMutationOwnership, relocations map[string]string) error {
 	sequence, err := d.dependencySequence("apm", len(desired) > 0)
 	if err != nil || sequence == nil {
 		return err
@@ -412,8 +412,35 @@ func (d *manifestDocument) mutateAPM(desired []APMDependency, ownership apmMutat
 		}
 		if item.dependency.Git == nil {
 			key := filepath.Clean(item.dependency.Local)
-			if _, ok := desiredLocals[key]; ok {
-				matched["local:"+key] = struct{}{}
+			wanted, ok := desiredLocals[key]
+			relocated := false
+			if !ok {
+				if canonicalPath, hasRelocation := relocations[key]; hasRelocation {
+					wanted, ok = desiredLocals[filepath.Clean(canonicalPath)]
+					relocated = ok
+				}
+			}
+			if ok {
+				canonicalKey := filepath.Clean(wanted.Local)
+				matchKey := "local:" + canonicalKey
+				if _, duplicate := matched[matchKey]; duplicate {
+					if err := d.checkRemoval(item.node, item.node, "dependencies.apm", "remove duplicate local dependency"); err != nil {
+						return err
+					}
+					if err := checkSequenceMutation("remove duplicate local dependency"); err != nil {
+						return err
+					}
+					d.dirty = true
+					continue
+				}
+				if relocated {
+					if err := d.checkMutation(item.node, item.node, "dependencies.apm", "relocate local dependency"); err != nil {
+						return err
+					}
+					item.node.Value = wanted.Local
+					d.dirty = true
+				}
+				matched[matchKey] = struct{}{}
 				nextContent = append(nextContent, item.node)
 				continue
 			}
@@ -483,7 +510,7 @@ func (o apmMutationOwnership) ownsLocal(path string) bool {
 		return true
 	}
 	for _, root := range o.localRoots {
-		if isUnderDir(root, path) {
+		if isInOrUnderDir(root, path) {
 			return true
 		}
 	}

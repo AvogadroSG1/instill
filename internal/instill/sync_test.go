@@ -12,10 +12,238 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestReconcileAPMDependencies(t *testing.T) {
+	t.Parallel()
+
+	libraryPath := t.TempDir()
+	gmail := CatalogEntry{
+		Type: LibraryTypeSkill,
+		Name: "productivity/gws-skills/gws-gmail-read",
+		Path: "productivity/gws-skills/gws-gmail-read/SKILL.md",
+	}
+	plugin := CatalogEntry{
+		Type: LibraryTypePlugin,
+		Name: "productivity/shortcuts-playground/claude",
+		Path: "productivity/shortcuts-playground/claude/.claude-plugin/plugin.json",
+	}
+	oldSkillPath := filepath.Join(libraryPath, "skills", "gws-skills", "gws-gmail-read")
+	oldPluginPath := filepath.Join(libraryPath, "plugins", "shortcuts-playground", "claude")
+	deadSkillPath := filepath.Join(libraryPath, "skills", "retired")
+	deadPluginPath := filepath.Join(libraryPath, "plugins", "retired")
+	dotDotPrefixedSkillPath := filepath.Join(libraryPath, "skills", "..retired")
+	customSkillPath := filepath.Join(libraryPath, "skills", "custom")
+	requireNoError(t, os.MkdirAll(customSkillPath, 0o755))
+	externalPath := filepath.Join(t.TempDir(), "external")
+	gitDependency := APMDependency{Git: &GitDependency{
+		Repository: "https://example.test/skills.git",
+		Path:       "skill",
+		Ref:        "main",
+	}}
+
+	tests := []struct {
+		name    string
+		current []APMDependency
+		want    []APMDependency
+		changed bool
+	}{
+		{
+			name:    "reconciles relocated skill",
+			current: localDependencies(oldSkillPath),
+			want:    localDependencies(skillDependencyPath(libraryPath, gmail)),
+			changed: true,
+		},
+		{
+			name:    "prunes missing stale library plugin",
+			current: localDependencies(deadPluginPath),
+			want:    []APMDependency{},
+			changed: true,
+		},
+		{
+			name:    "prunes missing library directory prefixed with dot dot",
+			current: localDependencies(dotDotPrefixedSkillPath),
+			want:    []APMDependency{},
+			changed: true,
+		},
+		{
+			name:    "reconciles relocated plugin",
+			current: localDependencies(oldPluginPath),
+			want:    localDependencies(pluginDependencyPath(libraryPath, plugin)),
+			changed: true,
+		},
+		{
+			name:    "prunes missing stale library skill",
+			current: localDependencies(deadSkillPath),
+			want:    []APMDependency{},
+			changed: true,
+		},
+		{
+			name:    "retains existing uncataloged local skill",
+			current: localDependencies(customSkillPath),
+			want:    localDependencies(customSkillPath),
+			changed: false,
+		},
+		{
+			name: "deduplicates relocated and canonical dependency",
+			current: localDependencies(
+				oldSkillPath,
+				skillDependencyPath(libraryPath, gmail),
+			),
+			want:    localDependencies(skillDependencyPath(libraryPath, gmail)),
+			changed: true,
+		},
+		{
+			name:    "preserves external local and git dependencies",
+			current: []APMDependency{{Local: externalPath}, gitDependency},
+			want:    []APMDependency{{Local: externalPath}, gitDependency},
+			changed: false,
+		},
+		{
+			name:    "preserves duplicate external local and git dependencies",
+			current: []APMDependency{{Local: externalPath}, gitDependency, {Local: externalPath}, gitDependency},
+			want:    []APMDependency{{Local: externalPath}, gitDependency, {Local: externalPath}, gitDependency},
+			changed: false,
+		},
+		{
+			name: "retains first catalog-owned position while deduplicating",
+			current: []APMDependency{
+				{Local: externalPath},
+				{Local: oldSkillPath},
+				gitDependency,
+				{Local: skillDependencyPath(libraryPath, gmail)},
+				{Local: externalPath},
+			},
+			want: []APMDependency{
+				{Local: externalPath},
+				{Local: skillDependencyPath(libraryPath, gmail)},
+				gitDependency,
+				{Local: externalPath},
+			},
+			changed: true,
+		},
+		{
+			name:    "reports no change for canonical dependency",
+			current: localDependencies(skillDependencyPath(libraryPath, gmail)),
+			want:    localDependencies(skillDependencyPath(libraryPath, gmail)),
+			changed: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, gotChanged := reconcileAPMDependencies(tt.current, libraryPath, []CatalogEntry{gmail}, []CatalogEntry{plugin})
+
+			requireEqual(t, tt.want, got)
+			requireEqual(t, tt.changed, gotChanged)
+		})
+	}
+}
+
+func TestSyncProjectReconcilesRelocatedLocalSkills(t *testing.T) {
+	t.Parallel()
+
+	skill := CatalogEntry{
+		Type: LibraryTypeSkill,
+		Name: "productivity/gws-skills/gws-gmail-read",
+		Path: "productivity/gws-skills/gws-gmail-read/SKILL.md",
+	}
+	library := createCatalogLibrary(t, catalogLibrarySeed{skills: []CatalogEntry{skill}})
+	project := createAPMProject(t, APMManifest{})
+	oldPath := filepath.Join(library, "skills", "gws-skills", "gws-gmail-read")
+	canonicalPath := skillDependencyPath(library, skill)
+	requireNoError(t, os.WriteFile(project.ManifestPath, []byte(fmt.Sprintf(`name: project
+version: 1.0.0
+targets: []
+dependencies:
+  apm:
+    - '%s' # relocated skill
+  mcp: []
+`, oldPath)), 0o644))
+
+	var calls []string
+	var installedManifest string
+	runner := func(name string, args ...string) ([]byte, error) {
+		command := strings.TrimSpace(name + " " + strings.Join(args, " "))
+		calls = append(calls, command)
+		if command == "apm --version" {
+			return []byte("apm 0.28.0\n"), nil
+		}
+		if command == "apm install --root "+project.Root {
+			data, err := os.ReadFile(project.ManifestPath)
+			if err != nil {
+				return nil, err
+			}
+			installedManifest = string(data)
+		}
+		return []byte("ok\n"), nil
+	}
+
+	requireNoError(t, SyncProject(SyncOptions{
+		Project:     project,
+		LibraryPath: library,
+		Runner:      runner,
+		Stdout:      ioDiscard(),
+	}))
+
+	assertCommands(t, calls, []string{
+		"apm --version",
+		"apm install --root " + project.Root,
+		"apm compile --root " + project.Root,
+	})
+	requireContains(t, installedManifest, canonicalPath)
+	requireContains(t, installedManifest, "# relocated skill")
+	manifest, err := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, err)
+	requireEqual(t, localDependencies(canonicalPath), manifest.Dependencies.APM)
+}
+
+func TestStatusRecognizesRelocatedLocalDependencies(t *testing.T) {
+	t.Parallel()
+
+	library := t.TempDir()
+	skill := CatalogEntry{
+		Type: LibraryTypeSkill,
+		Name: "productivity/todo-cli",
+		Path: "productivity/todo-cli/SKILL.md",
+	}
+	plugin := CatalogEntry{
+		Type: LibraryTypePlugin,
+		Name: "productivity/shortcuts-playground/claude",
+		Path: "productivity/shortcuts-playground/claude/.claude-plugin/plugin.json",
+	}
+	dependencies := localDependencies(
+		filepath.Join(library, "skills", "todo-cli"),
+		filepath.Join(library, "plugins", "shortcuts-playground", "claude"),
+	)
+
+	var skillsOutput bytes.Buffer
+	requireNoError(t, reportSkillStatus(&skillsOutput, library, dependencies, []CatalogEntry{skill}))
+	requireEqual(t, "", skillsOutput.String())
+	var pluginsOutput bytes.Buffer
+	requireNoError(t, reportPluginStatus(&pluginsOutput, library, dependencies, []CatalogEntry{plugin}))
+	requireEqual(t, "", pluginsOutput.String())
+}
+
+func TestStatusPreservesGitAndExternalLocalDependencyBehavior(t *testing.T) {
+	t.Parallel()
+
+	library := t.TempDir()
+	externalPath := filepath.Join(t.TempDir(), "external-skill")
+	gitDependency := APMDependency{Git: &GitDependency{
+		Repository: "https://example.test/skills.git",
+		Path:       "skill",
+		Ref:        "main",
+	}}
+	var output bytes.Buffer
+	requireNoError(t, reportSkillStatus(&output, library, []APMDependency{{Local: externalPath}, gitDependency}, nil))
+	requireEqual(t, "removed from library: skill external-skill\n", output.String())
+}
+
 func TestSyncProjectRunsInstallThenCompileAndReportsSummary(t *testing.T) {
 	t.Parallel()
 
-	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	library := createCatalogLibrary(t, catalogLibrarySeed{
+		skills: []CatalogEntry{{Type: LibraryTypeSkill, Name: "docker", Path: "docker/SKILL.md"}},
+	})
 	project := createAPMProject(t, APMManifest{
 		Dependencies: APMDependencies{
 			APM: localDependencies(filepath.Join(library, "skills", "docker")),

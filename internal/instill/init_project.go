@@ -126,7 +126,7 @@ func initProjectLocked(
 	if _, err := document.dependencySequence("apm", true); err != nil {
 		return err
 	}
-	if err := document.mutateAPM(manifest.Dependencies.APM, ownership); err != nil {
+	if err := document.mutateAPM(manifest.Dependencies.APM, ownership, nil); err != nil {
 		return err
 	}
 	mcpCatalog, err := LoadCatalog(opts.LibraryPath, LibraryTypeMCP)

@@ -260,31 +260,9 @@ func loadPickTypeStates(project Project, libraryPath string) ([]pickTypeState, e
 func currentProjectTypeSelection(project Project, libraryPath string, typ LibraryType, manifest APMManifest, entries []CatalogEntry) ([]string, error) {
 	switch typ {
 	case LibraryTypeSkill:
-		namesByDependency := make(map[string]string, len(entries))
-		for _, entry := range entries {
-			namesByDependency[skillDependencyFromCatalog(libraryPath, entry).stableIdentity()] = entry.Name
-		}
-
-		selected := make([]string, 0, len(manifest.Dependencies.APM))
-		for _, dependency := range manifest.Dependencies.APM {
-			if name, ok := namesByDependency[dependency.stableIdentity()]; ok {
-				selected = append(selected, name)
-			}
-		}
-		return normalizeStringSlice(selected), nil
+		return ownedDependencyNames(manifest.Dependencies.APM, libraryPath, typ, entries), nil
 	case LibraryTypePlugin:
-		namesByDependency := make(map[string]string, len(entries))
-		for _, entry := range entries {
-			namesByDependency[pluginDependencyFromCatalog(libraryPath, entry).stableIdentity()] = entry.Name
-		}
-
-		selected := make([]string, 0, len(manifest.Dependencies.APM))
-		for _, dependency := range manifest.Dependencies.APM {
-			if name, ok := namesByDependency[dependency.stableIdentity()]; ok {
-				selected = append(selected, name)
-			}
-		}
-		return normalizeStringSlice(selected), nil
+		return ownedDependencyNames(manifest.Dependencies.APM, libraryPath, typ, entries), nil
 	case LibraryTypeMCP:
 		selected := make([]string, 0, len(manifest.Dependencies.MCP))
 		for _, dependency := range manifest.Dependencies.MCP {
@@ -312,18 +290,7 @@ func currentProjectSkills(project Project, libraryPath string) ([]string, error)
 		return nil, err
 	}
 
-	namesByDependency := make(map[string]string, len(entries))
-	for _, entry := range entries {
-		namesByDependency[skillDependencyFromCatalog(libraryPath, entry).stableIdentity()] = entry.Name
-	}
-
-	selected := make([]string, 0, len(manifest.Dependencies.APM))
-	for _, dependency := range manifest.Dependencies.APM {
-		if name, ok := namesByDependency[dependency.stableIdentity()]; ok {
-			selected = append(selected, name)
-		}
-	}
-	return normalizeStringSlice(selected), nil
+	return ownedDependencyNames(manifest.Dependencies.APM, libraryPath, LibraryTypeSkill, entries), nil
 }
 
 func newPickPickerModel(states []pickTypeState, initialType LibraryType) pickPickerModel {

@@ -13,6 +13,64 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestMutateAPMPreservesCommentsOnRelocatedLocalDependency(t *testing.T) {
+	libraryPath := t.TempDir()
+	oldPath := filepath.Join(libraryPath, "skills", "gws-skills", "gws-gmail-read")
+	canonicalPath := filepath.Join(libraryPath, "skills", "productivity", "gws-skills", "gws-gmail-read")
+	path := writeManifestFixture(t, fmt.Sprintf(`name: project
+version: 1.0.0
+dependencies:
+  apm:
+    - &relocated '%s' # relocated skill
+    - owner/remote#main
+`, oldPath))
+
+	document, err := loadManifestDocument(path)
+	requireNoError(t, err)
+	sequence, err := document.dependencySequence("apm", false)
+	requireNoError(t, err)
+	original := sequence.Content[0]
+	wanted := localDependencies(canonicalPath)
+	ownership := ownershipForDependencies(wanted, []string{filepath.Join(libraryPath, "skills")})
+	requireNoError(t, document.mutateAPM(wanted, ownership, map[string]string{oldPath: canonicalPath}))
+
+	if sequence.Content[0] != original {
+		t.Fatal("relocated local dependency node was replaced")
+	}
+	requireEqual(t, canonicalPath, original.Value)
+	requireEqual(t, yaml.SingleQuotedStyle, original.Style)
+	requireEqual(t, "relocated", original.Anchor)
+	requireEqual(t, "# relocated skill", original.LineComment)
+	requireEqual(t, "owner/remote#main", sequence.Content[1].Value)
+	requireNoError(t, document.write())
+
+	after := mustManifestNode(t, path)
+	root, _ := apmManifestMapping(after)
+	item := mappingValue(mappingValue(root, "dependencies"), "apm").Content[0]
+	requireEqual(t, canonicalPath, item.Value)
+	requireEqual(t, yaml.SingleQuotedStyle, item.Style)
+	requireEqual(t, "relocated", item.Anchor)
+	requireEqual(t, "# relocated skill", item.LineComment)
+}
+
+func TestMutateAPMRelocatesRootLocalDependency(t *testing.T) {
+	libraryPath := t.TempDir()
+	oldPath := filepath.Join(libraryPath, "skills")
+	canonicalPath := filepath.Join(libraryPath, "skills", "productivity", "root-skill")
+	path := writeManifestFixture(t, fmt.Sprintf("dependencies:\n  apm: [%q]\n", oldPath))
+
+	document, err := loadManifestDocument(path)
+	requireNoError(t, err)
+	wanted := localDependencies(canonicalPath)
+	ownership := ownershipForDependencies(wanted, []string{filepath.Join(libraryPath, "skills")})
+	requireNoError(t, document.mutateAPM(wanted, ownership, map[string]string{oldPath: canonicalPath}))
+
+	sequence, err := document.dependencySequence("apm", false)
+	requireNoError(t, err)
+	requireEqual(t, 1, len(sequence.Content))
+	requireEqual(t, canonicalPath, sequence.Content[0].Value)
+}
+
 func TestManifestMutationPreservesUnknownTopLevelAndDependencyNodes(t *testing.T) {
 	path := writeManifestFixture(t, `name: project
 version: 1.0.0
@@ -79,7 +137,7 @@ x-copy: *package
 	document, err := loadManifestDocument(path)
 	requireNoError(t, err)
 	wanted := []APMDependency{{Git: &GitDependency{Repository: "https://example.test/repo.git", Path: "skill", Ref: "new"}}}
-	err = document.mutateAPM(wanted, ownershipForDependencies(wanted, nil))
+	err = document.mutateAPM(wanted, ownershipForDependencies(wanted, nil), nil)
 	if err == nil {
 		t.Fatal("mutateAPM() error = nil, want cross-boundary alias failure")
 	}
@@ -116,7 +174,7 @@ dependencies:
 	sequence, _ := document.dependencySequence("apm", false)
 	original := sequence.Content[0]
 	wanted := []APMDependency{{Git: &GitDependency{Repository: "https://example.test/repo.git", Path: "skill", Ref: "new"}}}
-	requireNoError(t, document.mutateAPM(wanted, ownershipForDependencies(wanted, nil)))
+	requireNoError(t, document.mutateAPM(wanted, ownershipForDependencies(wanted, nil), nil))
 	if sequence.Content[0] != original {
 		t.Fatal("matching Git dependency node was replaced")
 	}
@@ -212,7 +270,7 @@ dependencies:
 	document, err := loadManifestDocument(path)
 	requireNoError(t, err)
 	ownership := ownershipForDependencies(nil, []string{"/library/skills"})
-	requireNoError(t, document.mutateAPM(nil, ownership))
+	requireNoError(t, document.mutateAPM(nil, ownership, nil))
 	requireNoError(t, document.write())
 
 	after := mustManifestNode(t, path)
@@ -299,7 +357,7 @@ func TestManifestMutationRejectsAmbiguousSupportedIdentityWithoutWrite(t *testin
 			if test.mcp {
 				err = document.mutateMCP(nil, map[string]struct{}{})
 			} else {
-				err = document.mutateAPM(nil, ownershipForDependencies(nil, nil))
+				err = document.mutateAPM(nil, ownershipForDependencies(nil, nil), nil)
 			}
 			if err == nil {
 				t.Fatal("mutation error = nil, want ambiguity error")
@@ -329,7 +387,7 @@ func TestManifestAliasSafetyUsesOwnedSubtreeBoundary(t *testing.T) {
 		document, err := loadManifestDocument(path)
 		requireNoError(t, err)
 		wanted := []APMDependency{{Git: &GitDependency{Repository: "repo", Path: "skill", Ref: "new"}}}
-		err = document.mutateAPM(wanted, ownershipForDependencies(wanted, nil))
+		err = document.mutateAPM(wanted, ownershipForDependencies(wanted, nil), nil)
 		if err == nil {
 			t.Fatal("mutation error = nil, want ancestor anchor failure")
 		}
@@ -340,7 +398,7 @@ func TestManifestAliasSafetyUsesOwnedSubtreeBoundary(t *testing.T) {
 		document, err := loadManifestDocument(path)
 		requireNoError(t, err)
 		wanted := []APMDependency{{Git: &GitDependency{Repository: "repo", Path: "skill", Ref: "new"}}}
-		err = document.mutateAPM(wanted, ownershipForDependencies(wanted, nil))
+		err = document.mutateAPM(wanted, ownershipForDependencies(wanted, nil), nil)
 		if err == nil {
 			t.Fatal("mutation error = nil, want anchored key failure")
 		}

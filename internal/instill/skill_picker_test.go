@@ -693,6 +693,28 @@ func TestSkillPickerHandlesLargeLibrary(t *testing.T) {
 	}
 }
 
+func TestCurrentProjectSkillSelectionRecognizesRelocatedSkill(t *testing.T) {
+	t.Parallel()
+
+	entry := CatalogEntry{
+		Type: LibraryTypeSkill,
+		Name: "productivity/todo-cli",
+		Path: "productivity/todo-cli/SKILL.md",
+	}
+	library := createCatalogLibrary(t, catalogLibrarySeed{skills: []CatalogEntry{entry}})
+	oldPath := filepath.Join(library, "skills", "todo-cli")
+	manifest := APMManifest{Dependencies: APMDependencies{APM: localDependencies(oldPath)}}
+
+	selected, err := currentProjectTypeSelection(Project{}, library, LibraryTypeSkill, manifest, []CatalogEntry{entry})
+	requireNoError(t, err)
+	requireEqual(t, []string{entry.Name}, selected)
+
+	project := createAPMProject(t, manifest)
+	legacySelected, err := currentProjectSkills(project, library)
+	requireNoError(t, err)
+	requireEqual(t, []string{entry.Name}, legacySelected)
+}
+
 func TestApplySkillSelectionWritesDiffAndReconciles(t *testing.T) {
 	t.Parallel()
 

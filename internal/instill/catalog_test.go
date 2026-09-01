@@ -10,6 +10,226 @@ import (
 	"testing"
 )
 
+func TestMatchCatalogEntryForLocalDependency(t *testing.T) {
+	t.Parallel()
+
+	libraryPath := filepath.Join(t.TempDir(), "library")
+	gmail := CatalogEntry{
+		Type: LibraryTypeSkill,
+		Name: "productivity/gws-skills/gws-gmail-read",
+		Path: "productivity/gws-skills/gws-gmail-read/SKILL.md",
+	}
+	productVision := CatalogEntry{
+		Type: LibraryTypeSkill,
+		Name: "product-management/skills/product-vision",
+		Path: "product-management/skills/product-vision/SKILL.md",
+	}
+	todoCLI := CatalogEntry{
+		Type: LibraryTypeSkill,
+		Name: "productivity/todo-cli",
+		Path: "productivity/todo-cli/SKILL.md",
+	}
+	rootSkill := CatalogEntry{
+		Type: LibraryTypeSkill,
+		Name: "root-skill",
+		Path: "SKILL.md",
+	}
+	rootRelocatedSkill := CatalogEntry{
+		Type: LibraryTypeSkill,
+		Name: "productivity/root-skill",
+		Path: "productivity/root-skill/SKILL.md",
+	}
+	plugin := CatalogEntry{
+		Type: LibraryTypePlugin,
+		Name: "shortcuts-playground/claude",
+		Path: "shortcuts-playground/claude/.claude-plugin/plugin.json",
+	}
+	relocatedPlugin := CatalogEntry{
+		Type: LibraryTypePlugin,
+		Name: "productivity/shortcuts-playground/claude",
+		Path: "productivity/shortcuts-playground/claude/.claude-plugin/plugin.json",
+	}
+
+	tests := []struct {
+		name      string
+		typ       LibraryType
+		localPath string
+		catalog   []CatalogEntry
+		want      CatalogEntry
+		wantOK    bool
+	}{
+		{
+			name:      "matches canonical skill path",
+			typ:       LibraryTypeSkill,
+			localPath: skillDependencyPath(libraryPath, gmail),
+			catalog:   []CatalogEntry{gmail},
+			want:      gmail,
+			wantOK:    true,
+		},
+		{
+			name:      "matches root path to sole catalog entry when its marker is absent",
+			typ:       LibraryTypeSkill,
+			localPath: filepath.Join(libraryPath, "skills"),
+			catalog:   []CatalogEntry{rootRelocatedSkill},
+			want:      rootRelocatedSkill,
+			wantOK:    true,
+		},
+		{
+			name:      "matches canonical root skill path",
+			typ:       LibraryTypeSkill,
+			localPath: skillDependencyPath(libraryPath, rootSkill),
+			catalog:   []CatalogEntry{rootSkill},
+			want:      rootSkill,
+			wantOK:    true,
+		},
+		{
+			name:      "matches canonical plugin path",
+			typ:       LibraryTypePlugin,
+			localPath: pluginDependencyPath(libraryPath, plugin),
+			catalog:   []CatalogEntry{plugin},
+			want:      plugin,
+			wantOK:    true,
+		},
+		{
+			name:      "matches relocated plugin path suffix",
+			typ:       LibraryTypePlugin,
+			localPath: filepath.Join(libraryPath, "plugins", "shortcuts-playground", "claude"),
+			catalog:   []CatalogEntry{relocatedPlugin},
+			want:      relocatedPlugin,
+			wantOK:    true,
+		},
+		{
+			name:      "matches unique path suffix after category relocation",
+			typ:       LibraryTypeSkill,
+			localPath: filepath.Join(libraryPath, "skills", "gws-skills", "gws-gmail-read"),
+			catalog:   []CatalogEntry{gmail},
+			want:      gmail,
+			wantOK:    true,
+		},
+		{
+			name:      "matches retained suffix after category reorganization",
+			typ:       LibraryTypeSkill,
+			localPath: filepath.Join(libraryPath, "skills", "pm-product-strategy", "skills", "product-vision"),
+			catalog:   []CatalogEntry{productVision},
+			want:      productVision,
+			wantOK:    true,
+		},
+		{
+			name:      "matches unique leaf name",
+			typ:       LibraryTypeSkill,
+			localPath: filepath.Join(libraryPath, "skills", "todo-cli"),
+			catalog:   []CatalogEntry{todoCLI},
+			want:      todoCLI,
+			wantOK:    true,
+		},
+		{
+			name:      "rejects ambiguous leaf name",
+			typ:       LibraryTypeSkill,
+			localPath: filepath.Join(libraryPath, "skills", "product-vision"),
+			catalog: []CatalogEntry{
+				productVision,
+				{
+					Type: LibraryTypeSkill,
+					Name: "strategy/product-vision",
+					Path: "strategy/product-vision/SKILL.md",
+				},
+			},
+		},
+		{
+			name:      "rejects ambiguous path suffix",
+			typ:       LibraryTypeSkill,
+			localPath: filepath.Join(libraryPath, "skills", "old-category", "shared", "skill"),
+			catalog: []CatalogEntry{
+				{
+					Type: LibraryTypeSkill,
+					Name: "first-category/shared/skill",
+					Path: "first-category/shared/skill/SKILL.md",
+				},
+				{
+					Type: LibraryTypeSkill,
+					Name: "second-category/shared/skill",
+					Path: "second-category/shared/skill/SKILL.md",
+				},
+			},
+		},
+		{
+			name:      "rejects wrong catalog type",
+			typ:       LibraryTypeSkill,
+			localPath: filepath.Join(libraryPath, "skills", "todo-cli"),
+			catalog:   []CatalogEntry{plugin},
+		},
+		{
+			name:      "rejects path outside library type root",
+			typ:       LibraryTypeSkill,
+			localPath: filepath.Join(t.TempDir(), "skills", "todo-cli"),
+			catalog:   []CatalogEntry{todoCLI},
+		},
+		{
+			name:      "rejects local path that escapes the library type root",
+			typ:       LibraryTypeSkill,
+			localPath: filepath.Join(libraryPath, "skills", "..", "external", "todo-cli"),
+			catalog:   []CatalogEntry{todoCLI},
+		},
+		{
+			name:      "rejects remote catalog entry",
+			typ:       LibraryTypeSkill,
+			localPath: filepath.Join(libraryPath, "skills", "todo-cli"),
+			catalog: []CatalogEntry{{
+				Type:   LibraryTypeSkill,
+				Name:   "productivity/todo-cli",
+				Path:   "productivity/todo-cli/SKILL.md",
+				Source: "git",
+			}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, gotOK := matchCatalogEntryForLocalDependency(libraryPath, tt.typ, tt.localPath, tt.catalog)
+
+			requireEqual(t, tt.wantOK, gotOK)
+			if gotOK {
+				requireEqual(t, tt.want, got)
+			}
+		})
+	}
+}
+
+func TestMatchCatalogEntryForLocalDependencyPreservesRootPackageWithMarker(t *testing.T) {
+	t.Parallel()
+
+	libraryPath := t.TempDir()
+	requireNoError(t, os.MkdirAll(filepath.Join(libraryPath, "skills"), 0o755))
+	requireNoError(t, os.WriteFile(filepath.Join(libraryPath, "skills", "SKILL.md"), []byte("custom"), 0o644))
+	entry := CatalogEntry{
+		Type: LibraryTypeSkill,
+		Name: "productivity/root-skill",
+		Path: "productivity/root-skill/SKILL.md",
+	}
+
+	_, matched := matchCatalogEntryForLocalDependency(libraryPath, LibraryTypeSkill, filepath.Join(libraryPath, "skills"), []CatalogEntry{entry})
+
+	requireEqual(t, false, matched)
+}
+
+func TestMatchCatalogEntryForLocalDependencyPreservesRootPluginWithNestedMarker(t *testing.T) {
+	t.Parallel()
+
+	libraryPath := t.TempDir()
+	marker := filepath.Join(libraryPath, "plugins", ".claude-plugin", "plugin.json")
+	requireNoError(t, os.MkdirAll(filepath.Dir(marker), 0o755))
+	requireNoError(t, os.WriteFile(marker, []byte("{}"), 0o644))
+	entry := CatalogEntry{
+		Type: LibraryTypePlugin,
+		Name: "productivity/root-plugin",
+		Path: "productivity/root-plugin/.claude-plugin/plugin.json",
+	}
+
+	_, matched := matchCatalogEntryForLocalDependency(libraryPath, LibraryTypePlugin, filepath.Join(libraryPath, "plugins"), []CatalogEntry{entry})
+
+	requireEqual(t, false, matched)
+}
+
 func TestLoadCatalogReadsSkillSchema(t *testing.T) {
 	t.Parallel()
 

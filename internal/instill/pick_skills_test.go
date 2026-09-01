@@ -8,6 +8,80 @@ import (
 	"testing"
 )
 
+func TestPickReconcilesRelocatedDependencyAndResolvesUniqueLeafName(t *testing.T) {
+	t.Parallel()
+
+	relocated := CatalogEntry{
+		Type: LibraryTypeSkill,
+		Name: "productivity/gws-skills/gws-gmail-read",
+		Path: "productivity/gws-skills/gws-gmail-read/SKILL.md",
+	}
+	todoCLI := CatalogEntry{
+		Type: LibraryTypeSkill,
+		Name: "productivity/todo-cli",
+		Path: "productivity/todo-cli/SKILL.md",
+	}
+	library := createCatalogLibrary(t, catalogLibrarySeed{skills: []CatalogEntry{relocated, todoCLI}})
+	project := createAPMProject(t, APMManifest{Dependencies: APMDependencies{APM: localDependencies(
+		filepath.Join(library, "skills", "gws-skills", "gws-gmail-read"),
+	)}})
+
+	requireNoError(t, Pick(PickOptions{
+		Project:     project,
+		LibraryPath: library,
+		Type:        LibraryTypeSkill,
+		Add:         []string{"todo-cli"},
+		Runner:      recordingRunner(nil, nil),
+		Stdout:      &bytes.Buffer{},
+	}))
+
+	manifest, err := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, err)
+	requireEqual(t, localDependencies(
+		skillDependencyPath(library, relocated),
+		skillDependencyPath(library, todoCLI),
+	), manifest.Dependencies.APM)
+}
+
+func TestResolveSkillDependenciesResolvesUniqueLeafName(t *testing.T) {
+	t.Parallel()
+
+	entry := CatalogEntry{
+		Type: LibraryTypeSkill,
+		Name: "productivity/todo-cli",
+		Path: "productivity/todo-cli/SKILL.md",
+	}
+	library := createCatalogLibrary(t, catalogLibrarySeed{skills: []CatalogEntry{entry}})
+
+	got, err := resolveSkillDependencies(library, []string{"todo-cli"})
+
+	requireNoError(t, err)
+	requireEqual(t, localDependencies(skillDependencyPath(library, entry)), got)
+}
+
+func TestOwnedDependencyNamesRecognizesRelocatedDependencies(t *testing.T) {
+	t.Parallel()
+
+	library := t.TempDir()
+	skill := CatalogEntry{
+		Type: LibraryTypeSkill,
+		Name: "productivity/todo-cli",
+		Path: "productivity/todo-cli/SKILL.md",
+	}
+	plugin := CatalogEntry{
+		Type: LibraryTypePlugin,
+		Name: "productivity/shortcuts-playground/claude",
+		Path: "productivity/shortcuts-playground/claude/.claude-plugin/plugin.json",
+	}
+	dependencies := localDependencies(
+		filepath.Join(library, "skills", "todo-cli"),
+		filepath.Join(library, "plugins", "shortcuts-playground", "claude"),
+	)
+
+	requireEqual(t, []string{skill.Name}, ownedDependencyNames(dependencies, library, LibraryTypeSkill, []CatalogEntry{skill}))
+	requireEqual(t, []string{plugin.Name}, ownedDependencyNames(dependencies, library, LibraryTypePlugin, []CatalogEntry{plugin}))
+}
+
 func TestPickAddsSkillPathAndRunsAPMInstall(t *testing.T) {
 	t.Parallel()
 

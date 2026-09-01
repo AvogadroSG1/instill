@@ -58,6 +58,13 @@ func syncProjectLocked(ctx context.Context, held *heldLocks, opts SyncOptions) e
 	if err != nil {
 		return err
 	}
+	originalAPMDependencies := manifest.Dependencies.APM
+	apmDependencies, apmDependenciesChanged := reconcileAPMDependencies(originalAPMDependencies, opts.LibraryPath, skillCatalog, pluginCatalog)
+	var apmRelocations map[string]string
+	if apmDependenciesChanged {
+		manifest.Dependencies.APM = apmDependencies
+		apmRelocations = apmDependencyRelocations(originalAPMDependencies, opts.LibraryPath, skillCatalog, pluginCatalog)
+	}
 	catalogDependencies := make([]APMDependency, 0, len(skillCatalog)+len(pluginCatalog))
 	for _, entry := range skillCatalog {
 		catalogDependencies = append(catalogDependencies, skillDependencyFromCatalog(opts.LibraryPath, entry))
@@ -69,7 +76,7 @@ func syncProjectLocked(ctx context.Context, held *heldLocks, opts SyncOptions) e
 		filepath.Join(opts.LibraryPath, "skills"),
 		filepath.Join(opts.LibraryPath, "plugins"),
 	})
-	if err := document.mutateAPM(manifest.Dependencies.APM, ownership); err != nil {
+	if err := document.mutateAPM(manifest.Dependencies.APM, ownership, apmRelocations); err != nil {
 		return err
 	}
 	mcpCatalog, err := LoadCatalog(opts.LibraryPath, LibraryTypeMCP)
@@ -145,6 +152,84 @@ func reconcileMCPDependencies(current []MCPDependency, catalog []CatalogEntry) (
 		changed = true
 	}
 	return next, changed
+}
+
+func reconcileAPMDependencies(current []APMDependency, libraryPath string, skillCatalog []CatalogEntry, pluginCatalog []CatalogEntry) ([]APMDependency, bool) {
+	skillsRoot := filepath.Clean(filepath.Join(libraryPath, "skills"))
+	pluginsRoot := filepath.Clean(filepath.Join(libraryPath, "plugins"))
+	next := make([]APMDependency, 0, len(current))
+	canonicalPaths := make(map[string]struct{})
+	changed := false
+
+	for _, dependency := range current {
+		if dependency.Git != nil {
+			next = append(next, dependency)
+			continue
+		}
+
+		original := dependency
+		entry, matched := matchCatalogEntryForLocalDependency(libraryPath, LibraryTypeSkill, dependency.Local, skillCatalog)
+		if matched {
+			dependency = skillDependencyFromCatalog(libraryPath, entry)
+		} else {
+			entry, matched = matchCatalogEntryForLocalDependency(libraryPath, LibraryTypePlugin, dependency.Local, pluginCatalog)
+			if matched {
+				dependency = pluginDependencyFromCatalog(libraryPath, entry)
+			}
+		}
+		if matched {
+			canonicalPath := filepath.Clean(dependency.Local)
+			if _, duplicate := canonicalPaths[canonicalPath]; duplicate {
+				changed = true
+				continue
+			}
+			canonicalPaths[canonicalPath] = struct{}{}
+			if dependency.Local != original.Local {
+				changed = true
+			}
+			next = append(next, dependency)
+			continue
+		}
+
+		libraryOwned := isInOrUnderDir(skillsRoot, dependency.Local) || isInOrUnderDir(pluginsRoot, dependency.Local)
+		if libraryOwned {
+			if _, err := os.Stat(dependency.Local); os.IsNotExist(err) {
+				changed = true
+				continue
+			}
+		}
+		next = append(next, dependency)
+	}
+
+	if !changed {
+		return current, false
+	}
+	return next, true
+}
+
+func apmDependencyRelocations(current []APMDependency, libraryPath string, skillCatalog []CatalogEntry, pluginCatalog []CatalogEntry) map[string]string {
+	var relocations map[string]string
+	for _, dependency := range current {
+		if dependency.Git != nil {
+			continue
+		}
+		originalPath := filepath.Clean(dependency.Local)
+		entry, matched := matchCatalogEntryForLocalDependency(libraryPath, LibraryTypeSkill, dependency.Local, skillCatalog)
+		canonicalPath := ""
+		if matched {
+			canonicalPath = filepath.Clean(skillDependencyFromCatalog(libraryPath, entry).Local)
+		} else if entry, matched = matchCatalogEntryForLocalDependency(libraryPath, LibraryTypePlugin, dependency.Local, pluginCatalog); matched {
+			canonicalPath = filepath.Clean(pluginDependencyFromCatalog(libraryPath, entry).Local)
+		}
+		if canonicalPath == "" || canonicalPath == originalPath {
+			continue
+		}
+		if relocations == nil {
+			relocations = make(map[string]string)
+		}
+		relocations[originalPath] = canonicalPath
+	}
+	return relocations
 }
 
 func ProjectStatus(opts StatusOptions) error {
@@ -265,10 +350,17 @@ func reportSkillStatus(stdout io.Writer, libraryPath string, dependencies []APMD
 		key := dependency.stableIdentity()
 		name, ok := dependencyToName[key]
 		if !ok {
-			if dependency.Git != nil || isUnderDir(pluginsRoot, dependency.Local) {
+			if dependency.Git != nil {
 				continue
 			}
-			name = skillDependencyName(libraryPath, dependency.Local)
+			if entry, matched := matchCatalogEntryForLocalDependency(libraryPath, LibraryTypeSkill, dependency.Local, catalog); matched {
+				name = entry.Name
+			} else {
+				if isUnderDir(pluginsRoot, dependency.Local) {
+					continue
+				}
+				name = skillDependencyName(libraryPath, dependency.Local)
+			}
 		}
 		projectSkills[name] = struct{}{}
 		entry, inCatalog := librarySkills[name]
@@ -415,10 +507,14 @@ func reportPluginStatus(stdout io.Writer, libraryPath string, dependencies []APM
 			if dependency.Git != nil {
 				continue
 			}
-			if !isUnderDir(pluginsRoot, dependency.Local) {
-				continue
+			if entry, matched := matchCatalogEntryForLocalDependency(libraryPath, LibraryTypePlugin, dependency.Local, catalog); matched {
+				name = entry.Name
+			} else {
+				if !isUnderDir(pluginsRoot, dependency.Local) {
+					continue
+				}
+				name = pluginDependencyName(libraryPath, dependency.Local)
 			}
-			name = pluginDependencyName(libraryPath, dependency.Local)
 		}
 		projectPlugins[name] = struct{}{}
 		entry, inCatalog := libraryPlugins[name]
@@ -522,6 +618,14 @@ func isUnderDir(parent string, child string) bool {
 	}
 	rel = filepath.Clean(rel)
 	return rel != "." && !strings.HasPrefix(rel, "..")
+}
+
+func isInOrUnderDir(parent string, child string) bool {
+	rel, err := filepath.Rel(filepath.Clean(parent), filepath.Clean(child))
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func reportMCPStatus(stdout io.Writer, dependencies []MCPDependency, catalog []CatalogEntry) error {
