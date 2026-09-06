@@ -18,7 +18,7 @@ func TestInitProjectCLIWritesAPMManifest(t *testing.T) {
 		}},
 	})
 	root := t.TempDir()
-	t.Setenv("SKILL_LIBRARY_PATH", library)
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -50,7 +50,7 @@ func TestInitProjectCLIUsesUnifiedPicker(t *testing.T) {
 		}},
 	})
 	root := t.TempDir()
-	t.Setenv("SKILL_LIBRARY_PATH", library)
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
 
 	var captured instill.PickSkillsTUIOptions
 	var stdout bytes.Buffer
@@ -127,7 +127,7 @@ func TestInitProjectCLIWithTargetsFlag(t *testing.T) {
 		}},
 	})
 	root := t.TempDir()
-	t.Setenv("SKILL_LIBRARY_PATH", library)
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -160,7 +160,7 @@ func TestInitProjectCLIInteractivePromptsForTargets(t *testing.T) {
 		}},
 	})
 	root := t.TempDir()
-	t.Setenv("SKILL_LIBRARY_PATH", library)
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
 
 	var capturedTargetOpts instill.TargetPickerOptions
 	targetPickerCalled := false
@@ -205,7 +205,7 @@ func TestInitProjectCLIInteractivePromptsForTargets(t *testing.T) {
 func TestInitProjectCLIInteractiveTargetPickerCancelled(t *testing.T) {
 	library := createCatalogLibrary(t, cliCatalogLibrarySeed{})
 	root := t.TempDir()
-	t.Setenv("SKILL_LIBRARY_PATH", library)
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

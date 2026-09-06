@@ -19,7 +19,7 @@ func TestPickCLIAddsSkillDependency(t *testing.T) {
 		}},
 	})
 	root := createAPMProjectRoot(t, instill.APMManifest{})
-	t.Setenv("SKILL_LIBRARY_PATH", library)
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -52,7 +52,7 @@ func TestPickCLIInteractivePassesRunnerToTUI(t *testing.T) {
 		}},
 	})
 	root := createAPMProjectRoot(t, instill.APMManifest{})
-	t.Setenv("SKILL_LIBRARY_PATH", library)
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
 
 	calls := []string{}
 	var captured instill.PickTUIOptions
@@ -92,7 +92,7 @@ func TestPickCLIInteractiveStartsAtMCPType(t *testing.T) {
 		Command:   "github-mcp",
 	}})
 	root := createAPMProjectRoot(t, instill.APMManifest{})
-	t.Setenv("SKILL_LIBRARY_PATH", library)
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
 
 	var captured instill.PickTUIOptions
 	var stdout bytes.Buffer
@@ -129,7 +129,7 @@ func TestPickCLIAddsMCPDependency(t *testing.T) {
 		Args:      []string{"serve"},
 	}})
 	root := createAPMProjectRoot(t, instill.APMManifest{})
-	t.Setenv("SKILL_LIBRARY_PATH", library)
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -168,7 +168,7 @@ func TestPickCLIRemovesMCPDependency(t *testing.T) {
 			}},
 		},
 	})
-	t.Setenv("SKILL_LIBRARY_PATH", library)
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -215,7 +215,7 @@ func TestPickCLIRemoveModeUsesAllNamesAsRemovals(t *testing.T) {
 			}},
 		},
 	})
-	t.Setenv("SKILL_LIBRARY_PATH", library)
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -256,7 +256,7 @@ func TestPickCLIAddsPluginDependency(t *testing.T) {
 		},
 	}))
 	requireNoError(os.WriteFile(filepath.Join(root, "apm.yml"), []byte("dependencies: {apm: [], mcp: []}\n"), 0o644))
-	t.Setenv("SKILL_LIBRARY_PATH", library)
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

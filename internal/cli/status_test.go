@@ -28,7 +28,7 @@ func TestStatusCLIReportsDrift(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "apm.lock.yaml"), []byte("instructions: []\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(apm.lock.yaml) error = %v", err)
 	}
-	t.Setenv("SKILL_LIBRARY_PATH", library)
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

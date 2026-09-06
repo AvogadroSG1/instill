@@ -363,7 +363,7 @@ func (d *manifestDocument) mutateAPM(desired []APMDependency, ownership apmMutat
 	current := make([]currentDependency, 0, len(sequence.Content))
 	stable := make(map[string]*yaml.Node)
 	for index, node := range sequence.Content {
-		dependency, supported, malformed := classifyAPMNode(node, ownership)
+		dependency, supported, malformed := classifyAPMNode(node, ownership, relocations)
 		if malformed {
 			return malformedManifestError(fmt.Sprintf("dependencies.apm[%d]", index), "contains an invalid Git dependency; provide non-empty scalar git and path values and an optional scalar ref")
 		}
@@ -414,8 +414,10 @@ func (d *manifestDocument) mutateAPM(desired []APMDependency, ownership apmMutat
 			key := filepath.Clean(item.dependency.Local)
 			wanted, ok := desiredLocals[key]
 			relocated := false
+			hasRelocation := false
 			if !ok {
-				if canonicalPath, hasRelocation := relocations[key]; hasRelocation {
+				if canonicalPath, found := relocations[key]; found {
+					hasRelocation = true
 					wanted, ok = desiredLocals[filepath.Clean(canonicalPath)]
 					relocated = ok
 				}
@@ -444,7 +446,7 @@ func (d *manifestDocument) mutateAPM(desired []APMDependency, ownership apmMutat
 				nextContent = append(nextContent, item.node)
 				continue
 			}
-			if !ownership.ownsLocal(item.dependency.Local) {
+			if !ownership.ownsLocal(item.dependency.Local) && !hasRelocation {
 				nextContent = append(nextContent, item.node)
 				continue
 			}
@@ -517,10 +519,16 @@ func (o apmMutationOwnership) ownsLocal(path string) bool {
 	return false
 }
 
-func classifyAPMNode(node *yaml.Node, ownership apmMutationOwnership) (APMDependency, bool, bool) {
+func classifyAPMNode(node *yaml.Node, ownership apmMutationOwnership, relocations map[string]string) (APMDependency, bool, bool) {
 	if node.Kind == yaml.ScalarNode {
-		if node.Tag != "!!str" || strings.TrimSpace(node.Value) == "" || !ownership.ownsLocal(node.Value) {
+		if node.Tag != "!!str" || strings.TrimSpace(node.Value) == "" {
 			return APMDependency{}, false, false
+		}
+		cleanVal := filepath.Clean(node.Value)
+		if !ownership.ownsLocal(cleanVal) {
+			if _, relocated := relocations[cleanVal]; !relocated {
+				return APMDependency{}, false, false
+			}
 		}
 		return APMDependency{Local: node.Value}, true, false
 	}

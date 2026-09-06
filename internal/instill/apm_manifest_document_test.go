@@ -71,6 +71,74 @@ func TestMutateAPMRelocatesRootLocalDependency(t *testing.T) {
 	requireEqual(t, canonicalPath, sequence.Content[0].Value)
 }
 
+func TestMutateAPMRelocatesCrossMachineLocalDependencyAndDeduplicates(t *testing.T) {
+	libraryPath := "/Users/poconnor/peter_code/ai_support"
+	foreignPath := "/Users/avogadro/peter_code/ai_support/skills/DevOps/git/git-pushing"
+	canonicalPath := filepath.Join(libraryPath, "skills", "DevOps", "git", "git-pushing")
+
+	path := writeManifestFixture(t, fmt.Sprintf(`name: project
+version: 1.0.0
+dependencies:
+  apm:
+    - %q
+    - %q
+`, foreignPath, canonicalPath))
+
+	document, err := loadManifestDocument(path)
+	requireNoError(t, err)
+
+	wanted := localDependencies(canonicalPath)
+	ownership := ownershipForDependencies(wanted, []string{
+		filepath.Join(libraryPath, "skills"),
+		filepath.Join(libraryPath, "plugins"),
+	})
+	relocations := map[string]string{
+		foreignPath: canonicalPath,
+	}
+
+	requireNoError(t, document.mutateAPM(wanted, ownership, relocations))
+	requireNoError(t, document.write())
+
+	after := mustManifestNode(t, path)
+	root, _ := apmManifestMapping(after)
+	apmSeq := mappingValue(mappingValue(root, "dependencies"), "apm")
+	requireEqual(t, 1, len(apmSeq.Content))
+	requireEqual(t, canonicalPath, apmSeq.Content[0].Value)
+}
+
+func TestMutateAPMRemovesDeselectedRelocatedDependency(t *testing.T) {
+	libraryPath := "/Users/poconnor/peter_code/ai_support"
+	foreignPath := "/Users/avogadro/peter_code/ai_support/skills/DevOps/git/git-pushing"
+	canonicalPath := filepath.Join(libraryPath, "skills", "DevOps", "git", "git-pushing")
+
+	path := writeManifestFixture(t, fmt.Sprintf(`name: project
+version: 1.0.0
+dependencies:
+  apm:
+    - %q
+`, foreignPath))
+
+	document, err := loadManifestDocument(path)
+	requireNoError(t, err)
+
+	// Deselected: wanted is empty
+	ownership := ownershipForDependencies(nil, []string{
+		filepath.Join(libraryPath, "skills"),
+		filepath.Join(libraryPath, "plugins"),
+	})
+	relocations := map[string]string{
+		foreignPath: canonicalPath,
+	}
+
+	requireNoError(t, document.mutateAPM(nil, ownership, relocations))
+	requireNoError(t, document.write())
+
+	after := mustManifestNode(t, path)
+	root, _ := apmManifestMapping(after)
+	apmSeq := mappingValue(mappingValue(root, "dependencies"), "apm")
+	requireEqual(t, 0, len(apmSeq.Content))
+}
+
 func TestManifestMutationPreservesUnknownTopLevelAndDependencyNodes(t *testing.T) {
 	path := writeManifestFixture(t, `name: project
 version: 1.0.0
@@ -303,7 +371,7 @@ func TestManifestClassifiesSupportedAndOpaqueDependencyShapes(t *testing.T) {
 			var node yaml.Node
 			requireNoError(t, yaml.Unmarshal([]byte(test.yaml), &node))
 			ownership := ownershipForDependencies(nil, []string{"/library/skills"})
-			_, supported, malformed := classifyAPMNode(node.Content[0], ownership)
+			_, supported, malformed := classifyAPMNode(node.Content[0], ownership, nil)
 			requireEqual(t, test.supported, supported)
 			requireEqual(t, test.malformed, malformed)
 		})

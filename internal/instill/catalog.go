@@ -52,20 +52,15 @@ func matchCatalogEntryForLocalDependency(libraryPath string, typ LibraryType, lo
 	}
 
 	typeRoot := filepath.Clean(filepath.Join(libraryPath, typeDir))
-	localPath = filepath.Clean(localPath)
-	if localPath != typeRoot && !isUnderDir(typeRoot, localPath) {
-		return CatalogEntry{}, false
-	}
-	localRelative, err := filepath.Rel(typeRoot, localPath)
-	if err != nil {
-		return CatalogEntry{}, false
-	}
+	expandedLocal := filepath.Clean(expandPathLeadingHome(localPath))
+	cleanLocal := filepath.Clean(localPath)
+	candidates := localRelativeCandidates(libraryPath, typ, localPath)
 
-	var exact, rootCandidate, suffix, leaf CatalogEntry
-	exactCount := 0
-	rootCandidateCount := 0
-	suffixCount := 0
-	leafCount := 0
+	var (
+		exact, exactRel, suffix, leaf, rootCandidate CatalogEntry
+		exactCount, exactRelCount, suffixCount, leafCount, rootCandidateCount int
+	)
+
 	for _, entry := range catalog {
 		if entry.Type != typ || entry.Source == "git" {
 			continue
@@ -88,19 +83,49 @@ func matchCatalogEntryForLocalDependency(libraryPath string, typ LibraryType, lo
 			continue
 		}
 
-		if localPath == canonicalPath {
+		// 1. Exact match (with or without home expansion)
+		if cleanLocal == canonicalPath || expandedLocal == canonicalPath {
 			exact = entry
 			exactCount++
 			continue
 		}
-		if commonTrailingPathSegments(localRelative, canonicalRelative) >= 2 {
+
+		// 2. Exact relative path match against candidate relative paths
+		matchedExactRel := false
+		for _, cand := range candidates {
+			if filepath.Clean(cand) == filepath.Clean(canonicalRelative) {
+				exactRel = entry
+				exactRelCount++
+				matchedExactRel = true
+				break
+			}
+		}
+		if matchedExactRel {
+			continue
+		}
+
+		// 3. Trailing segments match (>= 2 common trailing segments)
+		maxTrailing := 0
+		for _, cand := range candidates {
+			if t := commonTrailingPathSegments(cand, canonicalRelative); t > maxTrailing {
+				maxTrailing = t
+			}
+		}
+		if maxTrailing >= 2 {
 			suffix = entry
 			suffixCount++
 			continue
 		}
-		if filepath.Base(localRelative) == filepath.Base(canonicalRelative) {
-			leaf = entry
-			leafCount++
+
+		// 4. Leaf match (single segment base name)
+		if len(candidates) > 0 {
+			for _, cand := range candidates {
+				if filepath.Base(cand) == filepath.Base(canonicalRelative) {
+					leaf = entry
+					leafCount++
+					break
+				}
+			}
 		}
 	}
 
@@ -110,7 +135,13 @@ func matchCatalogEntryForLocalDependency(libraryPath string, typ LibraryType, lo
 	if exactCount > 1 {
 		return CatalogEntry{}, false
 	}
-	if localPath == typeRoot {
+	if exactRelCount == 1 {
+		return exactRel, true
+	}
+	if exactRelCount > 1 {
+		return CatalogEntry{}, false
+	}
+	if cleanLocal == typeRoot || expandedLocal == typeRoot {
 		if rootCandidateCount != 1 {
 			return CatalogEntry{}, false
 		}
@@ -130,6 +161,90 @@ func matchCatalogEntryForLocalDependency(libraryPath string, typ LibraryType, lo
 		return leaf, true
 	}
 	return CatalogEntry{}, false
+}
+
+func localRelativeCandidates(libraryPath string, typ LibraryType, localPath string) []string {
+	var typeDir string
+	switch typ {
+	case LibraryTypeSkill:
+		typeDir = "skills"
+	case LibraryTypePlugin:
+		typeDir = "plugins"
+	default:
+		return nil
+	}
+
+	typeRoot := filepath.Clean(filepath.Join(libraryPath, typeDir))
+	expandedLocal := filepath.Clean(expandPathLeadingHome(localPath))
+	cleanLocal := filepath.Clean(localPath)
+
+	var candidates []string
+	seen := make(map[string]struct{})
+	addCandidate := func(rel string) {
+		rel = filepath.Clean(rel)
+		if rel == "." || rel == "" || strings.HasPrefix(rel, "..") {
+			return
+		}
+		if _, ok := seen[rel]; !ok {
+			seen[rel] = struct{}{}
+			candidates = append(candidates, rel)
+		}
+	}
+
+	for _, path := range []string{cleanLocal, expandedLocal} {
+		if isUnderDir(typeRoot, path) {
+			if rel, err := filepath.Rel(typeRoot, path); err == nil {
+				addCandidate(rel)
+			}
+		}
+		slashPath := filepath.ToSlash(path)
+		marker := "/" + typeDir + "/"
+		idx := strings.Index(slashPath, marker)
+		for idx != -1 {
+			rel := slashPath[idx+len(marker):]
+			addCandidate(filepath.FromSlash(rel))
+			nextIdx := strings.Index(slashPath[idx+len(marker):], marker)
+			if nextIdx == -1 {
+				break
+			}
+			idx += len(marker) + nextIdx
+		}
+		if strings.HasPrefix(slashPath, typeDir+"/") {
+			addCandidate(filepath.FromSlash(strings.TrimPrefix(slashPath, typeDir+"/")))
+		}
+	}
+	return candidates
+}
+
+func expandPathLeadingHome(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.Getenv("HOME")
+	}
+	if home != "" {
+		if path == "~" || path == "$HOME" || path == "${HOME}" {
+			return home
+		}
+		if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~\\") {
+			return filepath.Join(home, path[2:])
+		}
+		if strings.HasPrefix(path, "$HOME/") || strings.HasPrefix(path, "$HOME\\") {
+			return filepath.Join(home, path[6:])
+		}
+		if strings.HasPrefix(path, "${HOME}/") || strings.HasPrefix(path, "${HOME}\\") {
+			return filepath.Join(home, path[8:])
+		}
+	}
+	return path
+}
+
+func hasTypeDirInPath(path string, typeDir string) bool {
+	slash := filepath.ToSlash(filepath.Clean(path))
+	return strings.Contains(slash, "/"+typeDir+"/") || strings.HasPrefix(slash, typeDir+"/")
 }
 
 func catalogRootMarkerExists(typeRoot string, typ LibraryType) (bool, error) {

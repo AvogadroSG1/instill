@@ -121,6 +121,21 @@ func TestReconcileAPMDependencies(t *testing.T) {
 			changed: true,
 		},
 		{
+			name:    "reconciles cross-machine foreign skill",
+			current: localDependencies("/Users/avogadro/peter_code/ai_support/skills/productivity/gws-skills/gws-gmail-read"),
+			want:    localDependencies(skillDependencyPath(libraryPath, gmail)),
+			changed: true,
+		},
+		{
+			name: "deduplicates cross-machine foreign and canonical dependency",
+			current: localDependencies(
+				"/Users/avogadro/peter_code/ai_support/skills/productivity/gws-skills/gws-gmail-read",
+				skillDependencyPath(libraryPath, gmail),
+			),
+			want:    localDependencies(skillDependencyPath(libraryPath, gmail)),
+			changed: true,
+		},
+		{
 			name:    "reports no change for canonical dependency",
 			current: localDependencies(skillDependencyPath(libraryPath, gmail)),
 			want:    localDependencies(skillDependencyPath(libraryPath, gmail)),

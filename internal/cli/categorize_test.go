@@ -10,7 +10,7 @@ import (
 
 func TestLegacyCategorizeExitsWithLibraryScanGuidance(t *testing.T) {
 	library := createLibrary(t, "docker")
-	t.Setenv("SKILL_LIBRARY_PATH", library)
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
