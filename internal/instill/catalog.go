@@ -57,7 +57,7 @@ func matchCatalogEntryForLocalDependency(libraryPath string, typ LibraryType, lo
 	candidates := localRelativeCandidates(libraryPath, typ, localPath)
 
 	var (
-		exact, exactRel, suffix, leaf, rootCandidate CatalogEntry
+		exact, exactRel, suffix, leaf, rootCandidate                          CatalogEntry
 		exactCount, exactRelCount, suffixCount, leafCount, rootCandidateCount int
 	)
 
@@ -437,6 +437,11 @@ func scanLibraryTypesLocked(ctx context.Context, held *heldLocks, root string, s
 	}
 
 	for _, typ := range types {
+		hadCatalog, err := catalogExists(root, typ)
+		if err != nil {
+			return err
+		}
+
 		existing, err := LoadCatalog(root, typ)
 		if err != nil {
 			return err
@@ -464,7 +469,27 @@ func scanLibraryTypesLocked(ctx context.Context, held *heldLocks, root string, s
 				current, ok = existingByPath[entry.Path]
 			}
 			if ok {
-				entry = mergeCatalogEntry(current, entry)
+				mergedEntry := mergeCatalogEntry(current, entry)
+				if hadCatalog && mergedEntry.Category != current.Category {
+					oldCat := current.Category
+					if oldCat == "" {
+						oldCat = "none"
+					}
+					newCat := mergedEntry.Category
+					if newCat == "" {
+						newCat = "none"
+					}
+					if err := writeLine(stdout, fmt.Sprintf("updated: %s (category: %s -> %s)", mergedEntry.Name, oldCat, newCat)); err != nil {
+						return NewExitError(ExitFilesystem, "error: cannot write output: "+err.Error())
+					}
+				}
+				entry = mergedEntry
+			} else {
+				if hadCatalog {
+					if err := writeLine(stdout, "added: "+entry.Name); err != nil {
+						return NewExitError(ExitFilesystem, "error: cannot write output: "+err.Error())
+					}
+				}
 			}
 			if err := validateCatalogEntry(entry); err != nil {
 				if typ == LibraryTypeMCP && !ok {
@@ -725,7 +750,13 @@ func splitCSVList(value string) []string {
 
 func sortCatalogEntries(entries []CatalogEntry) {
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name < entries[j].Name
+		if entries[i].Name != entries[j].Name {
+			return entries[i].Name < entries[j].Name
+		}
+		if entries[i].Category != entries[j].Category {
+			return entries[i].Category < entries[j].Category
+		}
+		return entries[i].Path < entries[j].Path
 	})
 }
 
@@ -868,6 +899,14 @@ func mergeCatalogEntry(existing CatalogEntry, discovered CatalogEntry) CatalogEn
 	}
 	if strings.TrimSpace(merged.Category) == "" {
 		merged.Category = discovered.Category
+	} else if discovered.Category != "" && merged.Name == discovered.Name {
+		defaultCat := filepath.ToSlash(filepath.Dir(existing.Name))
+		if defaultCat == "." {
+			defaultCat = ""
+		}
+		if existing.Category == defaultCat || existing.Category == filepath.Base(existing.Name) {
+			merged.Category = discovered.Category
+		}
 	}
 	return merged
 }

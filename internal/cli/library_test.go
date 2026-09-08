@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -32,6 +34,50 @@ func TestLibraryCommandHelpListsSubcommands(t *testing.T) {
 		if !strings.Contains(help, command) {
 			t.Fatalf("help = %q, want subcommand %q", help, command)
 		}
+	}
+}
+
+func TestLibraryCommandScanReportsReconciliation(t *testing.T) {
+	library := createCatalogLibrary(t, cliCatalogLibrarySeed{
+		skills: []catalogFixture{
+			{typ: "skill", name: "docker", path: "docker/SKILL.md"},
+			{typ: "skill", name: "stale", path: "stale/SKILL.md"},
+		},
+	})
+	// Remove stale skill file so it will be reported as removed
+	requireNoError := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	requireNoError(os.Remove(filepath.Join(library, "skills", "stale", "SKILL.md")))
+
+	// Add a new skill on disk
+	newSkillPath := filepath.Join(library, "skills", "workflow", "write-readable-docs", "SKILL.md")
+	requireNoError(os.MkdirAll(filepath.Dir(newSkillPath), 0o755))
+	requireNoError(os.WriteFile(newSkillPath, []byte("# new skill\n"), 0o644))
+
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"library", "scan", "--type", "skill"},
+		cwd:    t.TempDir(),
+	})
+
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
+	}
+
+	got := stdout.String()
+	if !strings.Contains(got, "added: workflow/write-readable-docs\n") {
+		t.Fatalf("stdout = %q, want added: workflow/write-readable-docs", got)
+	}
+	if !strings.Contains(got, "removed: stale (content not found)\n") {
+		t.Fatalf("stdout = %q, want removed: stale (content not found)", got)
 	}
 }
 

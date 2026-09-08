@@ -888,6 +888,110 @@ func TestScanLibraryReturnsClearErrorForIncompleteDiscoveredMCPConfig(t *testing
 	}
 }
 
+func TestSortCatalogEntriesDeterministicMultiKey(t *testing.T) {
+	t.Parallel()
+
+	entries := []CatalogEntry{
+		{Name: "b", Category: "cat2", Path: "p2"},
+		{Name: "a", Category: "cat2", Path: "p2"},
+		{Name: "a", Category: "cat1", Path: "p2"},
+		{Name: "a", Category: "cat1", Path: "p1"},
+	}
+
+	sortCatalogEntries(entries)
+
+	want := []CatalogEntry{
+		{Name: "a", Category: "cat1", Path: "p1"},
+		{Name: "a", Category: "cat1", Path: "p2"},
+		{Name: "a", Category: "cat2", Path: "p2"},
+		{Name: "b", Category: "cat2", Path: "p2"},
+	}
+	requireEqual(t, want, entries)
+}
+
+func TestScanLibraryReportsAddedWhenNewSkillDiscoveredInExistingCatalog(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	mustWriteCatalogMarker(t, filepath.Join(root, "skills", "cloud", "azure", "azure-cli", "SKILL.md"))
+	requireNoError(t, WriteCatalog(root, LibraryTypeSkill, []CatalogEntry{{
+		Type:     LibraryTypeSkill,
+		Name:     "cloud/azure/azure-cli",
+		Category: "cloud/azure",
+		Path:     "cloud/azure/azure-cli/SKILL.md",
+	}}))
+
+	// Add a new skill on disk under workflow/write-readable-docs
+	mustWriteCatalogMarker(t, filepath.Join(root, "skills", "workflow", "write-readable-docs", "SKILL.md"))
+
+	var stdout bytes.Buffer
+	err := ScanLibraryType(root, LibraryTypeSkill, &stdout)
+	requireNoError(t, err)
+
+	requireEqual(t, "added: workflow/write-readable-docs\n", stdout.String())
+
+	skills, err := LoadCatalog(root, LibraryTypeSkill)
+	requireNoError(t, err)
+	requireEqual(t, 2, len(skills))
+	requireEqual(t, "cloud/azure/azure-cli", skills[0].Name)
+	requireEqual(t, "workflow/write-readable-docs", skills[1].Name)
+	requireEqual(t, "workflow", skills[1].Category)
+}
+
+func TestScanLibraryReportsUpdatedWhenCategoryChangesOnDisk(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	mustWriteCatalogMarker(t, filepath.Join(root, "skills", "workflow", "write-readable-docs", "SKILL.md"))
+	// Existing catalog had empty category
+	requireNoError(t, WriteCatalog(root, LibraryTypeSkill, []CatalogEntry{{
+		Type:     LibraryTypeSkill,
+		Name:     "workflow/write-readable-docs",
+		Category: "",
+		Path:     "workflow/write-readable-docs/SKILL.md",
+	}}))
+
+	var stdout bytes.Buffer
+	err := ScanLibraryType(root, LibraryTypeSkill, &stdout)
+	requireNoError(t, err)
+
+	requireEqual(t, "updated: workflow/write-readable-docs (category: none -> workflow)\n", stdout.String())
+
+	skills, err := LoadCatalog(root, LibraryTypeSkill)
+	requireNoError(t, err)
+	requireEqual(t, 1, len(skills))
+	requireEqual(t, "workflow", skills[0].Category)
+}
+
+func TestScanLibraryReconcilesMovesAsAddAndRemove(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	// Catalog has old location
+	requireNoError(t, WriteCatalog(root, LibraryTypeSkill, []CatalogEntry{{
+		Type:     LibraryTypeSkill,
+		Name:     "coding/python/refactor",
+		Category: "coding/python",
+		Path:     "coding/python/refactor/SKILL.md",
+	}}))
+
+	// On disk, it was moved to productivity/python/refactor
+	mustWriteCatalogMarker(t, filepath.Join(root, "skills", "productivity", "python", "refactor", "SKILL.md"))
+
+	var stdout bytes.Buffer
+	err := ScanLibraryType(root, LibraryTypeSkill, &stdout)
+	requireNoError(t, err)
+
+	expectedOutput := "added: productivity/python/refactor\nremoved: coding/python/refactor (content not found)\n"
+	requireEqual(t, expectedOutput, stdout.String())
+
+	skills, err := LoadCatalog(root, LibraryTypeSkill)
+	requireNoError(t, err)
+	requireEqual(t, 1, len(skills))
+	requireEqual(t, "productivity/python/refactor", skills[0].Name)
+	requireEqual(t, "productivity/python", skills[0].Category)
+}
+
 func createTypedLibrary(t *testing.T) string {
 	t.Helper()
 
