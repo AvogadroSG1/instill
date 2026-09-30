@@ -51,6 +51,10 @@ func InitProject(opts InitProjectOptions) error {
 		manifest.Targets = normalizeStringSlice(selected)
 		targetsSelected = true
 	}
+	if err := rejectPiTargets(manifest.Targets); err != nil {
+		return err
+	}
+	manifest.Targets = normalizeAPMProjectTargets(root, manifest.Targets)
 
 	skillNames := normalizeSkills(opts.Skills)
 	if len(opts.Skills) == 0 && opts.SelectSkills != nil {
@@ -67,8 +71,8 @@ func InitProject(opts InitProjectOptions) error {
 	if err := EnsureAPM(opts.Runner); err != nil {
 		return err
 	}
-	return withRootLocks(context.Background(), []string{opts.LibraryPath, root}, func(ctx context.Context, held *heldLocks) error {
-		return initProjectLocked(ctx, held, opts, project, manifest, skillNames, targetsSelected)
+	return withMCPMutationLocks(context.Background(), opts.LibraryPath, root, func(ctx context.Context, held *heldLocks, mcpCatalog []CatalogEntry) error {
+		return initProjectLocked(ctx, held, opts, project, manifest, skillNames, targetsSelected, mcpCatalog)
 	})
 }
 
@@ -80,6 +84,7 @@ func initProjectLocked(
 	manifest APMManifest,
 	skillNames []string,
 	targetsSelected bool,
+	mcpCatalog []CatalogEntry,
 ) error {
 	if err := held.requireContext(ctx, opts.LibraryPath); err != nil {
 		return err
@@ -129,14 +134,19 @@ func initProjectLocked(
 	if err := document.mutateAPM(manifest.Dependencies.APM, ownership, nil); err != nil {
 		return err
 	}
-	mcpCatalog, err := LoadCatalog(opts.LibraryPath, LibraryTypeMCP)
-	if err != nil {
-		return err
+	mcpNames := catalogEntryNamesSet(mcpCatalog)
+	mcpSelectionRemoved := false
+	for _, dependency := range document.projection.Dependencies.MCP {
+		if _, owned := mcpNames[dependency.Name]; owned {
+			mcpSelectionRemoved = true
+		} else {
+			manifest.Dependencies.MCP = append(manifest.Dependencies.MCP, dependency)
+		}
 	}
 	if _, err := document.dependencySequence("mcp", true); err != nil {
 		return err
 	}
-	if err := document.mutateMCP([]MCPDependency{}, catalogEntryNamesSet(mcpCatalog)); err != nil {
+	if err := document.mutateMCP(manifest.Dependencies.MCP, mcpNames); err != nil {
 		return err
 	}
 	if err := document.setTargets(manifest.Targets, false); err != nil {
@@ -148,14 +158,23 @@ func initProjectLocked(
 	if err := document.write(); err != nil {
 		return err
 	}
-	if err := held.release(ctx, opts.LibraryPath); err != nil {
+	if err := releaseMCPLibraryLock(ctx, held, opts.LibraryPath, project.Root); err != nil {
 		return err
 	}
+	policy := newMCPInstallPolicy(mcpCatalog, manifest.Dependencies.MCP, true)
+	policy.Targets = manifest.Targets
 
 	if len(manifest.Dependencies.APM) == 0 {
+		if mcpSelectionRemoved {
+			before, err := capturePiMCPEnableState(project.Root)
+			if err != nil {
+				return err
+			}
+			return reconcilePiMCPConfig(ctx, held, project.Root, mcpEnableSnapshot{PiMerged: before}, policy, false)
+		}
 		return nil
 	}
-	return runAPMInstallLocked(ctx, held, opts.Runner, project.Root)
+	return runAPMInstallLocked(ctx, held, opts.Runner, project.Root, policy)
 }
 
 func HasAPMManifest(root string) bool {

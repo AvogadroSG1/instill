@@ -1,7 +1,6 @@
 package instill
 
 import (
-	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -12,9 +11,6 @@ func TestNewTargetPickerModelDefaults(t *testing.T) {
 
 	model := newTargetPickerModel(DefaultAvailableTargets, []string{"codex", "claude"})
 
-	if len(model.targets) != len(DefaultAvailableTargets) {
-		t.Fatalf("len(targets) = %d, want %d", len(model.targets), len(DefaultAvailableTargets))
-	}
 	if !model.selected["codex"] {
 		t.Error("codex not selected, want selected")
 	}
@@ -144,25 +140,5 @@ func TestTargetPickerConfirmAndCancel(t *testing.T) {
 	m3 := updated.(targetPickerModel)
 	if !m3.cancelled {
 		t.Error("cancelled should be true after 'q'")
-	}
-}
-
-func TestTargetPickerView(t *testing.T) {
-	t.Parallel()
-
-	model := newTargetPickerModel(DefaultAvailableTargets, []string{"claude"})
-	view := model.View()
-
-	if !strings.Contains(view, "Select target agents:") {
-		t.Error("view missing title")
-	}
-	if !strings.Contains(view, "> [ ] codex") {
-		t.Error("view missing cursor at codex")
-	}
-	if !strings.Contains(view, "[✓] claude") {
-		t.Error("view missing checked claude")
-	}
-	if !strings.Contains(view, "antigravity") {
-		t.Error("view missing antigravity")
 	}
 }

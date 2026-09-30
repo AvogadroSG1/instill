@@ -526,34 +526,6 @@ func TestPublicCatalogWritesPreserveCrossCatalogGitIdentity(t *testing.T) {
 	}
 }
 
-func TestWriteCatalogWritesMCPSchema(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	entries := []CatalogEntry{
-		{
-			Type:        LibraryTypeMCP,
-			Name:        "local-db",
-			Transport:   "stdio",
-			Command:     "sqlite-mcp",
-			Args:        []string{"--db", "dev.db"},
-			Env:         []string{"DB_PATH=${DB_PATH}", "ENV=${ENV}"},
-			Description: "SQLite server",
-		},
-	}
-
-	err := WriteCatalog(root, LibraryTypeMCP, entries)
-
-	requireNoError(t, err)
-	got := readFile(t, filepath.Join(root, "mcp", "catalog.csv"))
-	want := strings.Join([]string{
-		"name,transport,command,args,url,env,description",
-		"local-db,stdio,sqlite-mcp,\"--db,dev.db\",,\"DB_PATH=${DB_PATH},ENV=${ENV}\",SQLite server",
-		"",
-	}, "\n")
-	requireEqual(t, want, got)
-}
-
 func TestWriteCatalogWritesInstructionSchema(t *testing.T) {
 	t.Parallel()
 

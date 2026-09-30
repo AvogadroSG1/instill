@@ -162,7 +162,7 @@ func TestInitProjectWithSelectTargetsCallback(t *testing.T) {
 		Stdout:      &bytes.Buffer{},
 		SelectTargets: func(detected []string) ([]string, error) {
 			receivedDetected = detected
-			return []string{"codex", "pi", "antigravity"}, nil
+			return []string{"codex", "opencode", "antigravity"}, nil
 		},
 	}); err != nil {
 		t.Fatalf("InitProject() error = %v", err)
@@ -176,8 +176,8 @@ func TestInitProjectWithSelectTargetsCallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadAPMManifest() error = %v", err)
 	}
-	if len(manifest.Targets) != 3 || manifest.Targets[0] != "codex" || manifest.Targets[1] != "pi" || manifest.Targets[2] != "antigravity" {
-		t.Fatalf("manifest targets = %#v, want [codex, pi, antigravity]", manifest.Targets)
+	if len(manifest.Targets) != 3 || manifest.Targets[0] != "codex" || manifest.Targets[1] != "opencode" || manifest.Targets[2] != "antigravity" {
+		t.Fatalf("manifest targets = %#v, want [codex, opencode, antigravity]", manifest.Targets)
 	}
 }
 

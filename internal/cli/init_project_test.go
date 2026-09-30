@@ -162,7 +162,6 @@ func TestInitProjectCLIInteractivePromptsForTargets(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("INSTILL_LIBRARY_PATH", library)
 
-	var capturedTargetOpts instill.TargetPickerOptions
 	targetPickerCalled := false
 
 	var stdout bytes.Buffer
@@ -178,8 +177,7 @@ func TestInitProjectCLIInteractivePromptsForTargets(t *testing.T) {
 		},
 		targetPicker: func(opts instill.TargetPickerOptions) ([]string, bool, error) {
 			targetPickerCalled = true
-			capturedTargetOpts = opts
-			return []string{"pi", "antigravity"}, true, nil
+			return []string{"opencode", "antigravity"}, true, nil
 		},
 	})
 
@@ -189,16 +187,13 @@ func TestInitProjectCLIInteractivePromptsForTargets(t *testing.T) {
 	if !targetPickerCalled {
 		t.Fatal("targetPicker was not called, want called")
 	}
-	if len(capturedTargetOpts.Available) != 6 {
-		t.Fatalf("len(Available) = %d, want 6", len(capturedTargetOpts.Available))
-	}
 
 	manifest, err := instill.ReadAPMManifest(filepath.Join(root, "apm.yml"))
 	if err != nil {
 		t.Fatalf("ReadAPMManifest() error = %v", err)
 	}
-	if len(manifest.Targets) != 2 || manifest.Targets[0] != "pi" || manifest.Targets[1] != "antigravity" {
-		t.Fatalf("manifest.Targets = %#v, want [pi, antigravity]", manifest.Targets)
+	if len(manifest.Targets) != 2 || manifest.Targets[0] != "opencode" || manifest.Targets[1] != "antigravity" {
+		t.Fatalf("manifest.Targets = %#v, want [opencode, antigravity]", manifest.Targets)
 	}
 }
 

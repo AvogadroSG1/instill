@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `categories.go`: `LoadCategories`, `LoadCategoriesWithWarnings`, `CategoryForSkill` — reads `.categories.json` from the library root to group skills in the TUI
 - `add-hooks` command: registers `instill check-skills` as a Claude Code `SessionStart` hook in `.claude/settings.json`
 - `instill sync` copies OpenCode plugin files from each `dependencies.apm` package's `opencode/plugins/` directory into `.opencode/plugins/instill-<package>-<file>` when `opencode` is a target, removes stale `instill-*` copies, and reports the count as `N opencode plugins` in the sync summary
+- Per-MCP optional `default_enabled` catalog/marker metadata and `library add --default-enabled`, applying initial OpenCode/Codex/Claude/Pi state only to genuinely new server names while preserving each harness's existing choice.
+- Native `.pi/mcp-adapter.json` deployment for separately installed `pi-mcp-adapter`, with recorded ownership, user-server collision protection, removal-only pruning, and endpoint-bound credential cleanup.
 
 ### Changed
 
@@ -26,6 +28,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   directly at that level, followed by deeper folders as drill-in subcategories
 - `init` now accepts `--skills` flag for headless initialization without launching the TUI
 - Skill names are always normalized (deduped + sorted) before writing the manifest
+- Pi activation is directory-based (`.pi/`), not an APM target selection; legacy `pi` targets migrate, and Pi-only projects use `agent-skills` plus APM package-only installation.
+- MCP installs preserve existing native flags/omissions across APM entry replacement, restore pre-existing OpenCode/Codex choices after partial failures, and serialize shared Claude project-toggle updates without changing approval/trust settings.
+- `CLAUDE_CONFIG_DIR` import and toggle state use the real `.claude.json` basename.
 
 ## [0.1.0] - 2026-01-01
 

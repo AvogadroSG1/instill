@@ -431,7 +431,7 @@ YAML
   # Use CLAUDE_CONFIG_DIR to provide a test fixture
   export CLAUDE_CONFIG_DIR="$BATS_TEST_TMPDIR/claude-config"
   mkdir -p "$CLAUDE_CONFIG_DIR"
-  cat > "$CLAUDE_CONFIG_DIR/claude.json" <<'FIXTURE'
+  cat > "$CLAUDE_CONFIG_DIR/.claude.json" <<'FIXTURE'
 {
   "mcpServers": {
     "docs-search": {
@@ -707,7 +707,7 @@ FIXTURE
   make_project
   scan_library
 
-  run "$INSTILL_BIN" init --targets codex,opencode,hermes,pi,claude,antigravity --skills docker
+  run "$INSTILL_BIN" init --targets codex,opencode,hermes,claude,antigravity --skills docker
   [ "$status" -eq 0 ]
   [ -f apm.yml ]
 
@@ -715,9 +715,19 @@ FIXTURE
   [[ "$(cat apm.yml)" == *"codex"* ]]
   [[ "$(cat apm.yml)" == *"opencode"* ]]
   [[ "$(cat apm.yml)" == *"hermes"* ]]
-  [[ "$(cat apm.yml)" == *"pi"* ]]
   [[ "$(cat apm.yml)" == *"claude"* ]]
   [[ "$(cat apm.yml)" == *"antigravity"* ]]
+}
+
+@test "init rejects explicit pi target without writing a manifest" {
+  make_skill docker
+  make_project
+  scan_library
+
+  run "$INSTILL_BIN" init --targets pi --skills docker
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"pi MCP support is activated by the .pi directory"* ]]
+  [ ! -f apm.yml ]
 }
 
 # ──────────────────────────────────────────────────────────────────────────────

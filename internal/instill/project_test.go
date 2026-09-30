@@ -48,14 +48,13 @@ func TestDetectHarnessTargetsReturnsMultipleHarnessesSorted(t *testing.T) {
 
 	targets := DetectHarnessTargets(root)
 
-	requireEqual(t, 7, len(targets))
+	requireEqual(t, 6, len(targets))
 	requireEqual(t, "antigravity", targets[0])
 	requireEqual(t, "claude", targets[1])
 	requireEqual(t, "codex", targets[2])
 	requireEqual(t, "gemini", targets[3])
 	requireEqual(t, "hermes", targets[4])
 	requireEqual(t, "opencode", targets[5])
-	requireEqual(t, "pi", targets[6])
 }
 
 func TestDetectHarnessTargetsIgnoresFiles(t *testing.T) {

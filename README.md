@@ -64,11 +64,32 @@ Expected library shape:
 
 Run `instill library scan` to create or refresh catalog CSV files from library content.
 
+### MCP Initial State and Pi
+
+```bash
+instill library add --type mcp --name local-db --transport stdio \
+  --command sqlite-mcp --default-enabled=false
+instill pick --type mcp local-db
+instill sync
+```
+
+`--default-enabled` is MCP-only. Omission leaves the initial harness behavior unchanged; explicit `true` or `false` supplies an initial default. The MCP CSV schema is `name,transport,command,args,url,env,description,default_enabled`. The last cell accepts empty, `true`, or `false`; old seven-column catalogs remain readable without a migration write. Defaults are Instill metadata, never fields in `apm.yml`.
+
+Defaults apply only to names absent from the destination's applicable local configuration before installation. Existing choices—including omitted flags—win independently in OpenCode, Codex, Claude Code, and Pi. Subsequent installs refresh connection definitions without reapplying defaults. A deleted Instill-owned destination entry can receive the current default when recreated. Change existing library defaults in the CSV; scan preserves a curated non-empty value and uses a marker default only for an unspecified row. MCP additions create missing `config.json` markers, but never overwrite existing markers.
+
+OpenCode uses project `opencode.json` `enabled`; Codex uses `.codex/config.toml` `enabled`. Claude uses the selected project's `disabledMcpServers` in `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json`. Claude defaults affect `/mcp` on/off state, **not approval or trust**; enabled servers still receive normal project approval prompts. Other user/global harness configuration is read for collisions, not rewritten.
+
+Pi support requires a real project `.pi/` directory and a separately installed, compatible [`pi-mcp-adapter`](https://www.npmjs.com/package/pi-mcp-adapter) extension (format verified against 4.0.0). Instill writes usable definitions to `.pi/mcp-adapter.json`; it does not install the extension, upgrade Pi, or grant trust. Existing provider/user/imported servers are not overridden or claimed. Only entries recorded in `_instillManagedServers` are reconciled or removed when selection changes. Unmatched registry dependencies are not synthesized into Pi definitions; their definitions remain provider/APM-owned.
+
+Pi is not an APM target-picker selection. Legacy `targets: [pi]` selections migrate to supported targets; a Pi-only project uses `agent-skills`. Because APM 0.32.0's meta-target has no MCP adapter, managed Pi-only installs use `apm install --only apm` for package/skill deployment while Instill deploys the adapter definitions. Ordinary and mixed-harness installs keep the bare APM install command. `PI_MCP_CONFIG_MODE=exclusive` ignores the project adapter file: Instill leaves it untouched and errors if a desired server is missing from the provider's effective configuration.
+
 ### Concurrent Mutations
 
 Instill serializes cooperating Library and Project mutations with an exclusive advisory lock on the persistent `<root>/.instill.lock` file. The file remains after a command exits and is not evidence that a process currently owns the lock. Scans and imported content ignore it.
 
 Lock acquisition has one 10-second timeout for the complete ordered root set. Unrelated roots can mutate concurrently. Commands that update both the Library and a Project release the Library lock after publishing catalog-derived Project state, while retaining the Project lock through APM install, prune, or compile.
+
+When the MCP catalog contains false defaults, Instill acquires a stable user-home guard and the Claude state directory's nearest existing parent lock alongside the Library and Project locks in canonical order. It retains these locks through APM and toggle repair, including when APM first creates `.claude/` or a state write creates a missing private config directory. This deliberately serializes more installs across the same user's projects. No Claude state file or private parent is created unless a real toggle addition is needed. Native MCP writes preserve existing modes and unrelated data, reject writable symlinks, and fail on intervening byte changes rather than replacing a newer file.
 
 Local filesystems are the supported correctness baseline. Advisory locks do not prevent changes by editors, scripts, older Instill versions, or any other non-cooperating process. NFS, SMB, FUSE, container bind mounts, and other network or virtual filesystems vary by server, client, and mount configuration; successful acquisition confirms participation in the local advisory protocol but MUST NOT be treated as verified cross-host exclusion.
 

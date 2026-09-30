@@ -174,6 +174,7 @@ func importGraftLocked(ctx context.Context, held *heldLocks, opts ImportOptions)
 		entry := catalogEntryFromMCPServer(name, server, false)
 		if current, ok := entriesByName[name]; ok {
 			entry.Description = current.Description
+			entry.DefaultEnabled = current.DefaultEnabled
 		}
 		entriesByName[name] = entry
 		if err := writeMCPConfigMarkerLocked(ctx, held, opts.LibraryPath, entry); err != nil {
@@ -250,6 +251,7 @@ func importClaudeLocked(ctx context.Context, held *heldLocks, opts ImportOptions
 		entry := catalogEntryFromMCPServer(name, server, true)
 		if current, ok := entriesByName[name]; ok {
 			entry.Description = current.Description
+			entry.DefaultEnabled = current.DefaultEnabled
 		} else {
 			existing = append(existing, entry)
 		}
@@ -675,7 +677,7 @@ type claudeProjectConfig struct {
 
 func claudeConfigPath() (string, error) {
 	if dir := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")); dir != "" {
-		return filepath.Join(dir, "claude.json"), nil
+		return filepath.Join(dir, ".claude.json"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -742,19 +744,21 @@ func writeMCPConfigMarkerLocked(ctx context.Context, held *heldLocks, libraryPat
 	}
 
 	config := struct {
-		Transport   string   `json:"transport"`
-		Command     string   `json:"command,omitempty"`
-		Args        []string `json:"args,omitempty"`
-		URL         string   `json:"url,omitempty"`
-		Env         []string `json:"env,omitempty"`
-		Description string   `json:"description,omitempty"`
+		Transport      string   `json:"transport"`
+		Command        string   `json:"command,omitempty"`
+		Args           []string `json:"args,omitempty"`
+		URL            string   `json:"url,omitempty"`
+		Env            []string `json:"env,omitempty"`
+		Description    string   `json:"description,omitempty"`
+		DefaultEnabled *bool    `json:"default_enabled,omitempty"`
 	}{
-		Transport:   entry.Transport,
-		Command:     entry.Command,
-		Args:        append([]string{}, entry.Args...),
-		URL:         entry.URL,
-		Env:         append([]string{}, entry.Env...),
-		Description: entry.Description,
+		Transport:      entry.Transport,
+		Command:        entry.Command,
+		Args:           append([]string{}, entry.Args...),
+		URL:            entry.URL,
+		Env:            append([]string{}, entry.Env...),
+		Description:    entry.Description,
+		DefaultEnabled: entry.DefaultEnabled,
 	}
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {

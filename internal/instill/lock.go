@@ -49,8 +49,10 @@ type heldRootLock struct {
 }
 
 type heldLocks struct {
-	locks []*heldRootLock
-	byKey map[string]*heldRootLock
+	locks              []*heldRootLock
+	byKey              map[string]*heldRootLock
+	mcpClaudeStateRoot string
+	mcpClaudeGuardRoot string
 }
 
 type heldRootsContextKey struct{}

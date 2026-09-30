@@ -45,12 +45,19 @@ func newLibraryScanCommand(cfg commandConfig) *cobra.Command {
 func newLibraryAddCommand(cfg commandConfig) *cobra.Command {
 	var entry instill.CatalogEntry
 	var repository string
+	var defaultEnabled bool
 
 	command := &cobra.Command{
 		Use:   "add",
 		Short: "Add a catalog entry to the configured library",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if cmd.Flags().Changed("default-enabled") {
+				if entry.Type != instill.LibraryTypeMCP {
+					return instill.NewExitError(instill.ExitGeneral, "error: --default-enabled is only supported for mcp")
+				}
+				entry.DefaultEnabled = &defaultEnabled
+			}
 			if repository == "" && entry.Name == "" {
 				return instill.NewExitError(instill.ExitGeneral, "error: required flag(s) \"name\" not set")
 			}
@@ -88,6 +95,7 @@ func newLibraryAddCommand(cfg commandConfig) *cobra.Command {
 	command.Flags().StringSliceVar(&entry.Args, "args", nil, "mcp command arguments")
 	command.Flags().StringVar(&entry.URL, "url", "", "mcp url")
 	command.Flags().StringSliceVar(&entry.Env, "env", nil, "mcp environment entries")
+	command.Flags().BoolVar(&defaultEnabled, "default-enabled", false, "initial MCP enabled state; existing server choices are preserved")
 	command.Flags().StringVar(&entry.ApplyTo, "apply-to", "", "instruction apply_to glob")
 	command.Flags().StringVar(&entry.Description, "description", "", "entry description")
 	command.Flags().StringVar(&repository, "repository", "", "GitHub owner/repo for a remote skill or plugin")
