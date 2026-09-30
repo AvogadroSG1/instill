@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Interactive skill picker with category pane (`skill_picker.go`)
 - `categories.go`: `LoadCategories`, `LoadCategoriesWithWarnings`, `CategoryForSkill` — reads `.categories.json` from the library root to group skills in the TUI
 - `add-hooks` command: registers `instill check-skills` as a Claude Code `SessionStart` hook in `.claude/settings.json`
+- `instill sync` copies OpenCode plugin files from each `dependencies.apm` package's `opencode/plugins/` directory into `.opencode/plugins/instill-<package>-<file>` when `opencode` is a target, removes stale `instill-*` copies, and reports the count as `N opencode plugins` in the sync summary
 
 ### Changed
 

@@ -51,6 +51,7 @@ func syncProjectLocked(ctx context.Context, held *heldLocks, opts SyncOptions) e
 		return err
 	}
 	manifest := document.projection
+	targets := manifest.Targets
 	if err := document.setTargets(DetectHarnessTargets(opts.Project.Root), true); err != nil {
 		return err
 	}
@@ -113,6 +114,14 @@ func syncProjectLocked(ctx context.Context, held *heldLocks, opts SyncOptions) e
 	if err := runAPMCompileLocked(ctx, held, opts.Runner, opts.Project.Root); err != nil {
 		return err
 	}
+	var openCodeSources []openCodePluginSource
+	if openCodeTargetEnabled(opts.Project.Root, targets) {
+		openCodeSources = apmPackageDirs(opts.Project.Root, manifest.Dependencies.APM)
+	}
+	openCodePlugins, err := reconcileOpenCodePlugins(opts.Project.Root, openCodeSources)
+	if err != nil {
+		return err
+	}
 
 	instructions, err := countProjectContent(filepath.Join(opts.Project.Root, ".apm", "instructions"), "*.instructions.md")
 	if err != nil {
@@ -123,12 +132,13 @@ func syncProjectLocked(ctx context.Context, held *heldLocks, opts SyncOptions) e
 		return err
 	}
 	return writeLine(opts.Stdout, fmt.Sprintf(
-		"ok: synced %d skills, %d plugins, %d mcp servers, %d instructions, %d prompts",
+		"ok: synced %d skills, %d plugins, %d mcp servers, %d instructions, %d prompts, %d opencode plugins",
 		len(ownedDependencyNames(manifest.Dependencies.APM, opts.LibraryPath, LibraryTypeSkill, skillCatalog)),
 		len(ownedDependencyNames(manifest.Dependencies.APM, opts.LibraryPath, LibraryTypePlugin, pluginCatalog)),
 		len(manifest.Dependencies.MCP),
 		instructions,
 		prompts,
+		openCodePlugins,
 	))
 }
 

@@ -21,7 +21,8 @@ flowchart LR
 
 - The **Library catalog** lives under `INSTILL_LIBRARY_PATH` and uses typed CSV files for skills, plugins, MCP servers, instructions, and prompts.
 - The **APM manifest** is the project-local `apm.yml` file committed with the project.
-- **Sync** means `instill sync` runs `apm install`, then `apm compile`, then reports installed counts.
+- **Sync** means `instill sync` runs `apm install`, then `apm compile`, then copies OpenCode plugin files, then reports installed counts.
+- **OpenCode plugin copying** is instill-owned because APM has no OpenCode plugin primitive: when `opencode` is a target (manifest `targets`, or a detected `.opencode/` directory when `targets` is empty), sync copies each `dependencies.apm` package's direct `opencode/plugins/*.ts` and `*.js` regular files into `.opencode/plugins/instill-<package>-<file>`, where `<package>` is the package directory's base name. Following ADR 0001, the `instill-` prefix is the ownership marker: sync overwrites changed copies, removes `instill-*.ts`/`instill-*.js` files no longer provided (all of them when `opencode` is not a target), and never touches files without the prefix. Git packages resolve under `apm_modules/<owner>/<repo>/<path>`.
 - **Skill deployment** is APM-owned: `apm install` copies each skill's full directory (including supporting files such as `scripts/`) into the shared `.agents/skills/<name>/` path used by converged harnesses; Claude Code receives its copy under `.claude/skills/`. instill no longer passes `--legacy-skill-paths`; on the next `apm install` APM prunes lock-tracked per-harness copies such as `.codex/skills/` automatically.
 - **Typed library entries** let one library manage skills, plugins, MCP servers, instructions, and prompts without overloading a skill-only manifest.
 
@@ -156,7 +157,7 @@ your-project/
 | `instill init` | Create `apm.yml` for the current project and optionally seed skills |
 | `instill targets` | View or configure target agents for compilation |
 | `instill pick [name...]` | Add or remove typed library entries from `apm.yml` or copied `.apm/` content |
-| `instill sync` | Run `apm install`, then `apm compile`, and report synced counts |
+| `instill sync` | Run `apm install`, then `apm compile`, copy OpenCode plugin files, and report synced counts |
 | `instill status` | Compare project APM state with the Library catalog |
 | `instill library scan` | Rebuild typed catalog CSV files from library content |
 | `instill library add` | Add one typed catalog entry |
