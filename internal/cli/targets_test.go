@@ -63,7 +63,7 @@ func TestTargetsCLIInteractivePicker(t *testing.T) {
 		targetPicker: func(opts instill.TargetPickerOptions) ([]string, bool, error) {
 			pickerCalled = true
 			capturedOpts = opts
-			return []string{"hermes", "pi"}, true, nil
+			return []string{"hermes", "opencode"}, true, nil
 		},
 	})
 
@@ -81,8 +81,8 @@ func TestTargetsCLIInteractivePicker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadAPMManifest() error = %v", err)
 	}
-	if len(manifest.Targets) != 2 || manifest.Targets[0] != "hermes" || manifest.Targets[1] != "pi" {
-		t.Fatalf("manifest.Targets = %#v, want [hermes, pi]", manifest.Targets)
+	if len(manifest.Targets) != 2 || manifest.Targets[0] != "hermes" || manifest.Targets[1] != "opencode" {
+		t.Fatalf("manifest.Targets = %#v, want [hermes, opencode]", manifest.Targets)
 	}
 }
 

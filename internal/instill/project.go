@@ -31,7 +31,6 @@ var harnessDetection = []struct {
 	{".hermes", "hermes"},
 	{".kiro", "kiro"},
 	{".opencode", "opencode"},
-	{".pi", "pi"},
 	{".windsurf", "windsurf"},
 }
 
@@ -44,6 +43,9 @@ func DetectHarnessTargets(root string) []string {
 		if err == nil && info.IsDir() {
 			targets = append(targets, h.target)
 		}
+	}
+	if len(targets) == 0 && projectHasPi(root) {
+		return []string{"agent-skills"}
 	}
 	sort.Strings(targets)
 	return targets

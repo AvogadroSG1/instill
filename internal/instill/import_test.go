@@ -510,13 +510,14 @@ func TestImportGraftWritesDurableMCPMarkersThatSurviveScan(t *testing.T) {
 	library := t.TempDir()
 	root := t.TempDir()
 	requireNoError(t, WriteCatalog(library, LibraryTypeMCP, []CatalogEntry{{
-		Type:        LibraryTypeMCP,
-		Name:        "local-db",
-		Transport:   "stdio",
-		Command:     "stale-mcp",
-		Args:        []string{"--old"},
-		Env:         []string{"OLD=value"},
-		Description: "keep this note",
+		Type:           LibraryTypeMCP,
+		Name:           "local-db",
+		Transport:      "stdio",
+		Command:        "stale-mcp",
+		Args:           []string{"--old"},
+		Env:            []string{"OLD=value"},
+		Description:    "keep this note",
+		DefaultEnabled: new(false),
 	}}))
 	requireNoError(t, os.WriteFile(filepath.Join(root, "graft.lock"), []byte("servers:\n  - local-db\n  - events\n"), 0o644))
 	requireNoError(t, os.WriteFile(filepath.Join(root, ".mcp.json"), []byte(`{
@@ -541,6 +542,9 @@ func TestImportGraftWritesDurableMCPMarkersThatSurviveScan(t *testing.T) {
 	byName := catalogEntriesByNameForTest(entries)
 
 	local := byName["local-db"]
+	if local.DefaultEnabled == nil || *local.DefaultEnabled {
+		t.Fatal("Graft import lost false default")
+	}
 	if local.Name == "" || local.Transport != "stdio" || local.Command != "sqlite-mcp" {
 		t.Fatalf("local-db catalog entry = %#v, want stdio sqlite server after scan", local)
 	}
@@ -815,7 +819,7 @@ func TestImportClaudeWritesRedactedMCPCatalog(t *testing.T) {
 	configDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
 
-	if err := os.WriteFile(filepath.Join(configDir, "claude.json"), []byte(`{
+	if err := os.WriteFile(filepath.Join(configDir, ".claude.json"), []byte(`{
   "mcpServers": {
     "docs-search": {
       "command": "docs-mcp",
@@ -860,7 +864,7 @@ func TestImportClaudePreservesSSETransport(t *testing.T) {
 	configDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
 
-	requireNoError(t, os.WriteFile(filepath.Join(configDir, "claude.json"), []byte(`{
+	requireNoError(t, os.WriteFile(filepath.Join(configDir, ".claude.json"), []byte(`{
   "mcpServers": {
     "events": {"transport": "sse", "url": "https://example.test/events"}
   }
@@ -881,13 +885,14 @@ func TestImportClaudeWritesDurableRedactedMCPMarkersThatSurviveScan(t *testing.T
 	configDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
 	requireNoError(t, WriteCatalog(library, LibraryTypeMCP, []CatalogEntry{{
-		Type:        LibraryTypeMCP,
-		Name:        "docs-search",
-		Transport:   "stdio",
-		Command:     "old-docs-mcp",
-		Description: "Docs search server",
+		Type:           LibraryTypeMCP,
+		Name:           "docs-search",
+		Transport:      "stdio",
+		Command:        "old-docs-mcp",
+		Description:    "Docs search server",
+		DefaultEnabled: new(false),
 	}}))
-	requireNoError(t, os.WriteFile(filepath.Join(configDir, "claude.json"), []byte(`{
+	requireNoError(t, os.WriteFile(filepath.Join(configDir, ".claude.json"), []byte(`{
   "mcpServers": {
     "docs-search": {
       "command": "docs-mcp",
@@ -916,6 +921,9 @@ func TestImportClaudeWritesDurableRedactedMCPMarkersThatSurviveScan(t *testing.T
 	byName := catalogEntriesByNameForTest(entries)
 
 	docs := byName["docs-search"]
+	if docs.DefaultEnabled == nil || *docs.DefaultEnabled {
+		t.Fatal("Claude import lost false default")
+	}
 	if docs.Name == "" || docs.Transport != "stdio" || docs.Command != "docs-mcp" {
 		t.Fatalf("docs-search catalog entry = %#v, want imported stdio server after scan", docs)
 	}
@@ -937,7 +945,7 @@ func TestImportDirectoryScansMarkersAndWritesCatalogs(t *testing.T) {
 	library := t.TempDir()
 	writeTypedLibraryMarker(t, filepath.Join(source, "vendor", "azure", "SKILL.md"), "# azure\n")
 	writeTypedLibraryMarker(t, filepath.Join(source, "shortcuts", "claude", ".claude-plugin", "plugin.json"), `{"name":"shortcuts","description":"Shortcuts plugin"}`)
-	writeTypedLibraryMarker(t, filepath.Join(source, "tools", "local-db", "config.json"), `{"transport":"stdio","command":"sqlite-mcp","args":["--db","dev.db"]}`)
+	writeTypedLibraryMarker(t, filepath.Join(source, "tools", "local-db", "config.json"), `{"transport":"stdio","command":"sqlite-mcp","args":["--db","dev.db"],"default_enabled":false}`)
 	writeTypedLibraryMarker(t, filepath.Join(source, "guidance", "python-rules", "INSTRUCTION.md"), "Use typing\n")
 	writeTypedLibraryMarker(t, filepath.Join(source, "templates", "debug", "PROMPT.md"), "/debug\n")
 	writeTypedLibraryMarker(t, filepath.Join(source, "notes", "scratch.md"), "ignore me\n")
@@ -960,6 +968,9 @@ func TestImportDirectoryScansMarkersAndWritesCatalogs(t *testing.T) {
 		requireNoError(t, loadErr)
 		if len(entries) != 1 || entries[0].Name != wantNames[typ] {
 			t.Fatalf("%s catalog = %#v, want one %q entry", typ, entries, wantNames[typ])
+		}
+		if typ == LibraryTypeMCP && (entries[0].DefaultEnabled == nil || *entries[0].DefaultEnabled) {
+			t.Fatal("directory import lost false default")
 		}
 	}
 	if _, err := os.Stat(filepath.Join(library, "notes", "scratch.md")); !os.IsNotExist(err) {
@@ -1022,7 +1033,7 @@ func TestImportClaudePrefersExplicitConfigDir(t *testing.T) {
 		},
 	})
 	requireNoError(t, err)
-	requireNoError(t, os.WriteFile(filepath.Join(configDir, "claude.json"), data, 0o644))
+	requireNoError(t, os.WriteFile(filepath.Join(configDir, ".claude.json"), data, 0o644))
 
 	err = ImportClaude(ImportOptions{LibraryPath: library})
 	requireNoError(t, err)

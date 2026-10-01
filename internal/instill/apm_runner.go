@@ -54,25 +54,61 @@ func EnsureAPM(runner CommandRunner) error {
 
 func RunAPMInstall(runner CommandRunner, root string) error {
 	return withRootLocks(context.Background(), []string{root}, func(ctx context.Context, held *heldLocks) error {
-		return runAPMInstallLocked(ctx, held, runner, root)
+		manifest, err := prepareStandaloneAPMManifest(root)
+		if err != nil {
+			return err
+		}
+		return runAPMInstallLocked(ctx, held, runner, root, newMCPInstallPolicy(nil, manifest.Dependencies.MCP, false))
 	})
 }
 
-func runAPMInstallLocked(ctx context.Context, held *heldLocks, runner CommandRunner, root string) error {
+func runAPMInstallLocked(ctx context.Context, held *heldLocks, runner CommandRunner, root string, policy mcpInstallPolicy) error {
 	if err := held.requireContext(ctx, root); err != nil {
 		return err
+	}
+	before, err := captureMCPEnableState(root)
+	if err != nil {
+		return err
+	}
+	if policy.ManagePi {
+		if err := validatePiMCPPolicy(root, before, policy); err != nil {
+			return err
+		}
 	}
 	if runner == nil {
 		runner = defaultCommandRunner
 	}
-	if err := runCommand(runner, "apm", "install", "--root", root); err != nil {
-		return wrapCommandError("apm", err)
+	args := []string{"install", "--root", root}
+	targets := policy.Targets
+	if len(targets) == 0 {
+		targets = DetectHarnessTargets(root)
+	}
+	// agent-skills has no MCP adapter. Pi definitions are deployed by Instill,
+	// while APM's package-only mode still owns native skill deployment.
+	if policy.ManagePi && projectHasPi(root) && len(policy.Dependencies) > 0 && len(targets) == 1 && targets[0] == "agent-skills" {
+		args = append(args, "--only", "apm")
+	}
+	if err := runCommand(runner, "apm", args...); err != nil {
+		original := wrapCommandError("apm", err)
+		if restoration := reconcileMCPEnableState(ctx, held, root, before, policy, false); restoration != nil {
+			return filesystemError("error: APM install failed and MCP enable state restoration failed", original, restoration)
+		}
+		return original
+	}
+	if err := reconcileMCPEnableState(ctx, held, root, before, policy, true); err != nil {
+		return err
+	}
+	if policy.ManagePi {
+		return reconcilePiMCPConfig(ctx, held, root, before, policy, true)
 	}
 	return nil
 }
 
 func RunAPMCompile(runner CommandRunner, root string) error {
 	return withRootLocks(context.Background(), []string{root}, func(ctx context.Context, held *heldLocks) error {
+		if _, err := prepareStandaloneAPMManifest(root); err != nil {
+			return err
+		}
 		return runAPMCompileLocked(ctx, held, runner, root)
 	})
 }

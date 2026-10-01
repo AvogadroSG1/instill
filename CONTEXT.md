@@ -29,7 +29,10 @@ The full immutable Git commit SHA recorded in a Skill or Plugin catalog entry an
 The `apm.lock.yaml` installation state owned by APM. It MUST NOT be treated as the Library catalog or the project selection contract.
 
 **Sync**:
-The operation that runs APM install and compile for the existing manifest selection. Sync installs selected pins and renders configured targets; it MUST NOT discover newer Git revisions.
+The operation that runs APM install and compile for the existing manifest selection, then copies OpenCode plugin files. Sync installs selected pins and renders configured targets; it MUST NOT discover newer Git revisions.
+
+**OpenCode plugin copy**:
+A file Sync writes to `.opencode/plugins/instill-<package>-<file>` from a selected APM package's `opencode/plugins/` directory when `opencode` is a target. The `instill-` prefix is the ownership marker (ADR 0001): Sync reconciles only prefixed files and never touches others.
 
 ## Relationships
 
@@ -43,7 +46,7 @@ flowchart LR
     Compile --> Harnesses[Harness artifacts]
 ```
 
-- Instill MUST own Library discovery, catalog curation, project selection, and copied Instruction or Prompt content.
+- Instill MUST own Library discovery, catalog curation, project selection, copied Instruction or Prompt content, and OpenCode plugin copies (APM has no OpenCode plugin primitive).
 - APM MUST own package retrieval, lock state, security scanning, and harness-specific rendering.
 - Local and Git-backed Skills and Plugins share `dependencies.apm`; typed catalog membership is the Instill ownership boundary.
 - Git package replacement and removal use stable identity (`repository + package path`), while exact installation changes include the immutable ref.

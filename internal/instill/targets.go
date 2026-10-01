@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -17,6 +19,9 @@ type SetTargetsOptions struct {
 
 // SetProjectTargets updates the targets in the project's APM manifest.
 func SetProjectTargets(opts SetTargetsOptions) error {
+	if err := rejectPiTargets(opts.Targets); err != nil {
+		return err
+	}
 	return withRootLocks(context.Background(), []string{opts.Project.Root}, func(ctx context.Context, held *heldLocks) error {
 		return setProjectTargetsLocked(ctx, held, opts)
 	})
@@ -30,7 +35,7 @@ func setProjectTargetsLocked(ctx context.Context, held *heldLocks, opts SetTarge
 	if err != nil {
 		return err
 	}
-	targets := normalizeStringSlice(opts.Targets)
+	targets := normalizeAPMProjectTargets(opts.Project.Root, opts.Targets)
 	if err := document.setTargets(targets, false); err != nil {
 		return err
 	}
@@ -55,5 +60,62 @@ func GetProjectTargets(project Project) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return manifest.Targets, nil
+	return normalizeAPMProjectTargets(project.Root, manifest.Targets), nil
+}
+
+func projectHasPi(root string) bool {
+	info, err := os.Stat(filepath.Join(root, ".pi"))
+	return err == nil && info.IsDir()
+}
+
+func rejectPiTargets(targets []string) error {
+	for _, target := range normalizeStringSlice(targets) {
+		if target == "pi" {
+			return NewExitError(ExitGeneral, "error: pi MCP support is activated by the .pi directory, not apm.yml targets")
+		}
+	}
+	return nil
+}
+
+func normalizeAPMProjectTargets(root string, targets []string) []string {
+	filtered := make([]string, 0, len(targets))
+	hadPi := false
+	for _, target := range normalizeStringSlice(targets) {
+		if target == "pi" {
+			hadPi = true
+		} else {
+			filtered = append(filtered, target)
+		}
+	}
+	if len(filtered) == 0 && projectHasPi(root) {
+		detected := DetectHarnessTargets(root)
+		if hadPi || (len(detected) == 1 && detected[0] == "agent-skills") {
+			return detected
+		}
+	}
+	return normalizeStringSlice(filtered)
+}
+
+func prepareAPMProjectTargets(root string, document *manifestDocument) ([]string, error) {
+	targets := normalizeAPMProjectTargets(root, document.projection.Targets)
+	if !equalStringSlices(targets, document.projection.Targets) {
+		if err := document.setTargets(targets, false); err != nil {
+			return nil, err
+		}
+	}
+	return targets, nil
+}
+
+func prepareStandaloneAPMManifest(root string) (APMManifest, error) {
+	document, err := loadManifestDocument(ProjectAPMPath(root))
+	if err != nil {
+		return APMManifest{}, err
+	}
+	targets, err := prepareAPMProjectTargets(root, document)
+	if err != nil {
+		return APMManifest{}, err
+	}
+	manifest := document.projection
+	manifest.Targets = targets
+	return manifest, document.write()
 }

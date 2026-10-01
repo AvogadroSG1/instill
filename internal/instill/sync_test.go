@@ -288,6 +288,198 @@ func TestSyncProjectRunsInstallThenCompileAndReportsSummary(t *testing.T) {
 	requireContains(t, stdout.String(), "ok: synced 1 skills, 0 plugins, 1 mcp servers, 1 instructions, 1 prompts")
 }
 
+func TestSyncProjectCopiesOnlyDirectOpenCodePluginFiles(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	project := createAPMProject(t, APMManifest{
+		Targets:      []string{"opencode"},
+		Dependencies: APMDependencies{APM: localDependencies("./integrations/peterd")},
+	})
+	pluginSource := filepath.Join(project.Root, "integrations", "peterd", "opencode", "plugins")
+	writeOpenCodePluginFiles(t, pluginSource, map[string]string{
+		"peterd-wake.ts": "export const PeterdWake = async () => ({})\n",
+		"helper.js":      "export const Helper = async () => ({})\n",
+		"README.md":      "not a plugin\n",
+		"nested/deep.ts": "export const Deep = async () => ({})\n",
+	})
+	requireNoError(t, os.Symlink(filepath.Join(pluginSource, "peterd-wake.ts"), filepath.Join(pluginSource, "linked.ts")))
+	pluginsDir := filepath.Join(project.Root, ".opencode", "plugins")
+	writeOpenCodePluginFiles(t, pluginsDir, map[string]string{"mine.ts": "user plugin\n"})
+
+	var stdout bytes.Buffer
+	requireNoError(t, SyncProject(SyncOptions{Project: project, LibraryPath: library, Runner: recordingRunner(nil, nil), Stdout: &stdout}))
+
+	requireEqual(t, []string{"instill-peterd-helper.js", "instill-peterd-peterd-wake.ts", "mine.ts"}, dirNames(t, pluginsDir))
+	requireEqual(t, "export const PeterdWake = async () => ({})\n", readFile(t, filepath.Join(pluginsDir, "instill-peterd-peterd-wake.ts")))
+	requireEqual(t, "user plugin\n", readFile(t, filepath.Join(pluginsDir, "mine.ts")))
+	requireContains(t, stdout.String(), ", 2 opencode plugins")
+}
+
+func TestSyncProjectOpenCodePluginsFollowSourceAndDependencyChanges(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	project := createAPMProject(t, APMManifest{
+		Targets:      []string{"opencode"},
+		Dependencies: APMDependencies{APM: localDependencies("./pkg/peterd")},
+	})
+	pluginSource := filepath.Join(project.Root, "pkg", "peterd", "opencode", "plugins")
+	pluginsDir := filepath.Join(project.Root, ".opencode", "plugins")
+	copied := filepath.Join(pluginsDir, "instill-peterd-peterd-wake.ts")
+	sync := func() string {
+		t.Helper()
+		var stdout bytes.Buffer
+		requireNoError(t, SyncProject(SyncOptions{Project: project, LibraryPath: library, Runner: recordingRunner(nil, nil), Stdout: &stdout}))
+		return stdout.String()
+	}
+
+	writeOpenCodePluginFiles(t, pluginSource, map[string]string{"peterd-wake.ts": "v1\n"})
+	sync()
+	requireEqual(t, "v1\n", readFile(t, copied))
+	writeOpenCodePluginFiles(t, pluginsDir, map[string]string{"mine.ts": "user plugin\n"})
+
+	writeOpenCodePluginFiles(t, pluginSource, map[string]string{"peterd-wake.ts": "v2\n"})
+	sync()
+	requireEqual(t, "v2\n", readFile(t, copied))
+
+	writeAPMManifestForTest(t, project.ManifestPath, APMManifest{Targets: []string{"opencode"}})
+	output := sync()
+	assertPathMissing(t, copied)
+	requireEqual(t, []string{"mine.ts"}, dirNames(t, pluginsDir))
+	requireContains(t, output, ", 0 opencode plugins")
+}
+
+func TestSyncProjectRemovesInstillOpenCodePluginsWhenOpenCodeIsNotTarget(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	project := createAPMProject(t, APMManifest{
+		Targets:      []string{"claude"},
+		Dependencies: APMDependencies{APM: localDependencies("./pkg/peterd")},
+	})
+	writeOpenCodePluginFiles(t, filepath.Join(project.Root, "pkg", "peterd", "opencode", "plugins"), map[string]string{"peterd-wake.ts": "v1\n"})
+	pluginsDir := filepath.Join(project.Root, ".opencode", "plugins")
+	writeOpenCodePluginFiles(t, pluginsDir, map[string]string{
+		"instill-peterd-peterd-wake.ts": "stale\n",
+		"instill-old-tool.js":           "stale\n",
+		"instill-notes.md":              "not a plugin extension\n",
+		"mine.ts":                       "user plugin\n",
+	})
+
+	var stdout bytes.Buffer
+	requireNoError(t, SyncProject(SyncOptions{Project: project, LibraryPath: library, Runner: recordingRunner(nil, nil), Stdout: &stdout}))
+
+	requireEqual(t, []string{"instill-notes.md", "mine.ts"}, dirNames(t, pluginsDir))
+	requireContains(t, stdout.String(), ", 0 opencode plugins")
+}
+
+func TestSyncProjectDoesNotCreateOpenCodePluginsDirWithoutPluginFiles(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	project := createAPMProject(t, APMManifest{
+		Targets:      []string{"opencode"},
+		Dependencies: APMDependencies{APM: localDependencies("./pkg/no-plugins")},
+	})
+	requireNoError(t, os.MkdirAll(filepath.Join(project.Root, "pkg", "no-plugins"), 0o755))
+
+	requireNoError(t, SyncProject(SyncOptions{Project: project, LibraryPath: library, Runner: recordingRunner(nil, nil), Stdout: ioDiscard()}))
+
+	assertPathMissing(t, filepath.Join(project.Root, ".opencode", "plugins"))
+}
+
+func TestSyncProjectRejectsOpenCodePluginNameCollision(t *testing.T) {
+	t.Parallel()
+
+	library := createCatalogLibrary(t, catalogLibrarySeed{})
+	project := createAPMProject(t, APMManifest{
+		Targets:      []string{"opencode"},
+		Dependencies: APMDependencies{APM: localDependencies("./a/peterd", "./b/peterd")},
+	})
+	for _, parent := range []string{"a", "b"} {
+		writeOpenCodePluginFiles(t, filepath.Join(project.Root, parent, "peterd", "opencode", "plugins"), map[string]string{"wake.ts": parent + "\n"})
+	}
+
+	err := SyncProject(SyncOptions{Project: project, LibraryPath: library, Runner: recordingRunner(nil, nil), Stdout: ioDiscard()})
+
+	if ExitCode(err) != ExitGeneral {
+		t.Fatalf("ExitCode(err) = %d, want %d (err = %v)", ExitCode(err), ExitGeneral, err)
+	}
+	requireContains(t, ErrorMessage(err), "opencode plugin name collision: "+filepath.Join(project.Root, ".opencode", "plugins", "instill-peterd-wake.ts"))
+	assertPathMissing(t, filepath.Join(project.Root, ".opencode", "plugins"))
+}
+
+func TestSyncProjectCopiesOpenCodePluginsFromInstalledGitPackage(t *testing.T) {
+	t.Parallel()
+
+	library := t.TempDir()
+	plugin := remotePluginCatalogEntry(remotePluginSHA)
+	requireNoError(t, WriteCatalog(library, LibraryTypePlugin, []CatalogEntry{plugin}))
+	project := createAPMProject(t, APMManifest{
+		Targets:      []string{"opencode"},
+		Dependencies: APMDependencies{APM: []APMDependency{{Git: &GitDependency{Repository: plugin.Repository, Path: plugin.Path, Ref: remotePluginSHA}}}},
+	})
+	install := "apm install --root " + project.Root
+	base := recordingRunner(nil, nil)
+	runner := func(name string, args ...string) ([]byte, error) {
+		if strings.TrimSpace(name+" "+strings.Join(args, " ")) == install {
+			writeOpenCodePluginFiles(t, filepath.Join(project.Root, "apm_modules", "owner", "repo", "plugin", "opencode", "plugins"), map[string]string{"x.ts": "installed\n"})
+		}
+		return base(name, args...)
+	}
+
+	var stdout bytes.Buffer
+	requireNoError(t, SyncProject(SyncOptions{Project: project, LibraryPath: library, Runner: runner, Stdout: &stdout}))
+
+	requireEqual(t, "installed\n", readFile(t, filepath.Join(project.Root, ".opencode", "plugins", "instill-plugin-x.ts")))
+	requireContains(t, stdout.String(), ", 1 opencode plugins")
+}
+
+func TestOpenCodeTargetEnabledPrefersManifestTargets(t *testing.T) {
+	t.Parallel()
+
+	withOpenCodeDir := t.TempDir()
+	requireNoError(t, os.Mkdir(filepath.Join(withOpenCodeDir, ".opencode"), 0o755))
+	withoutOpenCodeDir := t.TempDir()
+
+	for name, tc := range map[string]struct {
+		root    string
+		targets []string
+		want    bool
+	}{
+		"explicit opencode without directory": {root: withoutOpenCodeDir, targets: []string{"claude", "opencode"}, want: true},
+		"explicit targets override detection": {root: withOpenCodeDir, targets: []string{"claude"}, want: false},
+		"empty targets detect .opencode":      {root: withOpenCodeDir, want: true},
+		"empty targets without .opencode":     {root: withoutOpenCodeDir, want: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			requireEqual(t, tc.want, openCodeTargetEnabled(tc.root, tc.targets))
+		})
+	}
+}
+
+func writeOpenCodePluginFiles(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for name, content := range files {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		requireNoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		requireNoError(t, os.WriteFile(path, []byte(content), 0o644))
+	}
+}
+
+func dirNames(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	requireNoError(t, err)
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	return names
+}
+
 func TestSyncRemovesLegacyLibrarySymlinksBeforeAPMInstall(t *testing.T) {
 	t.Parallel()
 

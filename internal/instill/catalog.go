@@ -24,20 +24,21 @@ const (
 )
 
 type CatalogEntry struct {
-	Type        LibraryType
-	Name        string
-	Category    string
-	Path        string
-	Transport   string
-	Command     string
-	Args        []string
-	URL         string
-	Env         []string
-	ApplyTo     string
-	Description string
-	Source      string
-	Repository  string
-	Ref         string
+	Type           LibraryType
+	Name           string
+	Category       string
+	Path           string
+	Transport      string
+	Command        string
+	Args           []string
+	URL            string
+	Env            []string
+	ApplyTo        string
+	Description    string
+	DefaultEnabled *bool
+	Source         string
+	Repository     string
+	Ref            string
 }
 
 func matchCatalogEntryForLocalDependency(libraryPath string, typ LibraryType, localPath string, catalog []CatalogEntry) (CatalogEntry, bool) {
@@ -533,9 +534,25 @@ func scanLibraryTypesLocked(ctx context.Context, held *heldLocks, root string, s
 
 func AddCatalogEntry(root string, entry CatalogEntry) error {
 	return withRootLocks(context.Background(), []string{root}, func(ctx context.Context, held *heldLocks) error {
+		if err := validateCatalogEntry(entry); err != nil {
+			return err
+		}
 		entries, err := LoadCatalog(root, entry.Type)
 		if err != nil {
 			return err
+		}
+		if entry.Type == LibraryTypeMCP {
+			path, err := mcpConfigMarkerPath(root, entry.Name)
+			if err != nil {
+				return err
+			}
+			if _, err := os.Lstat(path); os.IsNotExist(err) {
+				if err := writeMCPConfigMarkerLocked(ctx, held, root, entry); err != nil {
+					return err
+				}
+			} else if err != nil {
+				return NewExitError(ExitFilesystem, "error: cannot read mcp config: "+err.Error())
+			}
 		}
 		entries = append(entries, entry)
 		return writeCatalogLocked(ctx, held, root, entry.Type, entries)
@@ -574,7 +591,7 @@ func catalogFileSpec(root string, typ LibraryType) (string, []string, error) {
 	case LibraryTypePlugin:
 		return filepath.Join(root, "plugins", "catalog.csv"), []string{"name", "category", "path", "source", "repository", "ref", "description"}, nil
 	case LibraryTypeMCP:
-		return filepath.Join(root, "mcp", "catalog.csv"), []string{"name", "transport", "command", "args", "url", "env", "description"}, nil
+		return filepath.Join(root, "mcp", "catalog.csv"), []string{"name", "transport", "command", "args", "url", "env", "description", "default_enabled"}, nil
 	case LibraryTypeInstruction:
 		return filepath.Join(root, "instructions", "catalog.csv"), []string{"name", "apply_to", "path", "description"}, nil
 	case LibraryTypePrompt:
@@ -608,7 +625,7 @@ func parseCatalogRow(typ LibraryType, row []string) (CatalogEntry, error) {
 		entry.Name, entry.Category, entry.Path = row[0], row[1], row[2]
 		entry.Source, entry.Repository, entry.Ref, entry.Description = row[3], row[4], row[5], row[6]
 	case LibraryTypeMCP:
-		if len(row) != 7 {
+		if len(row) != 7 && len(row) != 8 {
 			return CatalogEntry{}, NewExitError(ExitGeneral, "error: malformed catalog: invalid mcp row")
 		}
 		entry.Name = row[0]
@@ -618,6 +635,17 @@ func parseCatalogRow(typ LibraryType, row []string) (CatalogEntry, error) {
 		entry.URL = row[4]
 		entry.Env = splitCSVList(row[5])
 		entry.Description = row[6]
+		if len(row) == 8 {
+			switch strings.TrimSpace(row[7]) {
+			case "":
+			case "true":
+				entry.DefaultEnabled = new(true)
+			case "false":
+				entry.DefaultEnabled = new(false)
+			default:
+				return CatalogEntry{}, NewExitError(ExitGeneral, "error: malformed catalog: default_enabled must be true, false, or empty")
+			}
+		}
 	case LibraryTypeInstruction:
 		if len(row) != 4 {
 			return CatalogEntry{}, NewExitError(ExitGeneral, "error: malformed catalog: invalid instruction row")
@@ -644,6 +672,9 @@ func parseCatalogRow(typ LibraryType, row []string) (CatalogEntry, error) {
 }
 
 func validateCatalogEntry(entry CatalogEntry) error {
+	if entry.DefaultEnabled != nil && entry.Type != LibraryTypeMCP {
+		return NewExitError(ExitGeneral, "error: malformed catalog: default_enabled is only supported for mcp")
+	}
 	if strings.TrimSpace(entry.Name) == "" {
 		return NewExitError(ExitGeneral, "error: malformed catalog: name is required")
 	}
@@ -710,6 +741,14 @@ func formatCatalogRow(entry CatalogEntry) []string {
 	case LibraryTypePlugin:
 		return []string{entry.Name, entry.Category, entry.Path, entry.Source, entry.Repository, entry.Ref, entry.Description}
 	case LibraryTypeMCP:
+		defaultEnabled := ""
+		if entry.DefaultEnabled != nil {
+			if *entry.DefaultEnabled {
+				defaultEnabled = "true"
+			} else {
+				defaultEnabled = "false"
+			}
+		}
 		return []string{
 			entry.Name,
 			entry.Transport,
@@ -718,6 +757,7 @@ func formatCatalogRow(entry CatalogEntry) []string {
 			entry.URL,
 			strings.Join(entry.Env, ","),
 			entry.Description,
+			defaultEnabled,
 		}
 	case LibraryTypeInstruction:
 		return []string{entry.Name, entry.ApplyTo, entry.Path, entry.Description}
@@ -860,6 +900,7 @@ func discoverCatalogEntries(root string, typ LibraryType) ([]CatalogEntry, error
 			entry.URL = parsed.URL
 			entry.Env = parsed.Env
 			entry.Description = parsed.Description
+			entry.DefaultEnabled = parsed.DefaultEnabled
 		}
 		entries = append(entries, entry)
 		return nil
@@ -890,6 +931,9 @@ func isPluginRoot(dir string) bool {
 
 func mergeCatalogEntry(existing CatalogEntry, discovered CatalogEntry) CatalogEntry {
 	merged := existing
+	if merged.DefaultEnabled == nil {
+		merged.DefaultEnabled = discovered.DefaultEnabled
+	}
 	merged.Type = discovered.Type
 	if strings.TrimSpace(merged.Name) == "" {
 		merged.Name = discovered.Name
@@ -932,6 +976,9 @@ func catalogContentExists(root string, entry CatalogEntry) (bool, error) {
 func catalogHeadersValid(typ LibraryType, got, current []string) bool {
 	if equalStringSlices(got, current) {
 		return true
+	}
+	if typ == LibraryTypeMCP {
+		return equalStringSlices(got, []string{"name", "transport", "command", "args", "url", "env", "description"})
 	}
 	return (typ == LibraryTypeSkill || typ == LibraryTypePlugin) && equalStringSlices(got, []string{"name", "category", "path", "description"})
 }
@@ -982,12 +1029,13 @@ func loadPluginMetadata(path string) (pluginMetadataFile, error) {
 }
 
 type mcpConfigFile struct {
-	Transport   string   `json:"transport"`
-	Command     string   `json:"command"`
-	Args        []string `json:"args"`
-	URL         string   `json:"url"`
-	Env         []string `json:"env"`
-	Description string   `json:"description"`
+	Transport      string   `json:"transport"`
+	Command        string   `json:"command"`
+	Args           []string `json:"args"`
+	URL            string   `json:"url"`
+	Env            []string `json:"env"`
+	Description    string   `json:"description"`
+	DefaultEnabled *bool    `json:"default_enabled,omitempty"`
 }
 
 func loadMCPConfig(path string) (mcpConfigFile, error) {

@@ -47,12 +47,12 @@ func Pick(opts PickOptions) error {
 	if err := EnsureAPM(opts.Runner); err != nil {
 		return err
 	}
-	return withRootLocks(context.Background(), []string{opts.LibraryPath, opts.Project.Root}, func(ctx context.Context, held *heldLocks) error {
-		return pickLocked(ctx, held, opts)
+	return withMCPMutationLocks(context.Background(), opts.LibraryPath, opts.Project.Root, func(ctx context.Context, held *heldLocks, mcpCatalog []CatalogEntry) error {
+		return pickLocked(ctx, held, opts, mcpCatalog)
 	})
 }
 
-func pickLocked(ctx context.Context, held *heldLocks, opts PickOptions) error {
+func pickLocked(ctx context.Context, held *heldLocks, opts PickOptions, mcpCatalog []CatalogEntry) error {
 	if err := held.requireContext(ctx, opts.LibraryPath); err != nil {
 		return err
 	}
@@ -69,6 +69,8 @@ func pickLocked(ctx context.Context, held *heldLocks, opts PickOptions) error {
 		entries = skills
 	case LibraryTypePlugin:
 		entries = plugins
+	case LibraryTypeMCP:
+		entries = mcpCatalog
 	default:
 		entries, err = LoadCatalog(opts.LibraryPath, opts.Type)
 		if err != nil {
@@ -79,26 +81,35 @@ func pickLocked(ctx context.Context, held *heldLocks, opts PickOptions) error {
 	for _, entry := range entries {
 		entriesByName[entry.Name] = entry
 	}
+	document, err := loadManifestDocumentObserved(opts.Project.ManifestPath, opts.manifestMetrics)
+	if err != nil {
+		return err
+	}
+	targets, err := prepareAPMProjectTargets(opts.Project.Root, document)
+	if err != nil {
+		return err
+	}
+	policy := newMCPInstallPolicy(mcpCatalog, document.projection.Dependencies.MCP, true)
+	policy.Targets = targets
 	if opts.Type == LibraryTypeInstruction || opts.Type == LibraryTypePrompt {
 		if err := applyContentPick(opts.Project.Root, opts.LibraryPath, entriesByName, opts.Add, opts.Remove, opts.Type); err != nil {
 			return err
 		}
-		if err := held.release(ctx, opts.LibraryPath); err != nil {
+		if err := document.write(); err != nil {
+			return err
+		}
+		if err := releaseMCPLibraryLock(ctx, held, opts.LibraryPath, opts.Project.Root); err != nil {
 			return err
 		}
 		if len(normalizeSkills(opts.Add)) > 0 {
-			if err := runAPMInstallLocked(ctx, held, opts.Runner, opts.Project.Root); err != nil {
+			if err := runAPMInstallLocked(ctx, held, opts.Runner, opts.Project.Root, policy); err != nil {
 				return err
 			}
 		}
 		if len(normalizeSkills(opts.Remove)) > 0 {
-			return runAPMPruneLocked(ctx, held, opts.Runner, opts.Project.Root)
+			return runAPMPruneWithPiLocked(ctx, held, opts.Runner, opts.Project.Root, policy)
 		}
 		return nil
-	}
-	document, err := loadManifestDocumentObserved(opts.Project.ManifestPath, opts.manifestMetrics)
-	if err != nil {
-		return err
 	}
 	manifest := document.projection
 	previousAPMDependencies := manifest.Dependencies.APM
@@ -141,19 +152,20 @@ func pickLocked(ctx context.Context, held *heldLocks, opts PickOptions) error {
 	if err := document.write(); err != nil {
 		return err
 	}
-	if err := held.release(ctx, opts.LibraryPath); err != nil {
+	policy.Dependencies = manifest.Dependencies.MCP
+	if err := releaseMCPLibraryLock(ctx, held, opts.LibraryPath, opts.Project.Root); err != nil {
 		return err
 	}
 
 	added := len(normalizeSkills(opts.Add)) > 0
 	removed := len(normalizeSkills(opts.Remove)) > 0
 	if added {
-		if err := runAPMInstallLocked(ctx, held, opts.Runner, opts.Project.Root); err != nil {
+		if err := runAPMInstallLocked(ctx, held, opts.Runner, opts.Project.Root, policy); err != nil {
 			return err
 		}
 	}
 	if removed {
-		return runAPMPruneLocked(ctx, held, opts.Runner, opts.Project.Root)
+		return runAPMPruneWithPiLocked(ctx, held, opts.Runner, opts.Project.Root, policy)
 	}
 	return nil
 }
@@ -175,12 +187,12 @@ func ApplySkillSelection(opts SkillSelectionOptions) error {
 	if err := EnsureAPM(opts.Runner); err != nil {
 		return err
 	}
-	return withRootLocks(context.Background(), []string{opts.LibraryPath, opts.Project.Root}, func(ctx context.Context, held *heldLocks) error {
-		return applySkillSelectionLocked(ctx, held, opts)
+	return withMCPMutationLocks(context.Background(), opts.LibraryPath, opts.Project.Root, func(ctx context.Context, held *heldLocks, mcpCatalog []CatalogEntry) error {
+		return applySkillSelectionLocked(ctx, held, opts, mcpCatalog)
 	})
 }
 
-func applySkillSelectionLocked(ctx context.Context, held *heldLocks, opts SkillSelectionOptions) error {
+func applySkillSelectionLocked(ctx context.Context, held *heldLocks, opts SkillSelectionOptions, mcpCatalog []CatalogEntry) error {
 	if err := held.requireContext(ctx, opts.LibraryPath); err != nil {
 		return err
 	}
@@ -195,7 +207,13 @@ func applySkillSelectionLocked(ctx context.Context, held *heldLocks, opts SkillS
 	if err != nil {
 		return err
 	}
+	targets, err := prepareAPMProjectTargets(opts.Project.Root, document)
+	if err != nil {
+		return err
+	}
 	manifest := document.projection
+	policy := newMCPInstallPolicy(mcpCatalog, manifest.Dependencies.MCP, true)
+	policy.Targets = targets
 	previous := append([]APMDependency{}, manifest.Dependencies.APM...)
 	entriesByName := make(map[string]CatalogEntry, len(skills))
 	for _, entry := range skills {
@@ -231,16 +249,16 @@ func applySkillSelectionLocked(ctx context.Context, held *heldLocks, opts SkillS
 	if err := document.write(); err != nil {
 		return err
 	}
-	if err := held.release(ctx, opts.LibraryPath); err != nil {
+	if err := releaseMCPLibraryLock(ctx, held, opts.LibraryPath, opts.Project.Root); err != nil {
 		return err
 	}
 	if hasAddedDependencies(previous, dependencies) {
-		if err := runAPMInstallLocked(ctx, held, opts.Runner, opts.Project.Root); err != nil {
+		if err := runAPMInstallLocked(ctx, held, opts.Runner, opts.Project.Root, policy); err != nil {
 			return err
 		}
 	}
 	if hasRemovedDependencies(previous, dependencies) {
-		return runAPMPruneLocked(ctx, held, opts.Runner, opts.Project.Root)
+		return runAPMPruneWithPiLocked(ctx, held, opts.Runner, opts.Project.Root, policy)
 	}
 	return nil
 }

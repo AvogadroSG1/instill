@@ -843,7 +843,7 @@ func TestLibraryEarlyReleaseFailurePreventsAPM(t *testing.T) {
 		return nil, nil
 	}
 	err = withRootLocksUsing(context.Background(), []string{library, project.Root}, time.Second, provider, func(ctx context.Context, held *heldLocks) error {
-		return pickLocked(ctx, held, opts)
+		return pickLocked(ctx, held, opts, nil)
 	})
 	if err == nil || ExitCode(err) != ExitFilesystem {
 		t.Fatalf("pickLocked() error = %v, want filesystem release failure", err)

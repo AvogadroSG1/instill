@@ -34,12 +34,12 @@ func SyncProject(opts SyncOptions) error {
 	if err := EnsureAPM(opts.Runner); err != nil {
 		return err
 	}
-	return withRootLocks(context.Background(), []string{opts.LibraryPath, opts.Project.Root}, func(ctx context.Context, held *heldLocks) error {
-		return syncProjectLocked(ctx, held, opts)
+	return withMCPMutationLocks(context.Background(), opts.LibraryPath, opts.Project.Root, func(ctx context.Context, held *heldLocks, mcpCatalog []CatalogEntry) error {
+		return syncProjectLocked(ctx, held, opts, mcpCatalog)
 	})
 }
 
-func syncProjectLocked(ctx context.Context, held *heldLocks, opts SyncOptions) error {
+func syncProjectLocked(ctx context.Context, held *heldLocks, opts SyncOptions, mcpCatalog []CatalogEntry) error {
 	if err := held.requireContext(ctx, opts.LibraryPath); err != nil {
 		return err
 	}
@@ -51,6 +51,10 @@ func syncProjectLocked(ctx context.Context, held *heldLocks, opts SyncOptions) e
 		return err
 	}
 	manifest := document.projection
+	targets, err := prepareAPMProjectTargets(opts.Project.Root, document)
+	if err != nil {
+		return err
+	}
 	if err := document.setTargets(DetectHarnessTargets(opts.Project.Root), true); err != nil {
 		return err
 	}
@@ -79,10 +83,6 @@ func syncProjectLocked(ctx context.Context, held *heldLocks, opts SyncOptions) e
 	if err := document.mutateAPM(manifest.Dependencies.APM, ownership, apmRelocations); err != nil {
 		return err
 	}
-	mcpCatalog, err := LoadCatalog(opts.LibraryPath, LibraryTypeMCP)
-	if err != nil {
-		return err
-	}
 	dependencies, changed := reconcileMCPDependencies(manifest.Dependencies.MCP, mcpCatalog)
 	if changed {
 		manifest.Dependencies.MCP = dependencies
@@ -96,7 +96,7 @@ func syncProjectLocked(ctx context.Context, held *heldLocks, opts SyncOptions) e
 	if err := document.write(); err != nil {
 		return err
 	}
-	if err := held.release(ctx, opts.LibraryPath); err != nil {
+	if err := releaseMCPLibraryLock(ctx, held, opts.LibraryPath, opts.Project.Root); err != nil {
 		return err
 	}
 	// Stale symlinks from legacy (pre-APM) instill would let apm install copy
@@ -107,10 +107,20 @@ func syncProjectLocked(ctx context.Context, held *heldLocks, opts SyncOptions) e
 	if err := removeLegacyLibrarySymlinks(opts.Project.AgentsSymlinkDir, opts.LibraryPath); err != nil {
 		return err
 	}
-	if err := runAPMInstallLocked(ctx, held, opts.Runner, opts.Project.Root); err != nil {
+	policy := newMCPInstallPolicy(mcpCatalog, dependencies, true)
+	policy.Targets = targets
+	if err := runAPMInstallLocked(ctx, held, opts.Runner, opts.Project.Root, policy); err != nil {
 		return err
 	}
 	if err := runAPMCompileLocked(ctx, held, opts.Runner, opts.Project.Root); err != nil {
+		return err
+	}
+	var openCodeSources []openCodePluginSource
+	if openCodeTargetEnabled(opts.Project.Root, targets) {
+		openCodeSources = apmPackageDirs(opts.Project.Root, manifest.Dependencies.APM)
+	}
+	openCodePlugins, err := reconcileOpenCodePlugins(opts.Project.Root, openCodeSources)
+	if err != nil {
 		return err
 	}
 
@@ -123,12 +133,13 @@ func syncProjectLocked(ctx context.Context, held *heldLocks, opts SyncOptions) e
 		return err
 	}
 	return writeLine(opts.Stdout, fmt.Sprintf(
-		"ok: synced %d skills, %d plugins, %d mcp servers, %d instructions, %d prompts",
+		"ok: synced %d skills, %d plugins, %d mcp servers, %d instructions, %d prompts, %d opencode plugins",
 		len(ownedDependencyNames(manifest.Dependencies.APM, opts.LibraryPath, LibraryTypeSkill, skillCatalog)),
 		len(ownedDependencyNames(manifest.Dependencies.APM, opts.LibraryPath, LibraryTypePlugin, pluginCatalog)),
 		len(manifest.Dependencies.MCP),
 		instructions,
 		prompts,
+		openCodePlugins,
 	))
 }
 

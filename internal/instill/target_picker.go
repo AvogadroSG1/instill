@@ -14,7 +14,6 @@ var DefaultAvailableTargets = []string{
 	"codex",
 	"opencode",
 	"hermes",
-	"pi",
 	"claude",
 	"antigravity",
 }

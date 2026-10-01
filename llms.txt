@@ -22,8 +22,22 @@ external `apm` CLI.
   durable project contract for selected skill paths and MCP dependencies.
 - **Copied local content** — selected instructions and prompts are copied into
   `.apm/instructions/` and `.apm/prompts/`; they are not symlinked.
-- **Sync** — `instill sync` runs `apm install` and then `apm compile`, then
-  reports selected skill, MCP, instruction, and prompt counts.
+- **Sync** — `instill sync` runs `apm install` and then `apm compile`, copies
+  OpenCode plugin files, then reports selected skill, plugin, MCP, instruction,
+  prompt, and OpenCode plugin counts.
+- **OpenCode plugins** — when `opencode` is a target, sync copies each APM
+  package's direct `opencode/plugins/*.ts|*.js` files to
+  `.opencode/plugins/instill-<package>-<file>` and removes stale `instill-*`
+  copies; files without the `instill-` prefix are never touched.
+- **MCP initial state** — optional `default_enabled` in MCP CSV/config markers;
+  `library add --type mcp --default-enabled=false|true` applies only to names
+  absent before install. Existing native choices/omissions win per harness.
+  Claude defaults update only the project's `/mcp` disabled list, not approval.
+- **Pi MCP** — `.pi/` activates native `.pi/mcp-adapter.json` deployment for
+  separately installed pi-mcp-adapter. Only `_instillManagedServers` entries
+  are reconciled/pruned; existing user/provider servers are not claimed.
+  Pi is not an APM target; legacy selections migrate, and Pi-only installs use
+  `agent-skills` with APM's `--only apm` mode for packages/skills.
 - **Legacy migration** — old `skill-manifest.json`, `.claude/skills` symlinks,
   `.agents/skills` symlinks, and `settings.local.json` permission reconciliation
   are migration concerns only. Hidden legacy commands MUST NOT mutate state.
@@ -41,7 +55,8 @@ instill pick --type <type> --remove name...
     Remove typed entries by name.
 
 instill sync
-    Run apm install and apm compile for the current project.
+    Run apm install and apm compile for the current project, then copy
+    OpenCode plugin files into .opencode/plugins/instill-<package>-<file>.
 
 instill status
     Show selected typed entries and drift against copied .apm content.
@@ -54,6 +69,7 @@ instill library show --type <type> [--filter substring]
 
 instill library add --type <type> ...
     Add a typed catalog entry.
+    MCP only: --default-enabled=true|false sets optional initial state.
 
 instill import old-instill|graft|claude|directory <path>
     Import legacy or external state into the Library catalog and apm.yml.
@@ -108,6 +124,7 @@ internal/instill/               pure domain logic
   pick_skills.go                Pick; typed add/remove behavior
   skill_picker.go               RunPickTUI; Bubbletea unified picker
   sync.go                       SyncProject and status orchestration
+  opencode_plugins.go           reconcileOpenCodePlugins; .opencode/plugins/instill-* copies
   import.go                     old instill, graft, Claude, directory importers
   add_hooks.go                  AddHooks; installs instill sync hook
   errors.go                     ExitError; NewExitError(); ExitCode()
