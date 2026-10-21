@@ -296,7 +296,13 @@ func TestPickAddsSelfDefinedHTTPMCPDependency(t *testing.T) {
 	t.Parallel()
 
 	library := createCatalogLibrary(t, catalogLibrarySeed{
-		mcp: []CatalogEntry{{Type: LibraryTypeMCP, Name: "remote", Transport: "http", URL: "https://example.test/mcp"}},
+		mcp: []CatalogEntry{{
+			Type:      LibraryTypeMCP,
+			Name:      "remote",
+			Transport: "http",
+			URL:       "https://example.test/mcp",
+			Headers:   []string{"Authorization=Bearer ${ROOTLY_API_TOKEN}"},
+		}},
 	})
 	project := createAPMProject(t, APMManifest{})
 
@@ -312,7 +318,13 @@ func TestPickAddsSelfDefinedHTTPMCPDependency(t *testing.T) {
 	requireNoError(t, err)
 	manifest, readErr := ReadAPMManifest(project.ManifestPath)
 	requireNoError(t, readErr)
-	requireEqual(t, []MCPDependency{{Name: "remote", Transport: "http", Registry: false, URL: "https://example.test/mcp"}}, manifest.Dependencies.MCP)
+	requireEqual(t, []MCPDependency{{
+		Name:      "remote",
+		Transport: "http",
+		Registry:  false,
+		URL:       "https://example.test/mcp",
+		Extra:     map[string]any{"headers": map[string]any{"Authorization": "Bearer ${ROOTLY_API_TOKEN}"}},
+	}}, manifest.Dependencies.MCP)
 }
 
 func TestPickCopiesInstructionAndRunsAPMInstall(t *testing.T) {

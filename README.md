@@ -73,7 +73,7 @@ instill pick --type mcp local-db
 instill sync
 ```
 
-`--default-enabled` is MCP-only. Omission leaves the initial harness behavior unchanged; explicit `true` or `false` supplies an initial default. The MCP CSV schema is `name,transport,command,args,url,env,description,default_enabled`. The last cell accepts empty, `true`, or `false`; old seven-column catalogs remain readable without a migration write. Defaults are Instill metadata, never fields in `apm.yml`.
+`--default-enabled` is MCP-only. Omission leaves the initial harness behavior unchanged; explicit `true` or `false` supplies an initial default. The MCP CSV schema is `name,transport,command,args,url,env,headers,description,default_enabled`; `env` and `headers` contain comma-separated `KEY=VALUE` entries, and header values may use `${ENV_VAR}` placeholders. The last cell accepts empty, `true`, or `false`; old seven- and eight-column catalogs remain readable without a migration write. Defaults are Instill metadata, never fields in `apm.yml`.
 
 Defaults apply only to names absent from the destination's applicable local configuration before installation. Existing choices—including omitted flags—win independently in OpenCode, Codex, Claude Code, and Pi. Subsequent installs refresh connection definitions without reapplying defaults. A deleted Instill-owned destination entry can receive the current default when recreated. Change existing library defaults in the CSV; scan preserves a curated non-empty value and uses a marker default only for an unspecified row. MCP additions create missing `config.json` markers, but never overwrite existing markers.
 

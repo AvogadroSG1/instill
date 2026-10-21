@@ -95,6 +95,7 @@ func newLibraryAddCommand(cfg commandConfig) *cobra.Command {
 	command.Flags().StringSliceVar(&entry.Args, "args", nil, "mcp command arguments")
 	command.Flags().StringVar(&entry.URL, "url", "", "mcp url")
 	command.Flags().StringSliceVar(&entry.Env, "env", nil, "mcp environment entries")
+	command.Flags().StringSliceVar(&entry.Headers, "headers", nil, "mcp HTTP header entries")
 	command.Flags().BoolVar(&defaultEnabled, "default-enabled", false, "initial MCP enabled state; existing server choices are preserved")
 	command.Flags().StringVar(&entry.ApplyTo, "apply-to", "", "instruction apply_to glob")
 	command.Flags().StringVar(&entry.Description, "description", "", "entry description")

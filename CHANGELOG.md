@@ -13,7 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `add-hooks` command: registers `instill check-skills` as a Claude Code `SessionStart` hook in `.claude/settings.json`
 - `instill sync` copies OpenCode plugin files from each `dependencies.apm` package's `opencode/plugins/` directory into `.opencode/plugins/instill-<package>-<file>` when `opencode` is a target, removes stale `instill-*` copies, and reports the count as `N opencode plugins` in the sync summary
 - Per-MCP optional `default_enabled` catalog/marker metadata and `library add --default-enabled`, applying initial OpenCode/Codex/Claude/Pi state only to genuinely new server names while preserving each harness's existing choice.
-- Native `.pi/mcp-adapter.json` deployment for separately installed `pi-mcp-adapter`, with recorded ownership, user-server collision protection, removal-only pruning, and endpoint-bound credential cleanup.
+- MCP catalog entries now support HTTP/SSE `headers`, including environment-variable placeholders, through catalog markers, APM dependencies, and Pi configuration.
 
 ### Changed
 

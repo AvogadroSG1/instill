@@ -350,6 +350,35 @@ func TestLoadCatalogReadsMCPSchema(t *testing.T) {
 	}, entries)
 }
 
+func TestLoadCatalogReadsMCPHeaders(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	requireNoError(t, os.MkdirAll(filepath.Join(root, "mcp"), 0o755))
+	requireNoError(t, os.WriteFile(
+		filepath.Join(root, "mcp", "catalog.csv"),
+		[]byte("name,transport,command,args,url,env,headers,description,default_enabled\nrootly,http,,,https://mcp.rootly.com/mcp-codemode,,Authorization=Bearer ${ROOTLY_API_TOKEN},Rootly,\n"),
+		0o644,
+	))
+
+	entries, err := LoadCatalog(root, LibraryTypeMCP)
+	requireNoError(t, err)
+	requireEqual(t, []CatalogEntry{{
+		Type:        LibraryTypeMCP,
+		Name:        "rootly",
+		Transport:   "http",
+		URL:         "https://mcp.rootly.com/mcp-codemode",
+		Headers:     []string{"Authorization=Bearer ${ROOTLY_API_TOKEN}"},
+		Description: "Rootly",
+	}}, entries)
+
+	requireNoError(t, WriteCatalog(root, LibraryTypeMCP, entries))
+	requireEqual(t,
+		"name,transport,command,args,url,env,headers,description,default_enabled\nrootly,http,,,https://mcp.rootly.com/mcp-codemode,,Authorization=Bearer ${ROOTLY_API_TOKEN},Rootly,\n",
+		readFile(t, filepath.Join(root, "mcp", "catalog.csv")),
+	)
+}
+
 func TestLoadCatalogReadsInstructionSchema(t *testing.T) {
 	t.Parallel()
 

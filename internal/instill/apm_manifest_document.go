@@ -674,6 +674,7 @@ func (d *manifestDocument) mutateMCP(desired []MCPDependency, ownedNames map[str
 }
 
 func (d *manifestDocument) reconcileMCPNode(node *yaml.Node, dependency MCPDependency) error {
+	headers, hasHeaders := dependency.Extra["headers"]
 	owned := []struct {
 		key     string
 		value   any
@@ -686,6 +687,7 @@ func (d *manifestDocument) reconcileMCPNode(node *yaml.Node, dependency MCPDepen
 		{key: "args", value: dependency.Args, present: len(dependency.Args) > 0},
 		{key: "env", value: dependency.Env, present: len(dependency.Env) > 0},
 		{key: "url", value: dependency.URL, present: dependency.URL != ""},
+		{key: "headers", value: headers, present: hasHeaders},
 	}
 	for _, field := range owned {
 		current := mappingValue(node, field.key)
