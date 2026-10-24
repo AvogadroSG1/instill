@@ -1,0 +1,6 @@
+[mcp_servers.obsidian-enforcer]
+command = "/bin/sh"
+args = ["/Users/poconnor/peter_code/ai_support/mcp/obsidian-enforcer/launch.sh"]
+id = ""
+
+[mcp_servers.obsidian-enforcer.env]

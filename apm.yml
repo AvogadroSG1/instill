@@ -1,9 +1,55 @@
 name: instill
 version: 0.1.0
 targets:
-    - codex
-    - opencode
-    - claude
+  - codex
+  - opencode
+  - claude
 dependencies:
-    apm:
-        - /Users/avogadro/peter_code/ai_support/skills/DevOps/git/git-pushing
+  apm:
+    - /Users/poconnor/peter_code/ai_support/skills/DevOps/git/git-pushing
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/code-review
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/codebase-design
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/diagnosing-bugs
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/domain-modeling
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/grill-me
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/grill-with-docs
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/grilling
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/handoff
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/implement
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/improve-codebase-architecture
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/prototype
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/research
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/resolving-merge-conflicts
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/setup-matt-pocock-skills
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/tdd
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/to-questionnaire
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/to-spec
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/to-tickets
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/triage
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/wait-what
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/wayfinder
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/wizard
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/mpocock/writing-for-agents
+    - /Users/poconnor/peter_code/ai_support/skills/coding/golang/golang-cli
+    - /Users/poconnor/peter_code/ai_support/skills/coding/golang/golang-code-style
+    - /Users/poconnor/peter_code/ai_support/skills/coding/golang/golang-continuous-integration
+    - /Users/poconnor/peter_code/ai_support/skills/coding/golang/golang-data-structures
+    - /Users/poconnor/peter_code/ai_support/skills/coding/golang/golang-design-patterns
+    - /Users/poconnor/peter_code/ai_support/skills/coding/golang/golang-documentation
+    - /Users/poconnor/peter_code/ai_support/skills/coding/golang/golang-error-handling
+    - /Users/poconnor/peter_code/ai_support/skills/coding/golang/golang-how-to
+    - /Users/poconnor/peter_code/ai_support/skills/coding/golang/golang-linter
+    - /Users/poconnor/peter_code/ai_support/skills/coding/golang/golang-observability
+    - /Users/poconnor/peter_code/ai_support/skills/coding/golang/golang-performance
+    - /Users/poconnor/peter_code/ai_support/skills/coding/golang/golang-popular-libraries
+    - /Users/poconnor/peter_code/ai_support/skills/coding/golang/golang-project-layout
+    - /Users/poconnor/peter_code/ai_support/skills/coding/golang/golang-refactoring
+    - /Users/poconnor/peter_code/ai_support/skills/coding/golang/golang-testing
+    - /Users/poconnor/peter_code/ai_support/skills/coding/golang/golang-troubleshooting
+  mcp:
+    - name: obsidian-enforcer
+      transport: stdio
+      registry: false
+      command: /bin/sh
+      args:
+        - /Users/poconnor/peter_code/ai_support/mcp/obsidian-enforcer/launch.sh
