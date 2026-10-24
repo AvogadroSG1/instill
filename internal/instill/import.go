@@ -188,6 +188,7 @@ func importGraftLocked(ctx context.Context, held *heldLocks, opts ImportOptions)
 			Args:      entry.Args,
 			Env:       mcpEnvironment(entry.Env),
 			URL:       entry.URL,
+			Extra:     mcpDependencyExtra(entry.Headers),
 		})
 		imported[name] = struct{}{}
 	}
@@ -610,6 +611,7 @@ type mcpServer struct {
 	Args      []string          `json:"args"`
 	URL       string            `json:"url"`
 	Env       map[string]string `json:"env"`
+	Headers   map[string]string `json:"headers"`
 }
 
 func readMCPJSON(path string) (map[string]mcpServer, error) {
@@ -728,6 +730,7 @@ func catalogEntryFromMCPServer(name string, server mcpServer, redactEnv bool) Ca
 		}
 	}
 	entry.Env = formatEnvList(server.Env, redactEnv)
+	entry.Headers = formatEnvList(server.Headers, redactEnv)
 	return entry
 }
 
@@ -749,6 +752,7 @@ func writeMCPConfigMarkerLocked(ctx context.Context, held *heldLocks, libraryPat
 		Args           []string `json:"args,omitempty"`
 		URL            string   `json:"url,omitempty"`
 		Env            []string `json:"env,omitempty"`
+		Headers        []string `json:"headers,omitempty"`
 		Description    string   `json:"description,omitempty"`
 		DefaultEnabled *bool    `json:"default_enabled,omitempty"`
 	}{
@@ -757,6 +761,7 @@ func writeMCPConfigMarkerLocked(ctx context.Context, held *heldLocks, libraryPat
 		Args:           append([]string{}, entry.Args...),
 		URL:            entry.URL,
 		Env:            append([]string{}, entry.Env...),
+		Headers:        append([]string{}, entry.Headers...),
 		Description:    entry.Description,
 		DefaultEnabled: entry.DefaultEnabled,
 	}

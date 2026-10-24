@@ -33,6 +33,7 @@ type CatalogEntry struct {
 	Args           []string
 	URL            string
 	Env            []string
+	Headers        []string
 	ApplyTo        string
 	Description    string
 	DefaultEnabled *bool
@@ -591,7 +592,7 @@ func catalogFileSpec(root string, typ LibraryType) (string, []string, error) {
 	case LibraryTypePlugin:
 		return filepath.Join(root, "plugins", "catalog.csv"), []string{"name", "category", "path", "source", "repository", "ref", "description"}, nil
 	case LibraryTypeMCP:
-		return filepath.Join(root, "mcp", "catalog.csv"), []string{"name", "transport", "command", "args", "url", "env", "description", "default_enabled"}, nil
+		return filepath.Join(root, "mcp", "catalog.csv"), []string{"name", "transport", "command", "args", "url", "env", "headers", "description", "default_enabled"}, nil
 	case LibraryTypeInstruction:
 		return filepath.Join(root, "instructions", "catalog.csv"), []string{"name", "apply_to", "path", "description"}, nil
 	case LibraryTypePrompt:
@@ -625,7 +626,7 @@ func parseCatalogRow(typ LibraryType, row []string) (CatalogEntry, error) {
 		entry.Name, entry.Category, entry.Path = row[0], row[1], row[2]
 		entry.Source, entry.Repository, entry.Ref, entry.Description = row[3], row[4], row[5], row[6]
 	case LibraryTypeMCP:
-		if len(row) != 7 && len(row) != 8 {
+		if len(row) != 7 && len(row) != 8 && len(row) != 9 {
 			return CatalogEntry{}, NewExitError(ExitGeneral, "error: malformed catalog: invalid mcp row")
 		}
 		entry.Name = row[0]
@@ -634,17 +635,29 @@ func parseCatalogRow(typ LibraryType, row []string) (CatalogEntry, error) {
 		entry.Args = splitCSVList(row[3])
 		entry.URL = row[4]
 		entry.Env = splitCSVList(row[5])
-		entry.Description = row[6]
-		if len(row) == 8 {
-			switch strings.TrimSpace(row[7]) {
-			case "":
-			case "true":
-				entry.DefaultEnabled = new(true)
-			case "false":
-				entry.DefaultEnabled = new(false)
-			default:
-				return CatalogEntry{}, NewExitError(ExitGeneral, "error: malformed catalog: default_enabled must be true, false, or empty")
-			}
+		defaultIndex := -1
+		switch len(row) {
+		case 7:
+			entry.Description = row[6]
+		case 8:
+			entry.Description = row[6]
+			defaultIndex = 7
+		case 9:
+			entry.Headers = splitCSVList(row[6])
+			entry.Description = row[7]
+			defaultIndex = 8
+		}
+		if defaultIndex == -1 {
+			break
+		}
+		switch strings.TrimSpace(row[defaultIndex]) {
+		case "":
+		case "true":
+			entry.DefaultEnabled = new(true)
+		case "false":
+			entry.DefaultEnabled = new(false)
+		default:
+			return CatalogEntry{}, NewExitError(ExitGeneral, "error: malformed catalog: default_enabled must be true, false, or empty")
 		}
 	case LibraryTypeInstruction:
 		if len(row) != 4 {
@@ -723,6 +736,17 @@ func validateCatalogEntry(entry CatalogEntry) error {
 		default:
 			return NewExitError(ExitGeneral, "error: malformed catalog: invalid transport: "+entry.Transport)
 		}
+		if len(entry.Headers) > 0 {
+			if entry.Transport != "http" && entry.Transport != "sse" {
+				return NewExitError(ExitGeneral, "error: malformed catalog: headers require http or sse transport")
+			}
+			for _, header := range entry.Headers {
+				key, _, ok := strings.Cut(header, "=")
+				if !ok || strings.TrimSpace(key) == "" || strings.ContainsAny(key, " \t\r\n") || strings.ContainsAny(header, "\r\n\x00") {
+					return NewExitError(ExitGeneral, "error: malformed catalog: headers must be KEY=VALUE entries")
+				}
+			}
+		}
 	case LibraryTypeInstruction, LibraryTypePrompt:
 		if strings.TrimSpace(entry.Path) == "" {
 			return NewExitError(ExitGeneral, "error: malformed catalog: path is required")
@@ -756,6 +780,7 @@ func formatCatalogRow(entry CatalogEntry) []string {
 			strings.Join(entry.Args, ","),
 			entry.URL,
 			strings.Join(entry.Env, ","),
+			strings.Join(entry.Headers, ","),
 			entry.Description,
 			defaultEnabled,
 		}
@@ -899,6 +924,7 @@ func discoverCatalogEntries(root string, typ LibraryType) ([]CatalogEntry, error
 			entry.Args = parsed.Args
 			entry.URL = parsed.URL
 			entry.Env = parsed.Env
+			entry.Headers = parsed.Headers
 			entry.Description = parsed.Description
 			entry.DefaultEnabled = parsed.DefaultEnabled
 		}
@@ -978,7 +1004,8 @@ func catalogHeadersValid(typ LibraryType, got, current []string) bool {
 		return true
 	}
 	if typ == LibraryTypeMCP {
-		return equalStringSlices(got, []string{"name", "transport", "command", "args", "url", "env", "description"})
+		return equalStringSlices(got, []string{"name", "transport", "command", "args", "url", "env", "description"}) ||
+			equalStringSlices(got, []string{"name", "transport", "command", "args", "url", "env", "description", "default_enabled"})
 	}
 	return (typ == LibraryTypeSkill || typ == LibraryTypePlugin) && equalStringSlices(got, []string{"name", "category", "path", "description"})
 }
@@ -1034,6 +1061,7 @@ type mcpConfigFile struct {
 	Args           []string `json:"args"`
 	URL            string   `json:"url"`
 	Env            []string `json:"env"`
+	Headers        []string `json:"headers"`
 	Description    string   `json:"description"`
 	DefaultEnabled *bool    `json:"default_enabled,omitempty"`
 }

@@ -491,19 +491,28 @@ func applyMCPPick(current []MCPDependency, entriesByName map[string]CatalogEntry
 
 func mcpDependencyFromCatalog(entry CatalogEntry) MCPDependency {
 	return MCPDependency{
-		Name: entry.Name, Transport: entry.Transport, Registry: false,
-		Command: entry.Command, Args: entry.Args, Env: mcpEnvironment(entry.Env), URL: entry.URL,
+		Name:      entry.Name,
+		Transport: entry.Transport,
+		Registry:  false,
+		Command:   entry.Command,
+		Args:      entry.Args,
+		Env:       mcpEnvironment(entry.Env),
+		URL:       entry.URL,
+		Extra:     mcpDependencyExtra(entry.Headers),
 	}
 }
 
-func catalogEntryNamesSet(entries []CatalogEntry) map[string]struct{} {
-	names := make(map[string]struct{}, len(entries))
-	for _, entry := range entries {
-		names[entry.Name] = struct{}{}
+func mcpDependencyExtra(headers []string) map[string]any {
+	if len(headers) == 0 {
+		return nil
 	}
-	return names
+	values := mcpEnvironment(headers)
+	headerMap := make(map[string]any, len(values))
+	for key, value := range values {
+		headerMap[key] = value
+	}
+	return map[string]any{"headers": headerMap}
 }
-
 func mcpEnvironment(entries []string) map[string]string {
 	environment := make(map[string]string, len(entries))
 	for _, entry := range entries {
@@ -513,6 +522,14 @@ func mcpEnvironment(entries []string) map[string]string {
 		}
 	}
 	return environment
+}
+
+func catalogEntryNamesSet(entries []CatalogEntry) map[string]struct{} {
+	names := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		names[entry.Name] = struct{}{}
+	}
+	return names
 }
 
 func applyContentPick(projectRoot string, libraryPath string, entriesByName map[string]CatalogEntry, add []string, remove []string, typ LibraryType) error {

@@ -100,6 +100,9 @@ func piDefinition(entry *CatalogEntry) map[string]json.RawMessage {
 		if entry.Transport == "sse" {
 			object["httpTransport"] = piRaw("sse")
 		}
+		if len(entry.Headers) > 0 {
+			object["headers"] = piRaw(mcpEnvironment(entry.Headers))
+		}
 	}
 	if entry.DefaultEnabled != nil {
 		object["disabled"] = piRaw(!*entry.DefaultEnabled)
@@ -166,6 +169,13 @@ func piReconcileEntry(document *hujson.Value, pointer string, current map[string
 			transport = piRaw("sse")
 		}
 		if err := set("httpTransport", transport); err != nil {
+			return false, err
+		}
+		var headers json.RawMessage
+		if len(entry.Headers) > 0 {
+			headers = piRaw(mcpEnvironment(entry.Headers))
+		}
+		if err := set("headers", headers); err != nil {
 			return false, err
 		}
 	}
