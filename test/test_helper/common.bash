@@ -36,7 +36,7 @@ scan_library() {
   [ "$status" -eq 0 ]
 }
 
-install_fake_git_remote_plugin() {
+install_fake_git_marketplace() {
   mkdir -p "$BATS_TEST_TMPDIR/bin"
   cat > "$BATS_TEST_TMPDIR/bin/git" <<'EOF'
 #!/usr/bin/env bash
@@ -45,36 +45,27 @@ set -euo pipefail
 sha="3333333333333333333333333333333333333333"
 command="$*"
 case "$command" in
-  "ls-remote --symref https://github.com/pbakaus/impeccable.git HEAD")
+  "ls-remote --symref https://github.com/mattpocock/skills.git HEAD")
     printf '%s\tHEAD\n' "$sha"
     ;;
   init\ *)
     mkdir -p "$2/.git"
     ;;
-  -C\ *\ remote\ add\ origin\ https://github.com/pbakaus/impeccable.git)
+  *remote\ add\ origin\ https://github.com/mattpocock/skills.git)
     ;;
-  -C\ *\ fetch\ --depth\ 1\ origin\ "$sha")
+  *fetch\ --depth\ 1\ origin\ "$sha")
     ;;
-  -C\ *\ ls-tree\ "$sha"\ --\ .claude-plugin/marketplace.json)
-    printf '100644 blob abc\t.claude-plugin/marketplace.json\n'
-    ;;
-  -C\ *\ cat-file\ -s\ "$sha":.claude-plugin/marketplace.json)
-    printf '130\n'
-    ;;
-  -C\ *\ show\ "$sha":.claude-plugin/marketplace.json)
-    printf '%s\n' '{"plugins":[{"name":"impeccable","description":"Design fluency","category":"design","source":"./plugin"}]}'
-    ;;
-  -C\ *\ ls-tree\ "$sha"\ --\ plugin/.claude-plugin/plugin.json)
-    printf '100644 blob def\tplugin/.claude-plugin/plugin.json\n'
-    ;;
-  -C\ *\ cat-file\ -s\ "$sha":plugin/.claude-plugin/plugin.json)
-    printf '21\n'
-    ;;
-  -C\ *\ ls-tree\ "$sha"\ --\ plugin)
-    printf '040000 tree def\tplugin\n'
-    ;;
-  -C\ *\ show\ "$sha":plugin/.claude-plugin/plugin.json)
-    printf '%s\n' '{"name":"impeccable"}'
+  *checkout\ --force\ --detach\ "$sha")
+    work_tree=""
+    for arg in "$@"; do
+      case "$arg" in
+        --work-tree=*) work_tree="${arg#--work-tree=}" ;;
+      esac
+    done
+    mkdir -p "$work_tree/.claude-plugin" "$work_tree/skills/tdd"
+    printf '%s\n' '{"name":"mattpocock","plugins":[{"name":"mattpocock-skills","source":"./","description":"Matt Pocock skills"}]}' > "$work_tree/.claude-plugin/marketplace.json"
+    printf '%s\n' '{"name":"mattpocock-skills"}' > "$work_tree/.claude-plugin/plugin.json"
+    printf '# tdd\n' > "$work_tree/skills/tdd/SKILL.md"
     ;;
   *)
     printf 'unexpected git command: %s\n' "$command" >&2

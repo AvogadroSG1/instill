@@ -115,35 +115,27 @@ instill sync
 
 The explicit `pick` updates this project's manifest to the catalog SHA. `sync` alone MUST NOT change project dependency refs. Review and commit the catalog, manifest, and APM lockfile changes after an explicit upgrade.
 
-### Remote Plugins
+### Plugin Marketplaces
 
-Register a plugin from a GitHub repository containing a root Claude marketplace:
-
-```bash
-instill library add --type plugin --repository pbakaus/impeccable --name impeccable
-```
-
-Instill resolves the repository's default branch to a full immutable commit SHA, reads `.claude-plugin/marketplace.json` at that commit, selects the named plugin, and verifies its package-local `.claude-plugin/plugin.json`. `--name` MAY be omitted when the marketplace advertises exactly one plugin; repositories advertising multiple plugins MUST use `--name`.
-
-Marketplace plugin sources MUST be repository-local directories. Instill rejects absolute paths, URLs, traversal, symlinks, malformed metadata, duplicate names, and package manifests whose name does not match the marketplace entry. Registration failures MUST NOT change the catalog.
-
-Repository-backed plugins use the expanded `plugins/catalog.csv` schema `name,category,path,source,repository,ref,description`. Existing four-column local plugin catalogs remain readable and migrate on their next write. For Impeccable, selecting the catalog entry writes this APM dependency:
-
-```yaml
-- git: https://github.com/pbakaus/impeccable.git
-  path: plugin
-  ref: <full-40-character-sha>
-```
-
-Refresh remains explicit and follows the same three-pin lifecycle as remote skills:
+Download a GitHub repository that publishes a Claude plugin marketplace into the Library:
 
 ```bash
-instill library update --type plugin --name impeccable
-instill pick --type plugin impeccable
+instill library add plugin-marketplace mattpocock/skills
+```
+
+Instill downloads the repository's default-branch commit into `plugins/marketplaces/<marketplace>/`, where `<marketplace>` is the `name` in `.claude-plugin/marketplace.json`. The download contains no `.git` directory. Each installable plugin becomes a `plugins/catalog.csv` row named `<marketplace>/<plugin>` with `source=marketplace` and the pinned commit SHA. `instill pick --type plugin` lists each marketplace as a category, and picking a plugin installs it from the Library copy.
+
+Plugins whose sources are external, missing, or lack a plugin manifest are skipped and reported. `add` fails if a marketplace with the same name already exists.
+
+To refresh a marketplace to its current default-branch commit:
+
+```bash
+instill library update plugin-marketplace mattpocock
+instill pick --type plugin mattpocock/mattpocock-skills
 instill sync
 ```
 
-`library update` refreshes the catalog source pin, `pick` replaces the project's manifest pin, and APM records installation state in its lockfile. `sync` MUST NOT discover or select a newer commit by itself.
+Git-pinned remote plugins are no longer supported. Plugin catalog reads fail with a `no longer supported` error until any `source=git` rows are removed from `plugins/catalog.csv`.
 
 ## Project Workflow
 

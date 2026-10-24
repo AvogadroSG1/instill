@@ -3,6 +3,7 @@ package instill
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -71,10 +72,6 @@ func TestRemoteOperationsTerminateWhenRemoteCommandBlocks(t *testing.T) {
 		Type: LibraryTypeSkill, Name: "example", Path: "skills/example", Source: "git",
 		Repository: "https://github.com/owner/example.git", Ref: remoteSkillSHA,
 	}
-	seedPlugin := CatalogEntry{
-		Type: LibraryTypePlugin, Name: "plugin", Path: "plugin", Source: "git",
-		Repository: "https://github.com/owner/repo.git", Ref: remotePluginSHA,
-	}
 	tests := []struct {
 		name string
 		url  string
@@ -102,22 +99,25 @@ func TestRemoteOperationsTerminateWhenRemoteCommandBlocks(t *testing.T) {
 			},
 		},
 		{
-			name: "add plugin",
+			name: "add plugin marketplace",
 			url:  "https://github.com/owner/repo.git",
 			typ:  LibraryTypePlugin,
 			run: func(ctx context.Context, library string, runner CommandRunner) error {
-				return AddRemotePlugin(ctx, library, "owner/repo", "plugin", runner)
+				return AddPluginMarketplace(ctx, library, "owner/repo", runner, io.Discard)
 			},
 		},
 		{
-			name: "update plugin",
+			name: "update plugin marketplace",
 			url:  "https://github.com/owner/repo.git",
 			typ:  LibraryTypePlugin,
 			seed: func(t *testing.T, library string) {
-				requireNoError(t, WriteCatalog(library, LibraryTypePlugin, []CatalogEntry{seedPlugin}))
+				requireNoError(t, WriteCatalog(library, LibraryTypePlugin, []CatalogEntry{{
+					Type: LibraryTypePlugin, Name: "mkt/plugin", Category: "mkt", Path: "marketplaces/mkt/plugin/.claude-plugin/plugin.json",
+					Source: "marketplace", Repository: "https://github.com/owner/repo.git", Ref: remoteSkillSHA,
+				}}))
 			},
 			run: func(ctx context.Context, library string, runner CommandRunner) error {
-				return UpdateRemotePlugin(ctx, library, "plugin", runner)
+				return UpdatePluginMarketplace(ctx, library, "mkt", runner, io.Discard)
 			},
 		},
 	}

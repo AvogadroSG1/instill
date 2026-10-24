@@ -347,32 +347,7 @@ func writeCatalogLocked(ctx context.Context, held *heldLocks, root string, typ L
 	if err := held.requireContext(ctx, root); err != nil {
 		return err
 	}
-	if (typ == LibraryTypeSkill || typ == LibraryTypePlugin) && hasGitCatalogEntries(entries) {
-		skills := entries
-		plugins := entries
-		var err error
-		if typ == LibraryTypeSkill {
-			plugins, err = LoadCatalog(root, LibraryTypePlugin)
-		} else {
-			skills, err = LoadCatalog(root, LibraryTypeSkill)
-		}
-		if err != nil {
-			return err
-		}
-		if err := validateTypedGitCatalogs(skills, plugins); err != nil {
-			return err
-		}
-	}
 	return writeCatalogRawLocked(ctx, held, root, typ, entries)
-}
-
-func hasGitCatalogEntries(entries []CatalogEntry) bool {
-	for _, entry := range entries {
-		if entry.Source == "git" {
-			return true
-		}
-	}
-	return false
 }
 
 func writeCatalogRawLocked(ctx context.Context, held *heldLocks, root string, typ LibraryType, entries []CatalogEntry) error {
@@ -511,13 +486,17 @@ func scanLibraryTypesLocked(ctx context.Context, held *heldLocks, root string, s
 			if _, ok := preservedNames[entry.Name]; ok {
 				continue
 			}
-			if (typ == LibraryTypeSkill || typ == LibraryTypePlugin) && entry.Source == "git" {
+			if typ == LibraryTypeSkill && entry.Source == "git" {
 				merged = append(merged, entry)
 				continue
 			}
 			exists, err := catalogContentExists(root, entry)
 			if err != nil {
 				return err
+			}
+			if exists && entry.Source == pluginMarketplaceSource {
+				merged = append(merged, entry)
+				continue
 			}
 			if !exists {
 				if err := writeLine(stdout, "removed: "+entry.Name+" (content not found)"); err != nil {
@@ -713,15 +692,23 @@ func validateCatalogEntry(entry CatalogEntry) error {
 		if strings.TrimSpace(entry.Path) == "" {
 			return NewExitError(ExitGeneral, "error: malformed catalog: path is required")
 		}
-		if entry.Source == "" {
+		switch entry.Source {
+		case "":
 			return nil
-		}
-		if entry.Source != "git" || !canonicalGitHubRepository(entry.Repository) || !isFullGitSHA(entry.Ref) {
-			return NewExitError(ExitGeneral, "error: malformed catalog: remote plugin requires git repository and full commit SHA")
-		}
-		normalized, err := validateRemotePluginSource(entry.Path)
-		if err != nil || normalized != entry.Path {
-			return NewExitError(ExitGeneral, "error: malformed catalog: remote plugin path must be a normalized repository-local slash path")
+		case pluginMarketplaceSource:
+			if !validMarketplaceName(entry.Category) || !strings.HasPrefix(entry.Name, entry.Category+"/") ||
+				!validMarketplacePluginName(strings.TrimPrefix(entry.Name, entry.Category+"/")) ||
+				!canonicalGitHubRepository(entry.Repository) || !isFullGitSHA(entry.Ref) {
+				return NewExitError(ExitGeneral, "error: malformed catalog: marketplace plugin requires marketplace category, <marketplace>/<plugin> name, GitHub repository, and full commit SHA")
+			}
+			normalized, err := normalizeRepositoryRelativePath(entry.Path)
+			if err != nil || normalized != entry.Path || !strings.HasPrefix(entry.Path, pluginMarketplacesDir+"/"+entry.Category+"/") {
+				return NewExitError(ExitGeneral, "error: malformed catalog: marketplace plugin path must be a normalized path under marketplaces/<marketplace>/")
+			}
+		case "git":
+			return NewExitError(ExitGeneral, "error: malformed catalog: git-pinned plugin "+entry.Name+" is no longer supported; remove it from plugins/catalog.csv and run 'instill library add plugin-marketplace <owner/repo>'")
+		default:
+			return NewExitError(ExitGeneral, "error: malformed catalog: invalid plugin source: "+entry.Source)
 		}
 	case LibraryTypeMCP:
 		switch entry.Transport {
@@ -846,6 +833,9 @@ func discoverCatalogEntries(root string, typ LibraryType) ([]CatalogEntry, error
 			return walkErr
 		}
 		if d.IsDir() {
+			if typ == LibraryTypePlugin && path == filepath.Join(baseDir, pluginMarketplacesDir) {
+				return filepath.SkipDir
+			}
 			// Once an entry root is found, do not descend into its subtree: a
 			// marker file (SKILL.md, INSTRUCTION.md, PROMPT.md, config.json)
 			// nested below another entry's root (e.g. bundled examples or
@@ -943,16 +933,23 @@ func discoverCatalogEntries(root string, typ LibraryType) ([]CatalogEntry, error
 // contains a plugin.json marker, either flat (dir/plugin.json) or nested
 // under a .claude-plugin/ or .codex-plugin/ subdirectory.
 func isPluginRoot(dir string) bool {
+	_, ok := pluginMarkerPath(dir)
+	return ok
+}
+
+// pluginMarkerPath returns the first plugin marker under dir, checking
+// dir/.claude-plugin/plugin.json, dir/.codex-plugin/plugin.json, then dir/plugin.json.
+func pluginMarkerPath(dir string) (string, bool) {
 	for _, candidate := range []string{
-		filepath.Join(dir, "plugin.json"),
 		filepath.Join(dir, ".claude-plugin", "plugin.json"),
 		filepath.Join(dir, ".codex-plugin", "plugin.json"),
+		filepath.Join(dir, "plugin.json"),
 	} {
 		if _, err := os.Stat(candidate); err == nil {
-			return true
+			return candidate, true
 		}
 	}
-	return false
+	return "", false
 }
 
 func mergeCatalogEntry(existing CatalogEntry, discovered CatalogEntry) CatalogEntry {
@@ -982,7 +979,7 @@ func mergeCatalogEntry(existing CatalogEntry, discovered CatalogEntry) CatalogEn
 }
 
 func catalogContentExists(root string, entry CatalogEntry) (bool, error) {
-	if (entry.Type == LibraryTypeSkill || entry.Type == LibraryTypePlugin) && entry.Source == "git" {
+	if entry.Type == LibraryTypeSkill && entry.Source == "git" {
 		return true, nil
 	}
 	path, err := catalogContentPath(root, entry)

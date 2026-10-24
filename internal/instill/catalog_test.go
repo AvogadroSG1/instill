@@ -528,33 +528,6 @@ func TestWriteCatalogWritesPluginSchema(t *testing.T) {
 	requireEqual(t, want, got)
 }
 
-func TestPublicCatalogWritesPreserveCrossCatalogGitIdentity(t *testing.T) {
-	root := t.TempDir()
-	skill := CatalogEntry{
-		Type:       LibraryTypeSkill,
-		Name:       "repo",
-		Path:       "skills/repo",
-		Source:     "git",
-		Repository: "https://github.com/owner/repo.git",
-		Ref:        remotePluginSHA,
-	}
-	plugin := skill
-	plugin.Type = LibraryTypePlugin
-	plugin.Name = "plugin"
-	requireNoError(t, WriteCatalog(root, LibraryTypeSkill, []CatalogEntry{skill}))
-
-	err := WriteCatalog(root, LibraryTypePlugin, []CatalogEntry{plugin})
-	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
-		t.Fatalf("WriteCatalog() error = %v, want cross-catalog ambiguity", err)
-	}
-	assertPathMissing(t, filepath.Join(root, "plugins", "catalog.csv"))
-
-	err = AddCatalogEntry(root, plugin)
-	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
-		t.Fatalf("AddCatalogEntry() error = %v, want cross-catalog ambiguity", err)
-	}
-}
-
 func TestWriteCatalogWritesInstructionSchema(t *testing.T) {
 	t.Parallel()
 
@@ -1031,4 +1004,27 @@ func writeCatalogFixtureRaw(t *testing.T, root string, typ LibraryType, entries 
 		return writeCatalogRawLocked(ctx, held, root, typ, entries)
 	})
 	requireNoError(t, err)
+}
+
+func TestPluginCatalogReadsLegacyFourColumnRows(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "plugins", "catalog.csv")
+	requireNoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	requireNoError(t, os.WriteFile(path, []byte("name,category,path,description\nplugin,tools,plugin/plugin.json,legacy\n"), 0o644))
+	entries, err := LoadCatalog(root, LibraryTypePlugin)
+	requireNoError(t, err)
+	requireEqual(t, "plugin", entries[0].Name)
+}
+
+func TestPluginCatalogMigratesLegacyRowsOnlyOnWrite(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "plugins", "catalog.csv")
+	requireNoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	original := "name,category,path,description\nplugin,tools,plugin/plugin.json,legacy\n"
+	requireNoError(t, os.WriteFile(path, []byte(original), 0o644))
+	entries, err := LoadCatalog(root, LibraryTypePlugin)
+	requireNoError(t, err)
+	requireEqual(t, original, readFile(t, path))
+	requireNoError(t, WriteCatalog(root, LibraryTypePlugin, entries))
+	requireContains(t, readFile(t, path), "name,category,path,source,repository,ref,description")
 }

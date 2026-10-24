@@ -768,23 +768,23 @@ FIXTURE
   [[ "$(cat apm.yml)" == *"opencode"* ]]
 }
 
-@test "library add registers a repository-backed plugin from marketplace metadata" {
-  install_fake_git_remote_plugin
+@test "library add plugin-marketplace downloads a marketplace and pick installs it from the library" {
+  install_fake_git_marketplace
   make_project
 
-  run "$INSTILL_BIN" library add --type plugin --repository pbakaus/impeccable --name impeccable
+  run "$INSTILL_BIN" library add plugin-marketplace mattpocock/skills
   [ "$status" -eq 0 ]
 
   catalog="$(cat "$INSTILL_LIBRARY_PATH/plugins/catalog.csv")"
-  [[ "$catalog" == *"impeccable,design,plugin,git,https://github.com/pbakaus/impeccable.git,3333333333333333333333333333333333333333,Design fluency"* ]]
+  [[ "$catalog" == *"mattpocock/mattpocock-skills,mattpocock,marketplaces/mattpocock/.claude-plugin/plugin.json,marketplace,https://github.com/mattpocock/skills.git,3333333333333333333333333333333333333333,Matt Pocock skills"* ]]
+  [ ! -e "$INSTILL_LIBRARY_PATH/plugins/marketplaces/mattpocock/.git" ]
 
   printf 'name: project\nversion: 0.1.0\ndependencies: {}\n' > apm.yml
-  run "$INSTILL_BIN" pick --type plugin impeccable
+  run "$INSTILL_BIN" pick --type plugin mattpocock/mattpocock-skills
   [ "$status" -eq 0 ]
+  [[ "$(cat apm.yml)" == *"$INSTILL_LIBRARY_PATH/plugins/marketplaces/mattpocock"* ]]
 
-  manifest="$(cat apm.yml)"
-  [[ "$manifest" == *"git: https://github.com/pbakaus/impeccable.git"* ]]
-  [[ "$manifest" == *"path: plugin"* ]]
-  [[ "$manifest" == *"ref: \"3333333333333333333333333333333333333333\""* ]]
-  [ -f apm.lock.yaml ]
+  run "$INSTILL_BIN" library add plugin-marketplace mattpocock/skills
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"library update plugin-marketplace mattpocock"* ]]
 }

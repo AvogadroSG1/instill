@@ -44,38 +44,6 @@ func TestConcurrentDistinctCatalogAddsPreserveBothEntries(t *testing.T) {
 	}
 }
 
-func TestConcurrentCrossCatalogRegistrationAllowsOneOwner(t *testing.T) {
-	root := t.TempDir()
-	skillRunner := remoteRepoSkillRunner(remoteSkillSHA)
-	pluginRunner := remotePluginRunner(
-		t,
-		remotePluginSHA,
-		`{"plugins":[{"name":"plugin","source":"skills/repo"}]}`,
-		`{"name":"plugin"}`,
-	)
-	start := make(chan struct{})
-	errs := make(chan error, 2)
-	go func() {
-		<-start
-		errs <- AddRemoteSkill(context.Background(), root, "owner/repo", skillRunner)
-	}()
-	go func() {
-		<-start
-		errs <- AddRemotePlugin(context.Background(), root, "owner/repo", "plugin", pluginRunner)
-	}()
-	close(start)
-	firstErr := <-errs
-	secondErr := <-errs
-	if (firstErr == nil) == (secondErr == nil) {
-		t.Fatalf("registration errors = (%v, %v), want exactly one success", firstErr, secondErr)
-	}
-	skills, plugins, err := loadTypedPackageCatalogs(root)
-	requireNoError(t, err)
-	if len(skills)+len(plugins) != 1 {
-		t.Fatalf("catalog owners = %d skills + %d plugins, want one", len(skills), len(plugins))
-	}
-}
-
 func TestConcurrentAdditivePicksPreserveBothDependencies(t *testing.T) {
 	library := createCatalogLibrary(t, catalogLibrarySeed{
 		skills: []CatalogEntry{
@@ -156,18 +124,6 @@ func TestHelperProcessesPreserveCatalogAndProjectFinalStates(t *testing.T) {
 		entries, err := LoadCatalog(library, LibraryTypeSkill)
 		requireNoError(t, err)
 		requireEqual(t, []string{"base", "one", "two"}, catalogEntryNames(entries))
-	})
-
-	t.Run("cross catalog ownership", func(t *testing.T) {
-		library := t.TempDir()
-		runMutationProcesses(t,
-			startMutationProcess(t, "remote-skill", "", library, ""),
-			startMutationProcess(t, "remote-plugin", "", library, ""),
-		)
-		skills, plugins, err := loadTypedPackageCatalogs(library)
-		if err != nil || len(skills)+len(plugins) != 1 {
-			t.Fatalf("catalogs = %d skills + %d plugins, validation error = %v; want one owner and valid catalogs", len(skills), len(plugins), err)
-		}
 	})
 
 	t.Run("additive picks", func(t *testing.T) {
@@ -306,19 +262,6 @@ func TestContendedMutationProcessProtocol(t *testing.T) {
 		requireEqual(t, []string{"base", "one", "two"}, catalogEntryNames(entries))
 	})
 
-	t.Run("cross catalog owner", func(t *testing.T) {
-		library := t.TempDir()
-		_, loserEvents := pair(t, "remote-skill", "remote-plugin", "", library, "", "")
-		if !strings.Contains(strings.Join(loserEvents, "\n"), "loser-error:") ||
-			!strings.Contains(strings.Join(loserEvents, "\n"), "skill repo") {
-			t.Fatalf("plugin loser events = %v, want current skill owner", loserEvents)
-		}
-		skills, plugins, err := loadTypedPackageCatalogs(library)
-		requireNoError(t, err)
-		requireEqual(t, 1, len(skills))
-		requireEqual(t, 0, len(plugins))
-	})
-
 	t.Run("additive picks preserve ADR5", func(t *testing.T) {
 		library := createCatalogLibrary(t, catalogLibrarySeed{skills: []CatalogEntry{
 			{Type: LibraryTypeSkill, Name: "base", Path: "base/SKILL.md"},
@@ -442,17 +385,7 @@ func TestRemoteUpdatesRejectCrossProcessStaleResolution(t *testing.T) {
 			},
 			updateAction:  "update-skill",
 			mutateAction:  "mutate-skill",
-			concurrentRef: remotePluginSHA,
-		},
-		{
-			name: "plugin",
-			initial: CatalogEntry{
-				Type: LibraryTypePlugin, Name: "plugin", Path: "plugin", Source: "git",
-				Repository: "https://github.com/owner/repo.git", Ref: remotePluginSHA,
-			},
-			updateAction:  "update-plugin",
-			mutateAction:  "mutate-plugin",
-			concurrentRef: remoteSkillSHA,
+			concurrentRef: otherRemoteSHA,
 		},
 	}
 	for _, test := range tests {
@@ -530,16 +463,6 @@ func TestMutationHelperProcess(t *testing.T) {
 		err = SetProjectTargets(SetTargetsOptions{Project: project, Targets: []string{name}})
 	case "sync":
 		err = SyncProject(SyncOptions{Project: project, LibraryPath: library, Runner: renderingAPMRunner(projectRoot)})
-	case "remote-skill":
-		err = AddRemoteSkill(context.Background(), library, "owner/repo", remoteRepoSkillRunner(remoteSkillSHA))
-	case "remote-plugin":
-		err = AddRemotePlugin(
-			context.Background(),
-			library,
-			"owner/repo",
-			"plugin",
-			remotePluginRunner(t, remotePluginSHA, `{"plugins":[{"name":"plugin","source":"skills/repo"}]}`, `{"name":"plugin"}`),
-		)
 	case "import-dir":
 		err = ImportDirectory(ImportDirectoryOptions{LibraryPath: library, Path: name})
 	case "scan":
@@ -578,37 +501,12 @@ func TestMutationHelperProcess(t *testing.T) {
 			err = skillLoadErr
 			break
 		}
-		skillEntries[0].Ref = remotePluginSHA
+		skillEntries[0].Ref = otherRemoteSHA
 		err = WriteCatalog(library, LibraryTypeSkill, skillEntries)
-	case "update-plugin":
-		pluginBase := remotePluginRunner(
-			t,
-			refreshedRemotePluginSHA,
-			`{"plugins":[{"name":"plugin","source":"plugin"}]}`,
-			`{"name":"plugin"}`,
-		)
-		err = UpdateRemotePlugin(context.Background(), library, name, func(command string, args ...string) ([]byte, error) {
-			if command == "git" && len(args) > 0 && args[0] == "ls-remote" {
-				emitMutationTestEvent("remote-resolution:plugin")
-			}
-			return pluginBase(command, args...)
-		})
-	case "mutate-plugin":
-		pluginEntries, pluginLoadErr := LoadCatalog(library, LibraryTypePlugin)
-		if pluginLoadErr != nil {
-			err = pluginLoadErr
-			break
-		}
-		pluginEntries[0].Ref = remoteSkillSHA
-		err = WriteCatalog(library, LibraryTypePlugin, pluginEntries)
 	default:
 		err = errors.New("unknown mutation action: " + action)
 	}
-	if (action == "remote-skill" || action == "remote-plugin") && err != nil && strings.Contains(err.Error(), "owned") {
-		emitMutationTestEvent("loser-error:" + err.Error())
-		err = nil
-	}
-	if (action == "update-skill" || action == "update-plugin") && err != nil && strings.Contains(err.Error(), "concurrent catalog change") {
+	if action == "update-skill" && err != nil && strings.Contains(err.Error(), "concurrent catalog change") {
 		emitMutationTestEvent("conflict-error:" + err.Error())
 		err = nil
 	}
@@ -781,12 +679,8 @@ func runMutationProcesses(t *testing.T, processes ...*mutationProcess) {
 				t.Fatalf("%s helper events = %q, want %q", process.action, joined, required)
 			}
 		}
-		if process.action != "remote-skill" && process.action != "remote-plugin" && !strings.Contains(joined, "event:first-write:") {
+		if !strings.Contains(joined, "event:first-write:") {
 			t.Fatalf("%s helper events = %q, want first-write", process.action, joined)
-		}
-		if (process.action == "remote-skill" || process.action == "remote-plugin") &&
-			!strings.Contains(joined, "event:first-write:") && !strings.Contains(joined, "event:loser-error:") {
-			t.Fatalf("%s helper events = %q, want winner write or actionable loser error", process.action, joined)
 		}
 		acquired := lastEventIndex(events, "event:lock-acquired:")
 		dependentRead := eventIndexAfter(events, "event:dependent-read:", acquired)
@@ -794,11 +688,9 @@ func runMutationProcesses(t *testing.T, processes ...*mutationProcess) {
 		if acquired < 0 || dependentRead < 0 || released < dependentRead {
 			t.Fatalf("%s helper event order = %v, want acquisition then dependent read then release", process.action, events)
 		}
-		if process.action != "remote-skill" && process.action != "remote-plugin" {
-			firstWrite := eventIndexAfter(events, "event:first-write:", acquired)
-			if firstWrite < 0 || released < firstWrite {
-				t.Fatalf("%s helper event order = %v, want first write inside lock interval", process.action, events)
-			}
+		firstWrite := eventIndexAfter(events, "event:first-write:", acquired)
+		if firstWrite < 0 || released < firstWrite {
+			t.Fatalf("%s helper event order = %v, want first write inside lock interval", process.action, events)
 		}
 	}
 }
@@ -965,28 +857,6 @@ func renderingAPMRunner(projectRoot string) CommandRunner {
 		}
 		emitMutationTestEvent("first-write:" + filepath.Join(dir, "test-rendered-manifest"))
 		return nil, os.WriteFile(filepath.Join(dir, "test-rendered-manifest"), manifest, 0o600)
-	}
-}
-
-func remoteRepoSkillRunner(sha string) CommandRunner {
-	return func(name string, args ...string) ([]byte, error) {
-		command := name + " " + strings.Join(args, " ")
-		switch {
-		case command == "git ls-remote --symref https://github.com/owner/repo.git HEAD":
-			return []byte("ref: refs/heads/main\tHEAD\n" + sha + "\tHEAD\n"), nil
-		case strings.HasPrefix(command, "git init "):
-			return nil, nil
-		case strings.Contains(command, " remote add origin https://github.com/owner/repo.git"):
-			return nil, nil
-		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " fetch --depth 1 origin "+sha):
-			return nil, nil
-		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " ls-tree "+sha+" -- skills/repo/SKILL.md"):
-			return []byte("100644 blob abc\tskills/repo/SKILL.md\n"), nil
-		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " show "+sha+":skills/repo/SKILL.md"):
-			return []byte("# repo"), nil
-		default:
-			return nil, errors.New("unexpected command: " + command)
-		}
 	}
 }
 

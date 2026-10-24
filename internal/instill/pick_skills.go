@@ -592,9 +592,6 @@ func skillDependencyFromCatalog(libraryPath string, entry CatalogEntry) APMDepen
 }
 
 func pluginDependencyFromCatalog(libraryPath string, entry CatalogEntry) APMDependency {
-	if entry.Source == "git" {
-		return APMDependency{Git: &GitDependency{Repository: entry.Repository, Path: entry.Path, Ref: entry.Ref}}
-	}
 	return APMDependency{Local: pluginDependencyPath(libraryPath, entry)}
 }
 
@@ -605,9 +602,6 @@ func loadTypedPackageCatalogs(libraryPath string) ([]CatalogEntry, []CatalogEntr
 	}
 	plugins, err := LoadCatalog(libraryPath, LibraryTypePlugin)
 	if err != nil {
-		return nil, nil, err
-	}
-	if err := validateTypedGitCatalogs(skills, plugins); err != nil {
 		return nil, nil, err
 	}
 	return skills, plugins, nil

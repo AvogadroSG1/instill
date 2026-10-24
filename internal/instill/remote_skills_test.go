@@ -12,6 +12,8 @@ import (
 
 const remoteSkillSHA = "0123456789abcdef0123456789abcdef01234567"
 const refreshedRemoteSkillSHA = "fedcba9876543210fedcba9876543210fedcba98"
+const otherRemoteSHA = "1111111111111111111111111111111111111111"
+const otherRefreshedRemoteSHA = "2222222222222222222222222222222222222222"
 
 func TestAddRemoteSkillPinsVerifiedDefaultBranch(t *testing.T) {
 	root := t.TempDir()
@@ -217,7 +219,7 @@ func TestUpdateRemoteSkillRejectsStaleSnapshotAfterRemoteResolution(t *testing.T
 	}()
 	<-remoteStarted
 	concurrent := entry
-	concurrent.Ref = remotePluginSHA
+	concurrent.Ref = otherRemoteSHA
 	requireNoError(t, WriteCatalog(root, LibraryTypeSkill, []CatalogEntry{concurrent}))
 	close(finishRemote)
 	err := <-errCh
@@ -226,7 +228,7 @@ func TestUpdateRemoteSkillRejectsStaleSnapshotAfterRemoteResolution(t *testing.T
 	}
 	entries, err := LoadCatalog(root, LibraryTypeSkill)
 	requireNoError(t, err)
-	requireEqual(t, remotePluginSHA, entries[0].Ref)
+	requireEqual(t, otherRemoteSHA, entries[0].Ref)
 }
 
 func remoteSkillRunner(t *testing.T, sha string) CommandRunner {

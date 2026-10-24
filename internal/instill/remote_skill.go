@@ -23,7 +23,7 @@ func AddRemoteSkill(ctx context.Context, root, repository string, runner Command
 		if err := boundedContextError(ctx, entry.Repository); err != nil {
 			return err
 		}
-		entries, plugins, err := loadTypedPackageCatalogs(root)
+		entries, err := LoadCatalog(root, LibraryTypeSkill)
 		if err != nil {
 			return err
 		}
@@ -34,9 +34,6 @@ func AddRemoteSkill(ctx context.Context, root, repository string, runner Command
 			if existing.Source == "git" && stableCatalogGitIdentity(existing) == stableCatalogGitIdentity(entry) {
 				return NewExitError(ExitGeneral, "error: remote package already exists: "+existing.Name)
 			}
-		}
-		if err := validateTypedGitCatalogs(append(entries, entry), plugins); err != nil {
-			return err
 		}
 		return writeCatalogLocked(ctx, held, root, LibraryTypeSkill, append(entries, entry))
 	})
@@ -93,9 +90,6 @@ func UpdateRemoteSkill(ctx context.Context, root, name string, runner CommandRun
 			}
 			if exactCatalogGitIdentity(updated) == exactCatalogGitIdentity(lockedEntries[lockedIndex]) {
 				return nil
-			}
-			if err := rejectCrossCatalogGitIdentityLocked(ctx, held, root, LibraryTypeSkill, updated); err != nil {
-				return err
 			}
 			lockedEntries[lockedIndex] = updated
 			return writeCatalogLocked(ctx, held, root, LibraryTypeSkill, lockedEntries)

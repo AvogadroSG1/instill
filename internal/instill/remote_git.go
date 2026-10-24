@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -241,6 +242,18 @@ func (s *gitSnapshot) requireTree(dir string) error {
 	return nil
 }
 
+// checkoutTo writes the snapshot commit's tree into dest (absolute, empty) without a .git directory.
+func (s *gitSnapshot) checkoutTo(dest string) error {
+	output, err := s.run("--git-dir="+filepath.Join(s.dir, ".git"), "--work-tree="+dest, "-c", "advice.detachedHead=false", "checkout", "--force", "--detach", s.sha)
+	if err != nil {
+		if isBoundedContextError(err) {
+			return err
+		}
+		return NewExitError(ExitGeneral, "error: cannot check out remote repository: "+strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
 func (s *gitSnapshot) object(name string) (string, string, error) {
 	output, err := s.run("-C", s.dir, "ls-tree", s.sha, "--", name)
 	if err != nil {
@@ -307,49 +320,10 @@ func canonicalGitHubRepository(repository string) bool {
 	return githubRepositoryPattern.MatchString(name)
 }
 
-func rejectCrossCatalogGitIdentityLocked(ctx context.Context, held *heldLocks, root string, owner LibraryType, entry CatalogEntry) error {
-	if err := held.requireContext(ctx, root); err != nil {
-		return err
-	}
-	other := LibraryTypeSkill
-	if owner == LibraryTypeSkill {
-		other = LibraryTypePlugin
-	}
-	entries, err := LoadCatalog(root, other)
-	if err != nil {
-		return err
-	}
-	identity := stableCatalogGitIdentity(entry)
-	for _, existing := range entries {
-		if existing.Source == "git" && stableCatalogGitIdentity(existing) == identity {
-			return NewExitError(ExitGeneral, "error: remote package identity is already owned by "+string(other)+" "+existing.Name)
-		}
-	}
-	return nil
-}
-
 func catalogRowSnapshotEqual(left CatalogEntry, right CatalogEntry) bool {
 	return left.Name == right.Name &&
 		left.Source == right.Source &&
 		left.Repository == right.Repository &&
 		stableCatalogGitIdentity(left) == stableCatalogGitIdentity(right) &&
 		left.Ref == right.Ref
-}
-
-func validateTypedGitCatalogs(skills, plugins []CatalogEntry) error {
-	skillOwners := make(map[string]string)
-	for _, entry := range skills {
-		if entry.Source == "git" {
-			skillOwners[stableCatalogGitIdentity(entry)] = entry.Name
-		}
-	}
-	for _, entry := range plugins {
-		if entry.Source != "git" {
-			continue
-		}
-		if skill, ok := skillOwners[stableCatalogGitIdentity(entry)]; ok {
-			return NewExitError(ExitGeneral, "error: ambiguous remote package identity is owned by skill "+skill+" and plugin "+entry.Name)
-		}
-	}
-	return nil
 }

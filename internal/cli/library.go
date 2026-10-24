@@ -70,17 +70,13 @@ func newLibraryAddCommand(cfg commandConfig) *cobra.Command {
 			}
 
 			if repository != "" {
-				switch entry.Type {
-				case instill.LibraryTypeSkill:
-					if entry.Name != "" {
-						return instill.NewExitError(instill.ExitGeneral, "error: --name is only used to select a remote plugin")
-					}
-					return instill.AddRemoteSkill(cmd.Context(), libraryPath, repository, cfg.runner)
-				case instill.LibraryTypePlugin:
-					return instill.AddRemotePlugin(cmd.Context(), libraryPath, repository, entry.Name, cfg.runner)
-				default:
-					return instill.NewExitError(instill.ExitGeneral, "error: --repository is only supported for skills and plugins")
+				if entry.Type != instill.LibraryTypeSkill {
+					return instill.NewExitError(instill.ExitGeneral, "error: --repository is only supported for skills; add plugins with 'instill library add plugin-marketplace <owner/repo>'")
 				}
+				if entry.Name != "" {
+					return instill.NewExitError(instill.ExitGeneral, "error: --name is not used with --repository")
+				}
+				return instill.AddRemoteSkill(cmd.Context(), libraryPath, repository, cfg.runner)
 			}
 			return instill.AddCatalogEntry(libraryPath, entry)
 		},
@@ -99,8 +95,9 @@ func newLibraryAddCommand(cfg commandConfig) *cobra.Command {
 	command.Flags().BoolVar(&defaultEnabled, "default-enabled", false, "initial MCP enabled state; existing server choices are preserved")
 	command.Flags().StringVar(&entry.ApplyTo, "apply-to", "", "instruction apply_to glob")
 	command.Flags().StringVar(&entry.Description, "description", "", "entry description")
-	command.Flags().StringVar(&repository, "repository", "", "GitHub owner/repo for a remote skill or plugin")
+	command.Flags().StringVar(&repository, "repository", "", "GitHub owner/repo for a remote skill")
 	_ = command.MarkFlagRequired("type")
+	command.AddCommand(newLibraryAddPluginMarketplaceCommand(cfg))
 
 	return command
 }
@@ -110,7 +107,7 @@ func newLibraryUpdateCommand(cfg commandConfig) *cobra.Command {
 	var name string
 	command := &cobra.Command{
 		Use:   "update",
-		Short: "Refresh a remote skill or plugin default-branch commit pin",
+		Short: "Refresh a remote skill default-branch commit pin",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			libraryPath, err := instill.ResolveLibraryPath(instill.ConfigResolverOptions{Stdin: cfg.stdin, Stderr: cfg.stderr})
@@ -120,18 +117,47 @@ func newLibraryUpdateCommand(cfg commandConfig) *cobra.Command {
 			switch typ {
 			case instill.LibraryTypeSkill:
 				return instill.UpdateRemoteSkill(cmd.Context(), libraryPath, name, cfg.runner)
-			case instill.LibraryTypePlugin:
-				return instill.UpdateRemotePlugin(cmd.Context(), libraryPath, name, cfg.runner)
 			default:
-				return instill.NewExitError(instill.ExitGeneral, "error: update is only supported for skills and plugins")
+				return instill.NewExitError(instill.ExitGeneral, "error: update --type is only supported for skills; refresh plugin marketplaces with 'instill library update plugin-marketplace <name>'")
 			}
 		},
 	}
-	command.Flags().Var(newLibraryTypeValue(&typ), "type", "catalog type: skill or plugin")
-	command.Flags().StringVar(&name, "name", "", "remote skill or plugin name")
+	command.Flags().Var(newLibraryTypeValue(&typ), "type", "catalog type: skill")
+	command.Flags().StringVar(&name, "name", "", "remote skill name")
 	_ = command.MarkFlagRequired("type")
 	_ = command.MarkFlagRequired("name")
+	command.AddCommand(newLibraryUpdatePluginMarketplaceCommand(cfg))
 	return command
+}
+
+func newLibraryAddPluginMarketplaceCommand(cfg commandConfig) *cobra.Command {
+	return &cobra.Command{
+		Use:   "plugin-marketplace <owner/repo>",
+		Short: "Download a GitHub plugin marketplace into the library",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			libraryPath, err := instill.ResolveLibraryPath(instill.ConfigResolverOptions{Stdin: cfg.stdin, Stderr: cfg.stderr})
+			if err != nil {
+				return err
+			}
+			return instill.AddPluginMarketplace(cmd.Context(), libraryPath, args[0], cfg.runner, cfg.stdout)
+		},
+	}
+}
+
+func newLibraryUpdatePluginMarketplaceCommand(cfg commandConfig) *cobra.Command {
+	return &cobra.Command{
+		Use:   "plugin-marketplace <name>",
+		Short: "Download the latest commit of a library plugin marketplace",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			libraryPath, err := instill.ResolveLibraryPath(instill.ConfigResolverOptions{Stdin: cfg.stdin, Stderr: cfg.stderr})
+			if err != nil {
+				return err
+			}
+			return instill.UpdatePluginMarketplace(cmd.Context(), libraryPath, args[0], cfg.runner, cfg.stdout)
+		},
+	}
 }
 
 func newLibraryShowCommand(cfg commandConfig) *cobra.Command {

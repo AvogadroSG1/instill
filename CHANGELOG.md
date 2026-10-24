@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `instill sync` copies OpenCode plugin files from each `dependencies.apm` package's `opencode/plugins/` directory into `.opencode/plugins/instill-<package>-<file>` when `opencode` is a target, removes stale `instill-*` copies, and reports the count as `N opencode plugins` in the sync summary
 - Per-MCP optional `default_enabled` catalog/marker metadata and `library add --default-enabled`, applying initial OpenCode/Codex/Claude/Pi state only to genuinely new server names while preserving each harness's existing choice.
 - MCP catalog entries now support HTTP/SSE `headers`, including environment-variable placeholders, through catalog markers, APM dependencies, and Pi configuration.
+- `library add plugin-marketplace <owner/repo>` downloads a GitHub repository's default-branch commit into `plugins/marketplaces/<marketplace>/` and catalogs each installable plugin for `pick --type plugin`. `library update plugin-marketplace <name>` refreshes it.
 
 ### Changed
 
@@ -31,6 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Pi activation is directory-based (`.pi/`), not an APM target selection; legacy `pi` targets migrate, and Pi-only projects use `agent-skills` plus APM package-only installation.
 - MCP installs preserve existing native flags/omissions across APM entry replacement, restore pre-existing OpenCode/Codex choices after partial failures, and serialize shared Claude project-toggle updates without changing approval/trust settings.
 - `CLAUDE_CONFIG_DIR` import and toggle state use the real `.claude.json` basename.
+- Remote plugins now come from GitHub plugin marketplaces. `library add --type plugin --repository`, `library update --type plugin`, and `source=git` plugin catalog rows were removed. Plugin catalog reads fail on legacy `source=git` rows until they are deleted.
 
 ## [0.1.0] - 2026-01-01
 

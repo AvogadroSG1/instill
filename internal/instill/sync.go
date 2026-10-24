@@ -259,9 +259,6 @@ func ProjectStatus(opts StatusOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := validateTypedGitCatalogs(skillCatalog, pluginCatalog); err != nil {
-		return err
-	}
 	lock, err := readAPMLock(filepath.Join(opts.Project.Root, "apm.lock.yaml"))
 	if err != nil {
 		return err
@@ -528,12 +525,7 @@ func reportPluginStatus(stdout io.Writer, libraryPath string, dependencies []APM
 			}
 		}
 		projectPlugins[name] = struct{}{}
-		entry, inCatalog := libraryPlugins[name]
-		if inCatalog && dependency.Git != nil && dependency.identity() != pluginDependencyFromCatalog(libraryPath, entry).identity() {
-			if err := writeLine(stdout, "update available: plugin "+name); err != nil {
-				return err
-			}
-		}
+		_, inCatalog := libraryPlugins[name]
 		if !inCatalog {
 			if err := writeLine(stdout, "removed from library: plugin "+name); err != nil {
 				return err

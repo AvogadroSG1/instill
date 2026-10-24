@@ -414,11 +414,9 @@ func TestSyncProjectCopiesOpenCodePluginsFromInstalledGitPackage(t *testing.T) {
 	t.Parallel()
 
 	library := t.TempDir()
-	plugin := remotePluginCatalogEntry(remotePluginSHA)
-	requireNoError(t, WriteCatalog(library, LibraryTypePlugin, []CatalogEntry{plugin}))
 	project := createAPMProject(t, APMManifest{
 		Targets:      []string{"opencode"},
-		Dependencies: APMDependencies{APM: []APMDependency{{Git: &GitDependency{Repository: plugin.Repository, Path: plugin.Path, Ref: remotePluginSHA}}}},
+		Dependencies: APMDependencies{APM: []APMDependency{{Git: &GitDependency{Repository: "https://github.com/owner/repo.git", Path: "plugin", Ref: otherRemoteSHA}}}},
 	})
 	install := "apm install --root " + project.Root
 	base := recordingRunner(nil, nil)
