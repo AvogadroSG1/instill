@@ -131,18 +131,32 @@ func newLibraryUpdateCommand(cfg commandConfig) *cobra.Command {
 }
 
 func newLibraryAddPluginMarketplaceCommand(cfg commandConfig) *cobra.Command {
-	return &cobra.Command{
+	var format string
+	command := &cobra.Command{
 		Use:   "plugin-marketplace <owner/repo>",
-		Short: "Download a GitHub plugin marketplace into the library",
+		Short: "Download a GitHub Claude or Codex plugin marketplace into the library",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			libraryPath, err := instill.ResolveLibraryPath(instill.ConfigResolverOptions{Stdin: cfg.stdin, Stderr: cfg.stderr})
 			if err != nil {
 				return err
 			}
-			return instill.AddPluginMarketplace(cmd.Context(), libraryPath, args[0], cfg.runner, cfg.stdout)
+			return instill.AddPluginMarketplace(cmd.Context(), instill.PluginMarketplaceOptions{
+				LibraryPath: libraryPath,
+				Repository:  args[0],
+				Format:      instill.PluginMarketplaceFormat(format),
+				Runner:      cfg.runner,
+				Stdout:      cfg.stdout,
+			})
 		},
 	}
+	command.Flags().StringVar(
+		&format,
+		"format",
+		"",
+		"marketplace format: claude or codex; required if both are present",
+	)
+	return command
 }
 
 func newLibraryUpdatePluginMarketplaceCommand(cfg commandConfig) *cobra.Command {

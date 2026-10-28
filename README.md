@@ -117,15 +117,18 @@ The explicit `pick` updates this project's manifest to the catalog SHA. `sync` a
 
 ### Plugin Marketplaces
 
-Download a GitHub repository that publishes a Claude plugin marketplace into the Library:
+`instill library add plugin-marketplace <owner/repo>` accepts a GitHub repository publishing either a Claude or Codex marketplace:
 
 ```bash
 instill library add plugin-marketplace mattpocock/skills
+instill library add plugin-marketplace StackEng/agent-toolkit
 ```
 
-Instill downloads the repository's default-branch commit into `plugins/marketplaces/<marketplace>/`, where `<marketplace>` is the `name` in `.claude-plugin/marketplace.json`. The download contains no `.git` directory. Each installable plugin becomes a `plugins/catalog.csv` row named `<marketplace>/<plugin>` with `source=marketplace` and the pinned commit SHA. `instill pick --type plugin` lists each marketplace as a category, and picking a plugin installs it from the Library copy.
+Claude marketplaces use `.claude-plugin/marketplace.json` and plugin packages with `.claude-plugin/plugin.json`. Codex marketplaces use `.agents/plugins/marketplace.json`; their packages use root `plugin.json` or the compatibility path `.codex-plugin/plugin.json`. When both Codex package manifests exist, their names must match and the root manifest is used.
 
-Plugins whose sources are external, missing, or lack a plugin manifest are skipped and reported. `add` fails if a marketplace with the same name already exists.
+Instill detects the format when the repository has one marketplace index. If it has both, specify `--format claude` or `--format codex`. Codex marketplace entries must point to repository-local `source.path` directories. External or unusable plugin entries are skipped and reported; the add fails if no plugins are installable.
+
+Instill downloads the default-branch commit into `plugins/marketplaces/<marketplace>/`, where `<marketplace>` is the index's `name`. Each installable plugin becomes a `plugins/catalog.csv` row named `<marketplace>/<plugin>` and pinned to that commit. A repository may be registered only once; updates keep using its selected format.
 
 To refresh a marketplace to its current default-branch commit:
 
@@ -135,7 +138,7 @@ instill pick --type plugin mattpocock/mattpocock-skills
 instill sync
 ```
 
-Git-pinned remote plugins are no longer supported. Plugin catalog reads fail with a `no longer supported` error until any `source=git` rows are removed from `plugins/catalog.csv`.
+Legacy marketplace rows without a stored format are treated as Claude marketplaces. Git-pinned remote plugins are no longer supported. Plugin catalog reads fail with a `no longer supported` error until any `source=git` rows are removed from `plugins/catalog.csv`.
 
 ## Project Workflow
 

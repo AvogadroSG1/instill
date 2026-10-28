@@ -788,3 +788,13 @@ FIXTURE
   [ "$status" -ne 0 ]
   [[ "$output" == *"library update plugin-marketplace mattpocock"* ]]
 }
+
+@test "library add plugin-marketplace autodetects Codex marketplace manifests" {
+  install_fake_git_marketplace codex
+
+  run "$INSTILL_BIN" library add plugin-marketplace mattpocock/skills
+  [ "$status" -eq 0 ]
+
+  catalog="$(cat "$INSTILL_LIBRARY_PATH/plugins/catalog.csv")"
+  [[ "$catalog" == *"stack/stack,stack,marketplaces/stack/plugins/stack/.codex-plugin/plugin.json,marketplace,https://github.com/mattpocock/skills.git,3333333333333333333333333333333333333333,Stack plugin,codex"* ]]
+}

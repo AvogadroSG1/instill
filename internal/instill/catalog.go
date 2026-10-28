@@ -24,22 +24,23 @@ const (
 )
 
 type CatalogEntry struct {
-	Type           LibraryType
-	Name           string
-	Category       string
-	Path           string
-	Transport      string
-	Command        string
-	Args           []string
-	URL            string
-	Env            []string
-	Headers        []string
-	ApplyTo        string
-	Description    string
-	DefaultEnabled *bool
-	Source         string
-	Repository     string
-	Ref            string
+	Type              LibraryType
+	Name              string
+	Category          string
+	Path              string
+	Transport         string
+	Command           string
+	Args              []string
+	URL               string
+	Env               []string
+	Headers           []string
+	ApplyTo           string
+	Description       string
+	DefaultEnabled    *bool
+	Source            string
+	Repository        string
+	Ref               string
+	MarketplaceFormat PluginMarketplaceFormat
 }
 
 func matchCatalogEntryForLocalDependency(libraryPath string, typ LibraryType, localPath string, catalog []CatalogEntry) (CatalogEntry, bool) {
@@ -569,7 +570,7 @@ func catalogFileSpec(root string, typ LibraryType) (string, []string, error) {
 	case LibraryTypeSkill:
 		return filepath.Join(root, "skills", "catalog.csv"), []string{"name", "category", "path", "source", "repository", "ref", "description"}, nil
 	case LibraryTypePlugin:
-		return filepath.Join(root, "plugins", "catalog.csv"), []string{"name", "category", "path", "source", "repository", "ref", "description"}, nil
+		return filepath.Join(root, "plugins", "catalog.csv"), []string{"name", "category", "path", "source", "repository", "ref", "description", "marketplace_format"}, nil
 	case LibraryTypeMCP:
 		return filepath.Join(root, "mcp", "catalog.csv"), []string{"name", "transport", "command", "args", "url", "env", "headers", "description", "default_enabled"}, nil
 	case LibraryTypeInstruction:
@@ -599,11 +600,17 @@ func parseCatalogRow(typ LibraryType, row []string) (CatalogEntry, error) {
 			entry.Name, entry.Category, entry.Path, entry.Description = row[0], row[1], row[2], row[3]
 			break
 		}
-		if len(row) != 7 {
+		if len(row) != 7 && len(row) != 8 {
 			return CatalogEntry{}, NewExitError(ExitGeneral, fmt.Sprintf("error: malformed catalog: invalid %s row", typ))
 		}
 		entry.Name, entry.Category, entry.Path = row[0], row[1], row[2]
 		entry.Source, entry.Repository, entry.Ref, entry.Description = row[3], row[4], row[5], row[6]
+		if entry.Source == pluginMarketplaceSource {
+			entry.MarketplaceFormat = PluginMarketplaceFormatClaude
+			if len(row) == 8 && row[7] != "" {
+				entry.MarketplaceFormat = PluginMarketplaceFormat(row[7])
+			}
+		}
 	case LibraryTypeMCP:
 		if len(row) != 7 && len(row) != 8 && len(row) != 9 {
 			return CatalogEntry{}, NewExitError(ExitGeneral, "error: malformed catalog: invalid mcp row")
@@ -696,6 +703,13 @@ func validateCatalogEntry(entry CatalogEntry) error {
 		case "":
 			return nil
 		case pluginMarketplaceSource:
+			format := entry.MarketplaceFormat
+			if format == "" {
+				format = PluginMarketplaceFormatClaude
+			}
+			if format != PluginMarketplaceFormatClaude && format != PluginMarketplaceFormatCodex {
+				return NewExitError(ExitGeneral, "error: malformed catalog: invalid marketplace format: "+string(format))
+			}
 			if !validMarketplaceName(entry.Category) || !strings.HasPrefix(entry.Name, entry.Category+"/") ||
 				!validMarketplacePluginName(strings.TrimPrefix(entry.Name, entry.Category+"/")) ||
 				!canonicalGitHubRepository(entry.Repository) || !isFullGitSHA(entry.Ref) {
@@ -750,7 +764,11 @@ func formatCatalogRow(entry CatalogEntry) []string {
 	case LibraryTypeSkill:
 		return []string{entry.Name, entry.Category, entry.Path, entry.Source, entry.Repository, entry.Ref, entry.Description}
 	case LibraryTypePlugin:
-		return []string{entry.Name, entry.Category, entry.Path, entry.Source, entry.Repository, entry.Ref, entry.Description}
+		format := entry.MarketplaceFormat
+		if entry.Source == pluginMarketplaceSource && format == "" {
+			format = PluginMarketplaceFormatClaude
+		}
+		return []string{entry.Name, entry.Category, entry.Path, entry.Source, entry.Repository, entry.Ref, entry.Description, string(format)}
 	case LibraryTypeMCP:
 		defaultEnabled := ""
 		if entry.DefaultEnabled != nil {
@@ -1003,6 +1021,9 @@ func catalogHeadersValid(typ LibraryType, got, current []string) bool {
 	if typ == LibraryTypeMCP {
 		return equalStringSlices(got, []string{"name", "transport", "command", "args", "url", "env", "description"}) ||
 			equalStringSlices(got, []string{"name", "transport", "command", "args", "url", "env", "description", "default_enabled"})
+	}
+	if typ == LibraryTypePlugin && equalStringSlices(got, []string{"name", "category", "path", "source", "repository", "ref", "description"}) {
+		return true
 	}
 	return (typ == LibraryTypeSkill || typ == LibraryTypePlugin) && equalStringSlices(got, []string{"name", "category", "path", "description"})
 }

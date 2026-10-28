@@ -24,6 +24,30 @@ const (
 
 var marketplaceNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
+// PluginMarketplaceFormat identifies the publisher format used to discover plugins.
+type PluginMarketplaceFormat string
+
+// PluginMarketplaceFormatClaude selects Claude marketplace metadata.
+const PluginMarketplaceFormatClaude PluginMarketplaceFormat = "claude"
+
+// PluginMarketplaceFormatCodex selects Codex marketplace metadata.
+const PluginMarketplaceFormatCodex PluginMarketplaceFormat = "codex"
+
+// PluginMarketplaceOptions configures one repository-backed marketplace import.
+// Format may be empty when the repository contains exactly one supported index.
+type PluginMarketplaceOptions struct {
+	// LibraryPath is the root of the configured Library.
+	LibraryPath string
+	// Repository is a GitHub owner/repo identifier.
+	Repository string
+	// Format selects an index explicitly; empty detects the sole supported index.
+	Format PluginMarketplaceFormat
+	// Runner executes the Git operations used to resolve the repository snapshot.
+	Runner CommandRunner
+	// Stdout receives the import report.
+	Stdout io.Writer
+}
+
 type marketplaceFile struct {
 	Name    string                  `json:"name"`
 	Plugins []marketplaceFilePlugin `json:"plugins"`
@@ -35,21 +59,37 @@ type marketplaceFilePlugin struct {
 	Source      json.RawMessage `json:"source"`
 }
 
+type codexMarketplaceSource struct {
+	Type string `json:"source"`
+	Path string `json:"path"`
+}
+
+type pluginMarketplaceSourceRef struct {
+	repository string
+	format     PluginMarketplaceFormat
+}
+
 // marketplaceDownload is a downloaded marketplace tree staged under the
 // library. staging is an absolute path the caller must move or remove.
 type marketplaceDownload struct {
 	name, url, sha, staging string
+	format                  PluginMarketplaceFormat
 	entries                 []CatalogEntry
 	skipped                 []string
 }
 
-// AddPluginMarketplace downloads the default-branch commit of a GitHub plugin
-// marketplace into <library>/plugins/marketplaces/<name> and catalogs its
-// installable plugins as marketplace rows.
-func AddPluginMarketplace(ctx context.Context, root, repository string, runner CommandRunner, stdout io.Writer) error {
+// AddPluginMarketplace downloads the default-branch commit of one GitHub plugin
+// marketplace and catalogs its installable repository-local plugins.
+func AddPluginMarketplace(ctx context.Context, options PluginMarketplaceOptions) error {
+	root := options.LibraryPath
 	boundedCtx, cancel := context.WithTimeout(ctx, remoteGitTimeout)
 	defer cancel()
-	dl, err := downloadPluginMarketplace(boundedCtx, root, repository, runner)
+	dl, err := downloadPluginMarketplace(
+		boundedCtx,
+		root,
+		pluginMarketplaceSourceRef{repository: options.Repository, format: options.Format},
+		options.Runner,
+	)
 	if err != nil {
 		return err
 	}
@@ -70,6 +110,9 @@ func AddPluginMarketplace(ctx context.Context, root, repository string, runner C
 		if len(marketplaceRows(plugins, dl.name)) > 0 {
 			return NewExitError(ExitGeneral, "error: plugin marketplace already exists: "+dl.name+"; run 'instill library update plugin-marketplace "+dl.name+"'")
 		}
+		if existing := marketplaceRowsForRepository(plugins, dl.url); len(existing) > 0 {
+			return NewExitError(ExitGeneral, "error: plugin marketplace repository already exists: "+ownerRepoFromURL(dl.url))
+		}
 		dest := filepath.Join(root, "plugins", pluginMarketplacesDir, dl.name)
 		if _, err := os.Lstat(dest); err == nil {
 			return NewExitError(ExitGeneral, "error: plugin marketplace directory already exists: "+dest)
@@ -89,7 +132,7 @@ func AddPluginMarketplace(ctx context.Context, root, repository string, runner C
 	if err != nil {
 		return err
 	}
-	return writeMarketplaceReport(stdout, append(dl.skipped, fmt.Sprintf("added plugin marketplace %s from %s at %s: %d plugins", dl.name, ownerRepoFromURL(dl.url), dl.sha[:12], len(dl.entries))))
+	return writeMarketplaceReport(options.Stdout, append(dl.skipped, fmt.Sprintf("added plugin marketplace %s from %s at %s: %d plugins", dl.name, ownerRepoFromURL(dl.url), dl.sha[:12], len(dl.entries))))
 }
 
 // UpdatePluginMarketplace replaces a downloaded marketplace tree and its catalog
@@ -103,10 +146,13 @@ func UpdatePluginMarketplace(ctx context.Context, root, name string, runner Comm
 	if len(current) == 0 {
 		return NewExitError(ExitGeneral, "error: unknown plugin marketplace: "+name)
 	}
-	repository := ownerRepoFromURL(current[0].Repository)
+	source := pluginMarketplaceSourceRef{
+		repository: ownerRepoFromURL(current[0].Repository),
+		format:     current[0].MarketplaceFormat,
+	}
 	boundedCtx, cancel := context.WithTimeout(ctx, remoteGitTimeout)
 	defer cancel()
-	dl, err := downloadPluginMarketplace(boundedCtx, root, repository, runner)
+	dl, err := downloadPluginMarketplace(boundedCtx, root, source, runner)
 	if err != nil {
 		return err
 	}
@@ -132,7 +178,7 @@ func UpdatePluginMarketplace(ctx context.Context, root, name string, runner Comm
 			return concurrentCatalogConflict("plugin marketplace", name)
 		}
 		for _, row := range lockedCurrent {
-			if row.Repository != current[0].Repository {
+			if row.Repository != current[0].Repository || row.MarketplaceFormat != current[0].MarketplaceFormat {
 				return concurrentCatalogConflict("plugin marketplace", name)
 			}
 		}
@@ -179,8 +225,11 @@ func UpdatePluginMarketplace(ctx context.Context, root, name string, runner Comm
 // downloadPluginMarketplace checks out the default-branch commit of repository
 // into a staging directory under the library and catalogs its plugins. On
 // error the staging directory is removed; on success the caller owns it.
-func downloadPluginMarketplace(ctx context.Context, root, repository string, runner CommandRunner) (*marketplaceDownload, error) {
-	snapshot, url, err := openGitSnapshot(ctx, repository, runner)
+func downloadPluginMarketplace(ctx context.Context, root string, source pluginMarketplaceSourceRef, runner CommandRunner) (*marketplaceDownload, error) {
+	if source.format != "" && source.format != PluginMarketplaceFormatClaude && source.format != PluginMarketplaceFormatCodex {
+		return nil, NewExitError(ExitGeneral, "error: unsupported plugin marketplace format: "+string(source.format))
+	}
+	snapshot, url, err := openGitSnapshot(ctx, source.repository, runner)
 	if err != nil {
 		return nil, err
 	}
@@ -207,10 +256,13 @@ func downloadPluginMarketplace(ctx context.Context, root, repository string, run
 		return nil, err
 	}
 
-	metadataPath := filepath.Join(staging, ".claude-plugin", "marketplace.json")
+	format, metadataPath, err := locateMarketplaceMetadata(staging, source.format)
+	if err != nil {
+		return nil, err
+	}
 	info, err := os.Lstat(metadataPath)
 	if err != nil || !info.Mode().IsRegular() {
-		return nil, NewExitError(ExitGeneral, "error: remote marketplace metadata is missing: .claude-plugin/marketplace.json")
+		return nil, NewExitError(ExitGeneral, "error: remote marketplace metadata is not a regular file: "+filepath.ToSlash(strings.TrimPrefix(metadataPath, staging+string(filepath.Separator))))
 	}
 	if info.Size() > maxMarketplaceMetadataBytes {
 		return nil, NewExitError(ExitGeneral, "error: remote marketplace metadata exceeds size limit")
@@ -244,7 +296,7 @@ func downloadPluginMarketplace(ctx context.Context, root, repository string, run
 	if err != nil {
 		return nil, NewExitError(ExitFilesystem, "error: cannot resolve plugin marketplace staging directory: "+err.Error())
 	}
-	dl := &marketplaceDownload{name: mf.Name, url: url, sha: snapshot.sha, staging: staging}
+	dl := &marketplaceDownload{name: mf.Name, url: url, sha: snapshot.sha, staging: staging, format: format}
 	for _, plugin := range mf.Plugins {
 		entry, reason := dl.resolvePlugin(stagingReal, plugin)
 		if reason != "" {
@@ -263,12 +315,9 @@ func downloadPluginMarketplace(ctx context.Context, root, repository string, run
 // resolvePlugin maps one marketplace plugin to a catalog row, or returns the
 // reason it cannot be installed from the marketplace tree.
 func (dl *marketplaceDownload) resolvePlugin(stagingReal string, plugin marketplaceFilePlugin) (CatalogEntry, string) {
-	if len(plugin.Source) == 0 {
-		return CatalogEntry{}, "invalid source path"
-	}
-	var source string
-	if err := json.Unmarshal(plugin.Source, &source); err != nil {
-		return CatalogEntry{}, "external source"
+	source, reason := marketplacePluginSourcePath(plugin.Source, dl.format)
+	if reason != "" {
+		return CatalogEntry{}, reason
 	}
 	rel, err := normalizeMarketplaceSource(source)
 	if err != nil {
@@ -283,9 +332,9 @@ func (dl *marketplaceDownload) resolvePlugin(stagingReal string, plugin marketpl
 	if err != nil || !isInOrUnderDir(stagingReal, realDir) {
 		return CatalogEntry{}, "source outside marketplace"
 	}
-	marker, ok := pluginMarkerPath(dir)
-	if !ok {
-		return CatalogEntry{}, "no plugin manifest"
+	marker, reason := marketplacePluginManifest(dir, dl.format, plugin.Name)
+	if reason != "" {
+		return CatalogEntry{}, reason
 	}
 	markerRel, err := filepath.Rel(dir, marker)
 	if err != nil {
@@ -298,21 +347,173 @@ func (dl *marketplaceDownload) resolvePlugin(stagingReal string, plugin marketpl
 		}
 	}
 	return CatalogEntry{
-		Type:        LibraryTypePlugin,
-		Name:        dl.name + "/" + plugin.Name,
-		Category:    dl.name,
-		Path:        path.Join(pluginMarketplacesDir, dl.name, rel, filepath.ToSlash(markerRel)),
-		Source:      pluginMarketplaceSource,
-		Repository:  dl.url,
-		Ref:         dl.sha,
-		Description: description,
+		Type:              LibraryTypePlugin,
+		Name:              dl.name + "/" + plugin.Name,
+		Category:          dl.name,
+		Path:              path.Join(pluginMarketplacesDir, dl.name, rel, filepath.ToSlash(markerRel)),
+		Source:            pluginMarketplaceSource,
+		Repository:        dl.url,
+		Ref:               dl.sha,
+		Description:       description,
+		MarketplaceFormat: dl.format,
 	}, ""
 }
 
+func locateMarketplaceMetadata(staging string, requested PluginMarketplaceFormat) (PluginMarketplaceFormat, string, error) {
+	type candidate struct {
+		format PluginMarketplaceFormat
+		path   string
+		rel    string
+		info   os.FileInfo
+	}
+
+	candidates := make([]candidate, 0, 2)
+	for _, format := range []PluginMarketplaceFormat{PluginMarketplaceFormatClaude, PluginMarketplaceFormatCodex} {
+		rel := marketplaceMetadataPath(format)
+		path := filepath.Join(staging, filepath.FromSlash(rel))
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", "", NewExitError(ExitFilesystem, "error: cannot inspect remote marketplace metadata: "+err.Error())
+		}
+		candidates = append(candidates, candidate{format: format, path: path, rel: rel, info: info})
+	}
+
+	if requested != "" {
+		for _, candidate := range candidates {
+			if candidate.format == requested {
+				if !candidate.info.Mode().IsRegular() {
+					return "", "", NewExitError(ExitGeneral, "error: remote marketplace metadata is not a regular file: "+candidate.rel)
+				}
+				return candidate.format, candidate.path, nil
+			}
+		}
+		return "", "", NewExitError(ExitGeneral, "error: remote marketplace metadata is missing: "+marketplaceMetadataPath(requested))
+	}
+
+	if len(candidates) == 0 {
+		return "", "", NewExitError(ExitGeneral, "error: remote marketplace metadata is missing: expected .claude-plugin/marketplace.json or .agents/plugins/marketplace.json")
+	}
+	if len(candidates) > 1 {
+		return "", "", NewExitError(ExitGeneral, "error: remote marketplace format is ambiguous; pass --format claude or --format codex")
+	}
+	if !candidates[0].info.Mode().IsRegular() {
+		return "", "", NewExitError(ExitGeneral, "error: remote marketplace metadata is not a regular file: "+candidates[0].rel)
+	}
+	return candidates[0].format, candidates[0].path, nil
+}
+
+func marketplaceMetadataPath(format PluginMarketplaceFormat) string {
+	switch format {
+	case PluginMarketplaceFormatClaude:
+		return ".claude-plugin/marketplace.json"
+	case PluginMarketplaceFormatCodex:
+		return ".agents/plugins/marketplace.json"
+	default:
+		return ""
+	}
+}
+
+func marketplacePluginSourcePath(raw json.RawMessage, format PluginMarketplaceFormat) (string, string) {
+	if len(raw) == 0 {
+		return "", "invalid source path"
+	}
+	switch format {
+	case PluginMarketplaceFormatClaude:
+		var source string
+		if err := json.Unmarshal(raw, &source); err != nil {
+			return "", "external source"
+		}
+		return source, ""
+	case PluginMarketplaceFormatCodex:
+		var source codexMarketplaceSource
+		if err := json.Unmarshal(raw, &source); err != nil || source.Type == "" {
+			return "", "invalid source path"
+		}
+		if source.Type != "local" {
+			return "", "external source"
+		}
+		return source.Path, ""
+	default:
+		return "", "invalid source path"
+	}
+}
+
+func marketplacePluginManifest(dir string, format PluginMarketplaceFormat, pluginName string) (string, string) {
+	switch format {
+	case PluginMarketplaceFormatClaude:
+		marker := filepath.Join(dir, ".claude-plugin", "plugin.json")
+		info, err := os.Lstat(marker)
+		if err != nil || !info.Mode().IsRegular() {
+			return "", "no plugin manifest"
+		}
+		return marker, ""
+	case PluginMarketplaceFormatCodex:
+		portablePath := filepath.Join(dir, "plugin.json")
+		compatPath := filepath.Join(dir, ".codex-plugin", "plugin.json")
+		portable, hasPortable, reason := readCodexPluginManifest(portablePath)
+		if reason != "" {
+			return "", reason
+		}
+		compat, hasCompat, reason := readCodexPluginManifest(compatPath)
+		if reason != "" {
+			return "", reason
+		}
+		if !hasPortable && !hasCompat {
+			return "", "no plugin manifest"
+		}
+		if hasPortable && hasCompat && portable.Name != compat.Name {
+			return "", "conflicting plugin manifests"
+		}
+		manifest := portable
+		marker := portablePath
+		if !hasPortable {
+			manifest = compat
+			marker = compatPath
+		}
+		if manifest.Name != pluginName {
+			return "", "plugin manifest name mismatch"
+		}
+		return marker, ""
+	default:
+		return "", "no plugin manifest"
+	}
+}
+
+func readCodexPluginManifest(path string) (pluginMetadataFile, bool, string) {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return pluginMetadataFile{}, false, ""
+	}
+	if err != nil || !info.Mode().IsRegular() {
+		return pluginMetadataFile{}, true, "invalid plugin manifest"
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // Path is inside the checked-out repository staging tree.
+	if err != nil {
+		return pluginMetadataFile{}, true, "invalid plugin manifest"
+	}
+	var manifest pluginMetadataFile
+	if json.Unmarshal(data, &manifest) != nil || strings.TrimSpace(manifest.Name) == "" {
+		return pluginMetadataFile{}, true, "invalid plugin manifest"
+	}
+	return manifest, true, ""
+}
 func marketplaceRows(entries []CatalogEntry, name string) []CatalogEntry {
 	var rows []CatalogEntry
 	for _, entry := range entries {
 		if entry.Source == pluginMarketplaceSource && entry.Category == name {
+			rows = append(rows, entry)
+		}
+	}
+	return rows
+}
+
+func marketplaceRowsForRepository(entries []CatalogEntry, repository string) []CatalogEntry {
+	var rows []CatalogEntry
+	for _, entry := range entries {
+		if entry.Source == pluginMarketplaceSource && entry.Repository == repository {
 			rows = append(rows, entry)
 		}
 	}

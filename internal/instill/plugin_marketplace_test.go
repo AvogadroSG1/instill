@@ -84,19 +84,25 @@ func requireMarketplaceError(t *testing.T, err error, want string) {
 func TestAddPluginMarketplaceDownloadsTreeAndCatalogsPlugins(t *testing.T) {
 	root := t.TempDir()
 	var stdout bytes.Buffer
-	requireNoError(t, AddPluginMarketplace(context.Background(), root, "owner/repo", marketplaceRunner(t, otherRemoteSHA, mattpocockMarketplaceFiles()), &stdout))
+	requireNoError(t, AddPluginMarketplace(context.Background(), PluginMarketplaceOptions{
+		LibraryPath: root,
+		Repository:  "owner/repo",
+		Runner:      marketplaceRunner(t, otherRemoteSHA, mattpocockMarketplaceFiles()),
+		Stdout:      &stdout,
+	}))
 
 	rows, err := LoadCatalog(root, LibraryTypePlugin)
 	requireNoError(t, err)
 	requireEqual(t, []CatalogEntry{{
-		Type:        LibraryTypePlugin,
-		Name:        "mattpocock/mattpocock-skills",
-		Category:    "mattpocock",
-		Path:        "marketplaces/mattpocock/.claude-plugin/plugin.json",
-		Source:      "marketplace",
-		Repository:  "https://github.com/owner/repo.git",
-		Ref:         otherRemoteSHA,
-		Description: "d",
+		Type:              LibraryTypePlugin,
+		Name:              "mattpocock/mattpocock-skills",
+		Category:          "mattpocock",
+		Path:              "marketplaces/mattpocock/.claude-plugin/plugin.json",
+		Source:            "marketplace",
+		Repository:        "https://github.com/owner/repo.git",
+		Ref:               otherRemoteSHA,
+		Description:       "d",
+		MarketplaceFormat: PluginMarketplaceFormatClaude,
 	}}, rows)
 
 	_, err = os.Stat(filepath.Join(root, "plugins", "marketplaces", "mattpocock", "skills", "tdd", "SKILL.md"))
@@ -109,6 +115,114 @@ func TestAddPluginMarketplaceDownloadsTreeAndCatalogsPlugins(t *testing.T) {
 	requireEqual(t, "mattpocock", entries[0].Name())
 
 	requireEqual(t, "added plugin marketplace mattpocock from owner/repo at 111111111111: 1 plugins\n", stdout.String())
+}
+
+func TestAddCodexPluginMarketplaceSupportsManifestLayouts(t *testing.T) {
+	tests := []struct {
+		name         string
+		pluginFiles  map[string]string
+		wantManifest string
+		wantDesc     string
+	}{
+		{
+			name: "portable root manifest",
+			pluginFiles: map[string]string{
+				"plugins/plugin/plugin.json": `{"name":"plugin","description":"portable"}`,
+			},
+			wantManifest: "plugin.json",
+			wantDesc:     "portable",
+		},
+		{
+			name: "compatibility manifest",
+			pluginFiles: map[string]string{
+				"plugins/plugin/.codex-plugin/plugin.json": `{"name":"plugin","description":"compat"}`,
+			},
+			wantManifest: ".codex-plugin/plugin.json",
+			wantDesc:     "compat",
+		},
+		{
+			name: "matching manifests prefer portable",
+			pluginFiles: map[string]string{
+				"plugins/plugin/plugin.json":               `{"name":"plugin","description":"portable"}`,
+				"plugins/plugin/.codex-plugin/plugin.json": `{"name":"plugin","description":"compat"}`,
+			},
+			wantManifest: "plugin.json",
+			wantDesc:     "portable",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			files := map[string]string{
+				".agents/plugins/marketplace.json": `{"name":"codex-mkt","plugins":[{"name":"plugin","source":{"source":"local","path":"./plugins/plugin"}}]}`,
+			}
+			for path, contents := range test.pluginFiles {
+				files[path] = contents
+			}
+			requireNoError(t, AddPluginMarketplace(context.Background(), PluginMarketplaceOptions{
+				LibraryPath: root,
+				Repository:  "owner/repo",
+				Runner:      marketplaceRunner(t, otherRemoteSHA, files),
+				Stdout:      io.Discard,
+			}))
+
+			entries, err := LoadCatalog(root, LibraryTypePlugin)
+			requireNoError(t, err)
+			requireEqual(t, 1, len(entries))
+			requireEqual(t, "codex-mkt/plugin", entries[0].Name)
+			requireEqual(t, PluginMarketplaceFormatCodex, entries[0].MarketplaceFormat)
+			requireEqual(t, "marketplaces/codex-mkt/plugins/plugin/"+test.wantManifest, entries[0].Path)
+			requireEqual(t, test.wantDesc, entries[0].Description)
+		})
+	}
+}
+
+func TestAddCodexPluginMarketplaceSkipsExternalSources(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		".agents/plugins/marketplace.json": `{"name":"codex-mkt","plugins":[` +
+			`{"name":"external","source":{"source":"github","repo":"owner/external"}},` +
+			`{"name":"local","source":{"source":"local","path":"./plugins/local"}}]}`,
+		"plugins/local/.codex-plugin/plugin.json": `{"name":"local"}`,
+	}
+	var stdout bytes.Buffer
+	requireNoError(t, AddPluginMarketplace(context.Background(), PluginMarketplaceOptions{
+		LibraryPath: root,
+		Repository:  "owner/repo",
+		Runner:      marketplaceRunner(t, otherRemoteSHA, files),
+		Stdout:      &stdout,
+	}))
+
+	entries, err := LoadCatalog(root, LibraryTypePlugin)
+	requireNoError(t, err)
+	requireEqual(t, 1, len(entries))
+	requireEqual(t, "codex-mkt/local", entries[0].Name)
+	requireContains(t, stdout.String(), "skipped: external (external source)")
+}
+func TestAddCodexPluginMarketplaceSkipsConflictingManifests(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		".agents/plugins/marketplace.json": `{"name":"codex-mkt","plugins":[` +
+			`{"name":"conflict","source":{"source":"local","path":"./plugins/conflict"}},` +
+			`{"name":"valid","source":{"source":"local","path":"./plugins/valid"}}]}`,
+		"plugins/conflict/plugin.json":               `{"name":"conflict"}`,
+		"plugins/conflict/.codex-plugin/plugin.json": `{"name":"different"}`,
+		"plugins/valid/.codex-plugin/plugin.json":    `{"name":"valid"}`,
+	}
+	var stdout bytes.Buffer
+	requireNoError(t, AddPluginMarketplace(context.Background(), PluginMarketplaceOptions{
+		LibraryPath: root,
+		Repository:  "owner/repo",
+		Runner:      marketplaceRunner(t, otherRemoteSHA, files),
+		Stdout:      &stdout,
+	}))
+
+	entries, err := LoadCatalog(root, LibraryTypePlugin)
+	requireNoError(t, err)
+	requireEqual(t, 1, len(entries))
+	requireEqual(t, "codex-mkt/valid", entries[0].Name)
+	requireContains(t, stdout.String(), "skipped: conflict (conflicting plugin manifests)")
 }
 
 func TestAddPluginMarketplaceSkipsUninstallablePlugins(t *testing.T) {
@@ -124,7 +238,12 @@ func TestAddPluginMarketplaceSkipsUninstallablePlugins(t *testing.T) {
 		"plugins/d/README.md":                  "readme\n",
 	}
 	var stdout bytes.Buffer
-	requireNoError(t, AddPluginMarketplace(context.Background(), root, "owner/repo", marketplaceRunner(t, otherRemoteSHA, files), &stdout))
+	requireNoError(t, AddPluginMarketplace(context.Background(), PluginMarketplaceOptions{
+		LibraryPath: root,
+		Repository:  "owner/repo",
+		Runner:      marketplaceRunner(t, otherRemoteSHA, files),
+		Stdout:      &stdout,
+	}))
 
 	rows, err := LoadCatalog(root, LibraryTypePlugin)
 	requireNoError(t, err)
@@ -192,7 +311,12 @@ func TestAddPluginMarketplaceRejectsWithoutMutation(t *testing.T) {
 			name:  "marketplace already added",
 			files: valid("mkt", onePlugin),
 			setup: func(t *testing.T, root string) {
-				requireNoError(t, AddPluginMarketplace(context.Background(), root, "owner/repo", marketplaceRunner(t, otherRemoteSHA, valid("mkt", onePlugin)), io.Discard))
+				requireNoError(t, AddPluginMarketplace(context.Background(), PluginMarketplaceOptions{
+					LibraryPath: root,
+					Repository:  "owner/repo",
+					Runner:      marketplaceRunner(t, otherRemoteSHA, valid("mkt", onePlugin)),
+					Stdout:      io.Discard,
+				}))
 			},
 			wantErr: "library update plugin-marketplace",
 		},
@@ -214,7 +338,12 @@ func TestAddPluginMarketplaceRejectsWithoutMutation(t *testing.T) {
 				test.setup(t, root)
 			}
 			before := marketplaceCatalogBytes(t, root)
-			err := AddPluginMarketplace(context.Background(), root, "owner/repo", marketplaceRunner(t, otherRemoteSHA, test.files), io.Discard)
+			err := AddPluginMarketplace(context.Background(), PluginMarketplaceOptions{
+				LibraryPath: root,
+				Repository:  "owner/repo",
+				Runner:      marketplaceRunner(t, otherRemoteSHA, test.files),
+				Stdout:      io.Discard,
+			})
 			requireMarketplaceError(t, err, test.wantErr)
 			if string(marketplaceCatalogBytes(t, root)) != string(before) {
 				t.Fatalf("catalog changed after rejected add")
@@ -232,7 +361,12 @@ func TestUpdatePluginMarketplaceReplacesTreeAndRows(t *testing.T) {
 		"plugins/a/skills/x/SKILL.md":          "old\n",
 		"plugins/b/.claude-plugin/plugin.json": `{"name":"b"}`,
 	}
-	requireNoError(t, AddPluginMarketplace(context.Background(), root, "owner/repo", marketplaceRunner(t, otherRemoteSHA, addFiles), io.Discard))
+	requireNoError(t, AddPluginMarketplace(context.Background(), PluginMarketplaceOptions{
+		LibraryPath: root,
+		Repository:  "owner/repo",
+		Runner:      marketplaceRunner(t, otherRemoteSHA, addFiles),
+		Stdout:      io.Discard,
+	}))
 
 	updateFiles := map[string]string{
 		".claude-plugin/marketplace.json":      `{"name":"mkt","plugins":[{"name":"a","source":"./plugins/a"},{"name":"c","source":"./plugins/c"}]}`,
@@ -267,9 +401,52 @@ func TestUpdatePluginMarketplaceReplacesTreeAndRows(t *testing.T) {
 	requireMarketplaceError(t, UpdatePluginMarketplace(context.Background(), root, "nope", marketplaceRunner(t, otherRefreshedRemoteSHA, updateFiles), io.Discard), "unknown plugin marketplace: nope")
 }
 
+func TestUpdateCodexPluginMarketplaceUsesStoredFormat(t *testing.T) {
+	root := t.TempDir()
+	initialFiles := map[string]string{
+		".agents/plugins/marketplace.json":        `{"name":"codex-mkt","plugins":[{"name":"stack","source":{"source":"local","path":"./plugins/stack"}}]}`,
+		"plugins/stack/.codex-plugin/plugin.json": `{"name":"stack","description":"old"}`,
+	}
+	requireNoError(t, AddPluginMarketplace(context.Background(), PluginMarketplaceOptions{
+		LibraryPath: root,
+		Repository:  "owner/repo",
+		Format:      PluginMarketplaceFormatCodex,
+		Runner:      marketplaceRunner(t, otherRemoteSHA, initialFiles),
+		Stdout:      io.Discard,
+	}))
+
+	updatedFiles := map[string]string{
+		".agents/plugins/marketplace.json":          `{"name":"codex-mkt","plugins":[{"name":"stack","source":{"source":"local","path":"./plugins/stack"}}]}`,
+		".claude-plugin/marketplace.json":           `{"name":"claude-mkt","plugins":[{"name":"claude","source":"./plugins/claude"}]}`,
+		"plugins/stack/plugin.json":                 `{"name":"stack","description":"updated"}`,
+		"plugins/claude/.claude-plugin/plugin.json": `{"name":"claude"}`,
+	}
+	requireNoError(t, UpdatePluginMarketplace(
+		context.Background(),
+		root,
+		"codex-mkt",
+		marketplaceRunner(t, otherRefreshedRemoteSHA, updatedFiles),
+		io.Discard,
+	))
+
+	entries, err := LoadCatalog(root, LibraryTypePlugin)
+	requireNoError(t, err)
+	requireEqual(t, 1, len(entries))
+	requireEqual(t, "codex-mkt/stack", entries[0].Name)
+	requireEqual(t, PluginMarketplaceFormatCodex, entries[0].MarketplaceFormat)
+	requireEqual(t, "marketplaces/codex-mkt/plugins/stack/plugin.json", entries[0].Path)
+	requireEqual(t, otherRefreshedRemoteSHA, entries[0].Ref)
+	requireEqual(t, "updated", entries[0].Description)
+}
+
 func TestPickInstallsMarketplacePluginFromLibraryCopy(t *testing.T) {
 	library := t.TempDir()
-	requireNoError(t, AddPluginMarketplace(context.Background(), library, "owner/repo", marketplaceRunner(t, otherRemoteSHA, mattpocockMarketplaceFiles()), io.Discard))
+	requireNoError(t, AddPluginMarketplace(context.Background(), PluginMarketplaceOptions{
+		LibraryPath: library,
+		Repository:  "owner/repo",
+		Runner:      marketplaceRunner(t, otherRemoteSHA, mattpocockMarketplaceFiles()),
+		Stdout:      io.Discard,
+	}))
 
 	project := createAPMProject(t, APMManifest{})
 	requireNoError(t, Pick(PickOptions{Project: project, LibraryPath: library, Type: LibraryTypePlugin, Add: []string{"mattpocock/mattpocock-skills"}, Runner: recordingRunner(nil, nil)}))
@@ -280,7 +457,12 @@ func TestPickInstallsMarketplacePluginFromLibraryCopy(t *testing.T) {
 
 func TestScanPreservesMarketplacePlugins(t *testing.T) {
 	root := t.TempDir()
-	requireNoError(t, AddPluginMarketplace(context.Background(), root, "owner/repo", marketplaceRunner(t, otherRemoteSHA, mattpocockMarketplaceFiles()), io.Discard))
+	requireNoError(t, AddPluginMarketplace(context.Background(), PluginMarketplaceOptions{
+		LibraryPath: root,
+		Repository:  "owner/repo",
+		Runner:      marketplaceRunner(t, otherRemoteSHA, mattpocockMarketplaceFiles()),
+		Stdout:      io.Discard,
+	}))
 	before, err := LoadCatalog(root, LibraryTypePlugin)
 	requireNoError(t, err)
 
@@ -313,7 +495,12 @@ func TestPluginCatalogRejectsGitPinnedRows(t *testing.T) {
 
 func TestPickTypeStatesShowMarketplaceAsPluginCategory(t *testing.T) {
 	library := t.TempDir()
-	requireNoError(t, AddPluginMarketplace(context.Background(), library, "owner/repo", marketplaceRunner(t, otherRemoteSHA, mattpocockMarketplaceFiles()), io.Discard))
+	requireNoError(t, AddPluginMarketplace(context.Background(), PluginMarketplaceOptions{
+		LibraryPath: library,
+		Repository:  "owner/repo",
+		Runner:      marketplaceRunner(t, otherRemoteSHA, mattpocockMarketplaceFiles()),
+		Stdout:      io.Discard,
+	}))
 	requireNoError(t, os.MkdirAll(filepath.Join(library, "plugins", "local", ".claude-plugin"), 0o755))
 	requireNoError(t, os.WriteFile(filepath.Join(library, "plugins", "local", ".claude-plugin", "plugin.json"), []byte(`{"name":"local"}`), 0o644))
 	var out bytes.Buffer

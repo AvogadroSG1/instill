@@ -37,6 +37,8 @@ scan_library() {
 }
 
 install_fake_git_marketplace() {
+  local format="${1:-claude}"
+  export INSTILL_TEST_MARKETPLACE_FORMAT="$format"
   mkdir -p "$BATS_TEST_TMPDIR/bin"
   cat > "$BATS_TEST_TMPDIR/bin/git" <<'EOF'
 #!/usr/bin/env bash
@@ -62,10 +64,24 @@ case "$command" in
         --work-tree=*) work_tree="${arg#--work-tree=}" ;;
       esac
     done
-    mkdir -p "$work_tree/.claude-plugin" "$work_tree/skills/tdd"
-    printf '%s\n' '{"name":"mattpocock","plugins":[{"name":"mattpocock-skills","source":"./","description":"Matt Pocock skills"}]}' > "$work_tree/.claude-plugin/marketplace.json"
-    printf '%s\n' '{"name":"mattpocock-skills"}' > "$work_tree/.claude-plugin/plugin.json"
-    printf '# tdd\n' > "$work_tree/skills/tdd/SKILL.md"
+    format="${INSTILL_TEST_MARKETPLACE_FORMAT:-claude}"
+    case "$format" in
+      claude)
+        mkdir -p "$work_tree/.claude-plugin" "$work_tree/skills/tdd"
+        printf '%s\n' '{"name":"mattpocock","plugins":[{"name":"mattpocock-skills","source":"./","description":"Matt Pocock skills"}]}' > "$work_tree/.claude-plugin/marketplace.json"
+        printf '%s\n' '{"name":"mattpocock-skills"}' > "$work_tree/.claude-plugin/plugin.json"
+        printf '# tdd\n' > "$work_tree/skills/tdd/SKILL.md"
+        ;;
+      codex)
+        mkdir -p "$work_tree/.agents/plugins" "$work_tree/plugins/stack/.codex-plugin"
+        printf '%s\n' '{"name":"stack","plugins":[{"name":"stack","source":{"source":"local","path":"./plugins/stack"}}]}' > "$work_tree/.agents/plugins/marketplace.json"
+        printf '%s\n' '{"name":"stack","description":"Stack plugin"}' > "$work_tree/plugins/stack/.codex-plugin/plugin.json"
+        ;;
+      *)
+        printf 'unsupported fake marketplace format: %s\n' "$format" >&2
+        exit 1
+        ;;
+    esac
     ;;
   *)
     printf 'unexpected git command: %s\n' "$command" >&2

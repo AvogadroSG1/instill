@@ -187,6 +187,111 @@ func TestLibraryPluginMarketplaceCommands(t *testing.T) {
 	}
 }
 
+func TestLibraryAddCodexPluginMarketplace(t *testing.T) {
+	library := t.TempDir()
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
+	runner := cliMarketplaceRunner(t, cliRemoteSHA, map[string]string{
+		".agents/plugins/marketplace.json":        `{"name":"stack","plugins":[{"name":"stack","source":{"source":"local","path":"./plugins/stack"}}]}`,
+		"plugins/stack/.codex-plugin/plugin.json": `{"name":"stack","description":"Stack plugin"}`,
+	})
+
+	var stdout, stderr bytes.Buffer
+	code := execute(commandConfig{
+		stdout: &stdout, stderr: &stderr,
+		args:   []string{"library", "add", "plugin-marketplace", "owner/repo"},
+		runner: runner,
+	})
+	if code != 0 {
+		t.Fatalf("add execute() = %d, stderr = %q", code, stderr.String())
+	}
+
+	entries, err := instill.LoadCatalog(library, instill.LibraryTypePlugin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("entries = %#v, want one Codex marketplace plugin", entries)
+	}
+	entry := entries[0]
+	if entry.Name != "stack/stack" ||
+		entry.Category != "stack" ||
+		entry.Path != "marketplaces/stack/plugins/stack/.codex-plugin/plugin.json" ||
+		entry.Source != "marketplace" ||
+		entry.Repository != "https://github.com/owner/repo.git" ||
+		entry.Ref != cliRemoteSHA ||
+		entry.Description != "Stack plugin" ||
+		entry.MarketplaceFormat != instill.PluginMarketplaceFormatCodex {
+		t.Fatalf("entry = %#v, want one Codex marketplace plugin", entry)
+	}
+	if stdout.Len() == 0 {
+		t.Fatal("add command produced no success report")
+	}
+}
+
+func TestLibraryAddMarketplaceRequiresFormatWhenBothIndexesExist(t *testing.T) {
+	library := t.TempDir()
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
+	runner := cliMarketplaceRunner(t, cliRemoteSHA, map[string]string{
+		".claude-plugin/marketplace.json":           `{"name":"claude-mkt","plugins":[{"name":"claude","source":"./plugins/claude"}]}`,
+		"plugins/claude/.claude-plugin/plugin.json": `{"name":"claude"}`,
+		".agents/plugins/marketplace.json":          `{"name":"codex-mkt","plugins":[{"name":"codex","source":{"source":"local","path":"./plugins/codex"}}]}`,
+		"plugins/codex/.codex-plugin/plugin.json":   `{"name":"codex"}`,
+	})
+
+	var stdout, stderr bytes.Buffer
+	code := execute(commandConfig{
+		stdout: &stdout, stderr: &stderr,
+		args:   []string{"library", "add", "plugin-marketplace", "owner/repo"},
+		runner: runner,
+	})
+	if code == 0 {
+		t.Fatalf("add without format = %d, stderr = %q, want an error", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "ambiguous") {
+		t.Fatalf("add without format stderr = %q, want a format ambiguity error", stderr.String())
+	}
+	if entries, err := instill.LoadCatalog(library, instill.LibraryTypePlugin); err != nil || len(entries) != 0 {
+		t.Fatalf("catalog after ambiguous add = %#v, err = %v; want no entries", entries, err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = execute(commandConfig{
+		stdout: &stdout, stderr: &stderr,
+		args:   []string{"library", "add", "plugin-marketplace", "--format", "codex", "owner/repo"},
+		runner: runner,
+	})
+	if code != 0 {
+		t.Fatalf("Codex add = %d, stderr = %q", code, stderr.String())
+	}
+	entries, err := instill.LoadCatalog(library, instill.LibraryTypePlugin)
+	if err != nil || len(entries) != 1 || entries[0].Name != "codex-mkt/codex" ||
+		entries[0].MarketplaceFormat != instill.PluginMarketplaceFormatCodex {
+		t.Fatalf("Codex catalog entries = %#v, err = %v", entries, err)
+	}
+	before, err := os.ReadFile(filepath.Join(library, "plugins", "catalog.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = execute(commandConfig{
+		stdout: &stdout, stderr: &stderr,
+		args:   []string{"library", "add", "plugin-marketplace", "--format", "claude", "owner/repo"},
+		runner: runner,
+	})
+	if code == 0 || !strings.Contains(stderr.String(), "plugin marketplace repository already exists") {
+		t.Fatalf("second marketplace add = %d, stderr = %q", code, stderr.String())
+	}
+	after, err := os.ReadFile(filepath.Join(library, "plugins", "catalog.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatal("catalog changed after duplicate repository add")
+	}
+}
 func cliMarketplaceRunner(t *testing.T, sha string, files map[string]string) instill.CommandRunner {
 	t.Helper()
 	return func(name string, args ...string) ([]byte, error) {

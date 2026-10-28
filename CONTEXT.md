@@ -14,7 +14,10 @@ A named catalog record of type Skill, Plugin, MCP Server, Instruction, or Prompt
 A package containing agent instructions rooted at `SKILL.md` that Instill supplies to APM. Skills are one Library entry type and MUST NOT be used as the generic term for Plugins or other entry types.
 
 **Plugin**:
-A harness plugin artifact containing extension metadata, commands, Skills, hooks, or related content that APM normalizes and installs as a package. A repository-backed Plugin is discovered through publisher-owned Claude marketplace metadata and pinned by repository, package path, and commit SHA.
+A harness plugin artifact containing extension metadata, commands, Skills, hooks, or related content that APM normalizes and installs as a package. A repository-backed Plugin is discovered through publisher-maintained Claude or Codex marketplace metadata and pinned by repository, package path, and commit SHA.
+
+**Plugin marketplace**:
+A publisher-curated catalog of Plugins available from a Git repository. A Library marketplace represents one repository and uses either the Claude or Codex marketplace format.
 
 **Project**:
 A directory containing the committed APM manifest `apm.yml`. Instill discovers a Project by walking up from the current directory.
