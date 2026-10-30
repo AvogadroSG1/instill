@@ -63,6 +63,9 @@ Expected library shape:
 ```
 
 Run `instill library scan` to create or refresh catalog CSV files from library content.
+MCP `config.json` markers may be flat server objects or client-style wrappers
+containing a matching `mcpServers.<directory-name>` entry. Wrapped entries use
+the same transport normalization as MCP import.
 
 ### MCP Initial State and Pi
 

@@ -79,6 +79,58 @@ func TestLibraryCommandScanReportsReconciliation(t *testing.T) {
 	}
 }
 
+func TestLibraryCommandScanAcceptsWrappedMCPServerConfig(t *testing.T) {
+	library := t.TempDir()
+	if err := instill.WriteCatalog(library, instill.LibraryTypeMCP, []instill.CatalogEntry{}); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(library, "mcp", "slack", "config.json")
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte(`{"mcpServers":{"slack":{"type":"http","url":"https://example.test/mcp"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"library", "scan"},
+		cwd:    t.TempDir(),
+	})
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stdout = %q; stderr = %q", code, stdout.String(), stderr.String())
+	}
+
+	if got, want := stdout.String(), "added: slack\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	entries, err := instill.LoadCatalog(library, instill.LibraryTypeMCP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []instill.CatalogEntry{{
+		Type:      instill.LibraryTypeMCP,
+		Name:      "slack",
+		Transport: "http",
+		URL:       "https://example.test/mcp",
+	}}
+	if len(entries) != 1 {
+		t.Fatalf("LoadCatalog(mcp) returned %d entries, want 1: %#v", len(entries), entries)
+	}
+	got := entries[0]
+	matches := got.Type == want[0].Type &&
+		got.Name == want[0].Name &&
+		got.Transport == want[0].Transport &&
+		got.URL == want[0].URL
+	if !matches {
+		t.Fatalf("LoadCatalog(mcp) = %#v, want %#v", got, want[0])
+	}
+}
+
 func TestLibraryCommandShowSkipsAPMBootstrap(t *testing.T) {
 	library := createCatalogLibrary(t, cliCatalogLibrarySeed{
 		skills: []catalogFixture{{

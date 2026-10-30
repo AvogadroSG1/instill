@@ -1074,14 +1074,15 @@ func loadPluginMetadata(path string) (pluginMetadataFile, error) {
 }
 
 type mcpConfigFile struct {
-	Transport      string   `json:"transport"`
-	Command        string   `json:"command"`
-	Args           []string `json:"args"`
-	URL            string   `json:"url"`
-	Env            []string `json:"env"`
-	Headers        []string `json:"headers"`
-	Description    string   `json:"description"`
-	DefaultEnabled *bool    `json:"default_enabled,omitempty"`
+	Transport      string               `json:"transport"`
+	Command        string               `json:"command"`
+	Args           []string             `json:"args"`
+	URL            string               `json:"url"`
+	Env            []string             `json:"env"`
+	Headers        []string             `json:"headers"`
+	Description    string               `json:"description"`
+	DefaultEnabled *bool                `json:"default_enabled,omitempty"`
+	MCPServers     map[string]mcpServer `json:"mcpServers,omitempty"`
 }
 
 func loadMCPConfig(path string) (mcpConfigFile, error) {
@@ -1095,6 +1096,23 @@ func loadMCPConfig(path string) (mcpConfigFile, error) {
 	}
 	if err := json.Unmarshal(data, &config); err != nil {
 		return mcpConfigFile{}, NewExitError(ExitGeneral, fmt.Sprintf("error: malformed mcp config: %v", err))
+	}
+	if config.MCPServers != nil {
+		name := filepath.Base(filepath.Dir(path))
+		server, ok := config.MCPServers[name]
+		if !ok {
+			return mcpConfigFile{}, NewExitError(
+				ExitGeneral,
+				fmt.Sprintf("error: malformed mcp config: mcpServers has no server %q", name),
+			)
+		}
+		entry := catalogEntryFromMCPServer(name, server, false)
+		config.Transport = entry.Transport
+		config.Command = entry.Command
+		config.Args = entry.Args
+		config.URL = entry.URL
+		config.Env = entry.Env
+		config.Headers = entry.Headers
 	}
 	return config, nil
 }

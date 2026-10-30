@@ -357,7 +357,7 @@ func TestLoadCatalogReadsMCPHeaders(t *testing.T) {
 	requireNoError(t, os.MkdirAll(filepath.Join(root, "mcp"), 0o755))
 	requireNoError(t, os.WriteFile(
 		filepath.Join(root, "mcp", "catalog.csv"),
-		[]byte("name,transport,command,args,url,env,headers,description,default_enabled\nrootly,http,,,https://mcp.rootly.com/mcp-codemode,,Authorization=Bearer ${ROOTLY_API_TOKEN},Rootly,\n"),
+		[]byte("name,transport,command,args,url,env,headers,description,default_enabled\nremote-with-headers,http,,,https://example.test/mcp,,Authorization=Bearer ${API_TOKEN},Remote with headers,\n"),
 		0o644,
 	))
 
@@ -365,16 +365,16 @@ func TestLoadCatalogReadsMCPHeaders(t *testing.T) {
 	requireNoError(t, err)
 	requireEqual(t, []CatalogEntry{{
 		Type:        LibraryTypeMCP,
-		Name:        "rootly",
+		Name:        "remote-with-headers",
 		Transport:   "http",
-		URL:         "https://mcp.rootly.com/mcp-codemode",
-		Headers:     []string{"Authorization=Bearer ${ROOTLY_API_TOKEN}"},
-		Description: "Rootly",
+		URL:         "https://example.test/mcp",
+		Headers:     []string{"Authorization=Bearer ${API_TOKEN}"},
+		Description: "Remote with headers",
 	}}, entries)
 
 	requireNoError(t, WriteCatalog(root, LibraryTypeMCP, entries))
 	requireEqual(t,
-		"name,transport,command,args,url,env,headers,description,default_enabled\nrootly,http,,,https://mcp.rootly.com/mcp-codemode,,Authorization=Bearer ${ROOTLY_API_TOKEN},Rootly,\n",
+		"name,transport,command,args,url,env,headers,description,default_enabled\nremote-with-headers,http,,,https://example.test/mcp,,Authorization=Bearer ${API_TOKEN},Remote with headers,\n",
 		readFile(t, filepath.Join(root, "mcp", "catalog.csv")),
 	)
 }

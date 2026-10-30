@@ -31,6 +31,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Skill names are always normalized (deduped + sorted) before writing the manifest
 - Pi activation is directory-based (`.pi/`), not an APM target selection; legacy `pi` targets migrate, and Pi-only projects use `agent-skills` plus APM package-only installation.
 - MCP installs preserve existing native flags/omissions across APM entry replacement, restore pre-existing OpenCode/Codex choices after partial failures, and serialize shared Claude project-toggle updates without changing approval/trust settings.
+- `library scan` accepts client-style `mcpServers` wrappers in MCP config
+  markers, selects the server matching the containing directory, and uses
+  MCP import's transport normalization.
 - `CLAUDE_CONFIG_DIR` import and toggle state use the real `.claude.json` basename.
 - Remote plugins now come from GitHub plugin marketplaces. `library add --type plugin --repository`, `library update --type plugin`, and `source=git` plugin catalog rows were removed. Plugin catalog reads fail on legacy `source=git` rows until they are deleted.
 
