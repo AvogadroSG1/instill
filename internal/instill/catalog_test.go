@@ -357,7 +357,7 @@ func TestLoadCatalogReadsMCPHeaders(t *testing.T) {
 	requireNoError(t, os.MkdirAll(filepath.Join(root, "mcp"), 0o755))
 	requireNoError(t, os.WriteFile(
 		filepath.Join(root, "mcp", "catalog.csv"),
-		[]byte("name,transport,command,args,url,env,headers,description,default_enabled\nrootly,http,,,https://mcp.rootly.com/mcp-codemode,,Authorization=Bearer ${ROOTLY_API_TOKEN},Rootly,\n"),
+		[]byte("name,transport,command,args,url,env,headers,description,default_enabled\nremote-with-headers,http,,,https://example.test/mcp,,Authorization=Bearer ${API_TOKEN},Remote with headers,\n"),
 		0o644,
 	))
 
@@ -365,16 +365,16 @@ func TestLoadCatalogReadsMCPHeaders(t *testing.T) {
 	requireNoError(t, err)
 	requireEqual(t, []CatalogEntry{{
 		Type:        LibraryTypeMCP,
-		Name:        "rootly",
+		Name:        "remote-with-headers",
 		Transport:   "http",
-		URL:         "https://mcp.rootly.com/mcp-codemode",
-		Headers:     []string{"Authorization=Bearer ${ROOTLY_API_TOKEN}"},
-		Description: "Rootly",
+		URL:         "https://example.test/mcp",
+		Headers:     []string{"Authorization=Bearer ${API_TOKEN}"},
+		Description: "Remote with headers",
 	}}, entries)
 
 	requireNoError(t, WriteCatalog(root, LibraryTypeMCP, entries))
 	requireEqual(t,
-		"name,transport,command,args,url,env,headers,description,default_enabled\nrootly,http,,,https://mcp.rootly.com/mcp-codemode,,Authorization=Bearer ${ROOTLY_API_TOKEN},Rootly,\n",
+		"name,transport,command,args,url,env,headers,description,default_enabled\nremote-with-headers,http,,,https://example.test/mcp,,Authorization=Bearer ${API_TOKEN},Remote with headers,\n",
 		readFile(t, filepath.Join(root, "mcp", "catalog.csv")),
 	)
 }
@@ -520,9 +520,9 @@ func TestWriteCatalogWritesPluginSchema(t *testing.T) {
 	requireNoError(t, err)
 	got := readFile(t, filepath.Join(root, "plugins", "catalog.csv"))
 	want := strings.Join([]string{
-		"name,category,path,source,repository,ref,description",
-		"docker,,docker/plugin.json,,,,Container plugin",
-		"shortcuts-playground/claude,shortcuts-playground,shortcuts-playground/claude/.claude-plugin/plugin.json,,,,Shortcuts plugin",
+		"name,category,path,source,repository,ref,description,marketplace_format",
+		"docker,,docker/plugin.json,,,,Container plugin,",
+		"shortcuts-playground/claude,shortcuts-playground,shortcuts-playground/claude/.claude-plugin/plugin.json,,,,Shortcuts plugin,",
 		"",
 	}, "\n")
 	requireEqual(t, want, got)
@@ -1016,6 +1016,24 @@ func TestPluginCatalogReadsLegacyFourColumnRows(t *testing.T) {
 	requireEqual(t, "plugin", entries[0].Name)
 }
 
+func TestPluginCatalogDefaultsLegacyMarketplaceRowsToClaude(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "plugins", "catalog.csv")
+	requireNoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	original := "name,category,path,source,repository,ref,description\n" +
+		"mkt/plugin,mkt,marketplaces/mkt/.claude-plugin/plugin.json,marketplace,https://github.com/owner/repo.git," + otherRemoteSHA + ",legacy\n"
+	requireNoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+	entries, err := LoadCatalog(root, LibraryTypePlugin)
+	requireNoError(t, err)
+	requireEqual(t, PluginMarketplaceFormatClaude, entries[0].MarketplaceFormat)
+	requireEqual(t, original, readFile(t, path))
+
+	requireNoError(t, WriteCatalog(root, LibraryTypePlugin, entries))
+	requireContains(t, readFile(t, path), "name,category,path,source,repository,ref,description,marketplace_format")
+	requireContains(t, readFile(t, path), "legacy,claude")
+}
+
 func TestPluginCatalogMigratesLegacyRowsOnlyOnWrite(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "plugins", "catalog.csv")
@@ -1026,5 +1044,5 @@ func TestPluginCatalogMigratesLegacyRowsOnlyOnWrite(t *testing.T) {
 	requireNoError(t, err)
 	requireEqual(t, original, readFile(t, path))
 	requireNoError(t, WriteCatalog(root, LibraryTypePlugin, entries))
-	requireContains(t, readFile(t, path), "name,category,path,source,repository,ref,description")
+	requireContains(t, readFile(t, path), "name,category,path,source,repository,ref,description,marketplace_format")
 }

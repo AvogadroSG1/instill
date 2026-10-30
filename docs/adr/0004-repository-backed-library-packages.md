@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|-------|
 | Date | 2026-08-22 |
-| Status | Accepted |
+| Status | Superseded for marketplace format support by ADR-0008 |
 | Scope | Team |
 | Authors | Peter O'Connor |
 | Type | Decision |

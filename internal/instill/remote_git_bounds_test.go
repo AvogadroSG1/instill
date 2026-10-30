@@ -103,7 +103,12 @@ func TestRemoteOperationsTerminateWhenRemoteCommandBlocks(t *testing.T) {
 			url:  "https://github.com/owner/repo.git",
 			typ:  LibraryTypePlugin,
 			run: func(ctx context.Context, library string, runner CommandRunner) error {
-				return AddPluginMarketplace(ctx, library, "owner/repo", runner, io.Discard)
+				return AddPluginMarketplace(ctx, PluginMarketplaceOptions{
+					LibraryPath: library,
+					Repository:  "owner/repo",
+					Runner:      runner,
+					Stdout:      io.Discard,
+				})
 			},
 		},
 		{
