@@ -19,6 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `instill pick --overwrite` verifies remote HTTP MCP output across all nine native APM targets while keeping lock Env strict, and recognizes Gemini/Antigravity `httpUrl` endpoints.
+
 - Skills may now be nested to arbitrary depth in the library
   (`cloud/azure/azure-cli`); `ListLibrarySkills` walks until it finds a
   `SKILL.md`, and `IsValidSkillName` accepts any number of safe slash-separated

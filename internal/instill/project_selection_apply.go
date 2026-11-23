@@ -667,8 +667,16 @@ func equalOverwriteMCPDefinition(expected, actual CatalogEntry) bool {
 }
 
 func equalOverwriteMCPRuntimeDefinition(expected, actual CatalogEntry, target string) bool {
-	if (target == "codex" || target == "opencode") && (expected.Transport == "http" || expected.Transport == "sse") {
-		expected.Env = nil
+	switch expected.Transport {
+	case "http":
+		switch target {
+		case "antigravity", "claude", "codex", "copilot", "cursor", "gemini", "kiro", "opencode", "vscode":
+			expected.Env = nil
+		}
+	case "sse":
+		if target == "codex" || target == "opencode" {
+			expected.Env = nil
+		}
 	}
 	return equalOverwriteMCPDefinition(expected, actual)
 }
@@ -812,6 +820,7 @@ func overwriteJSONMCPDefinition(name string, raw json.RawMessage, target string)
 		Command       json.RawMessage   `json:"command"`
 		Args          []string          `json:"args"`
 		URL           string            `json:"url"`
+		HTTPURL       string            `json:"httpUrl"`
 		Env           map[string]string `json:"env"`
 		Environment   map[string]string `json:"environment"`
 		Headers       map[string]string `json:"headers"`
@@ -820,6 +829,15 @@ func overwriteJSONMCPDefinition(name string, raw json.RawMessage, target string)
 	}
 	if err := json.Unmarshal(raw, &definition); err != nil {
 		return CatalogEntry{}, fmt.Errorf("invalid MCP definition: %w", err)
+	}
+	url := definition.URL
+	if target == "gemini" || target == "antigravity" {
+		if definition.URL != "" && definition.HTTPURL != "" {
+			return CatalogEntry{}, fmt.Errorf("url and httpUrl cannot both be set")
+		}
+		if definition.HTTPURL != "" {
+			url = definition.HTTPURL
+		}
 	}
 	command := ""
 	args := definition.Args
@@ -867,7 +885,7 @@ func overwriteJSONMCPDefinition(name string, raw json.RawMessage, target string)
 	}
 	server := mcpServer{
 		Type: definition.Type, Transport: transport, Command: command, Args: args,
-		URL: definition.URL, Env: env, Headers: headers,
+		URL: url, Env: env, Headers: headers,
 	}
 	entry := catalogEntryFromMCPServer(name, server, false)
 	if definition.HTTPTransport == "sse" {
