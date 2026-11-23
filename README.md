@@ -154,6 +154,12 @@ instill sync
 instill add-hooks
 ```
 
+### Complete Project Replacement
+
+`instill pick --overwrite` opens the full five-type picker with every available Library entry selected. Edit selections across Skills, Plugins, MCP servers, Instructions, and Prompts, then press `a` to apply the replacement. The confirmed operation replaces the project selection in `apm.yml` and reconciles project-local target output to match it, removing manual entries and stale managed output that are not in the selection.
+
+Overwrite requires APM 0.35.0 or newer, runs only through the interactive picker, and cannot be combined with positional names or `--remove`. It leaves user-global configuration and unrelated project configuration keys untouched. Projects declaring `windsurf` or `hermes` targets are rejected because their MCP integration requires user-global writes.
+
 Project artifacts:
 
 ```text
@@ -175,8 +181,7 @@ your-project/
 |---------|-------------|
 | `instill init` | Create `apm.yml` for the current project and optionally seed skills |
 | `instill targets` | View or configure target agents for compilation |
-| `instill pick [name...]` | Add or remove typed library entries from `apm.yml` or copied `.apm/` content |
-| `instill sync` | Run `apm install`, then `apm compile`, copy OpenCode plugin files, and report synced counts |
+| `instill pick [name...]` | Add or remove typed library entries from `apm.yml` or copied `.apm/` content; `--overwrite` replaces the complete project selection |
 | `instill status` | Compare project APM state with the Library catalog |
 | `instill library scan` | Rebuild typed catalog CSV files from library content |
 | `instill library add` | Add one typed catalog entry |

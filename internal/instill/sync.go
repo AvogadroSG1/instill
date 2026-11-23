@@ -306,14 +306,18 @@ type apmLock struct {
 	Dependencies []apmLockDependency `yaml:"dependencies"`
 }
 
-// apmLockDependency mirrors the subset of the APM 0.28 lockfile dependency
-// shape instill needs to detect skill content drift. deployed_files and
-// deployments are intentionally not modeled here.
+// apmLockDependency mirrors APM's lockfile fields used for package identity,
+// deployed-file validation, and skill content drift.
 type apmLockDependency struct {
 	Name               string            `yaml:"name"`
 	PackageType        string            `yaml:"package_type"`
 	Source             string            `yaml:"source"`
 	LocalPath          string            `yaml:"local_path"`
+	RepoURL            string            `yaml:"repo_url"`
+	Host               string            `yaml:"host"`
+	Port               int               `yaml:"port"`
+	VirtualPath        string            `yaml:"virtual_path"`
+	IsVirtual          bool              `yaml:"is_virtual"`
 	DeployedFileHashes map[string]string `yaml:"deployed_file_hashes"`
 }
 

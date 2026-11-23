@@ -578,6 +578,7 @@ func (d *manifestDocument) reconcileGitNode(node *yaml.Node, wanted *GitDependen
 }
 
 func (d *manifestDocument) mutateMCP(desired []MCPDependency, ownedNames map[string]struct{}) error {
+
 	sequence, err := d.dependencySequence("mcp", len(desired) > 0)
 	if err != nil || sequence == nil {
 		return err
@@ -670,6 +671,80 @@ func (d *manifestDocument) mutateMCP(desired []MCPDependency, ownedNames map[str
 		d.dirty = true
 	}
 	sequence.Content = nextContent
+	return nil
+}
+
+// replaceAPM replaces the complete APM dependency sequence without preserving
+// declarations that are not represented by the requested selection.
+func (d *manifestDocument) replaceAPM(desired []APMDependency) error {
+	if desired == nil {
+		desired = []APMDependency{}
+	}
+	return d.replaceDependencySequence("apm", desired)
+}
+
+// replaceMCP replaces the complete MCP dependency sequence without preserving
+// declarations that are not represented by the requested selection.
+func (d *manifestDocument) replaceMCP(desired []MCPDependency) error {
+	if desired == nil {
+		desired = []MCPDependency{}
+	}
+	return d.replaceDependencySequence("mcp", desired)
+}
+
+func (d *manifestDocument) replaceDependencySequence(key string, desired any) error {
+	root, err := apmManifestMapping(d.document)
+	if err != nil {
+		return err
+	}
+	if mappingKeyCount(root, "dependencies") > 1 {
+		return malformedManifestError("dependencies", "contains duplicate keys; correct the manifest and retry")
+	}
+	dependencies := mappingValue(root, "dependencies")
+	if dependencies == nil {
+		if err := d.checkMutation(root, root, "dependencies", "add dependencies mapping"); err != nil {
+			return err
+		}
+		dependencies = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		setMappingValue(root, "dependencies", dependencies)
+		d.dirty = true
+	}
+	if dependencies.Kind != yaml.MappingNode {
+		return malformedManifestError("dependencies", "must be a mapping; correct it and retry")
+	}
+	if mappingKeyCount(dependencies, key) > 1 {
+		return malformedManifestError("dependencies."+key, "contains duplicate keys; correct the manifest and retry")
+	}
+	next, err := yamlNode(desired)
+	if err != nil {
+		return NewExitError(ExitGeneral, fmt.Sprintf("error: cannot encode manifest dependency sequence: %v", err))
+	}
+	if len(next.Content) == 0 {
+		next.Style = yaml.FlowStyle
+	}
+	current := mappingValue(dependencies, key)
+	if current == nil {
+		if err := d.checkMutation(dependencies, dependencies, "dependencies."+key, "add dependency sequence"); err != nil {
+			return err
+		}
+		setMappingValue(dependencies, key, next)
+		d.dirty = true
+		return nil
+	}
+	if nodeValueEqual(current, next) {
+		return nil
+	}
+	if err := d.checkMappingKeyMutation(dependencies, key, dependencies, "dependencies."+key, "replace dependency sequence"); err != nil {
+		return err
+	}
+	if err := d.checkRemoval(current, current, "dependencies."+key, "replace dependency sequence"); err != nil {
+		return err
+	}
+	if err := d.checkMutation(current, current, "dependencies."+key, "replace dependency sequence"); err != nil {
+		return err
+	}
+	copyNodeValue(current, next)
+	d.dirty = true
 	return nil
 }
 
@@ -973,6 +1048,16 @@ func mappingKeyMatches(node *yaml.Node, key string) bool {
 		return node.Value == key
 	}
 	return node.Kind == yaml.AliasNode && node.Alias != nil && node.Alias.Kind == yaml.ScalarNode && node.Alias.Value == key
+}
+
+func mappingKeyCount(mapping *yaml.Node, key string) int {
+	count := 0
+	for index := 0; index+1 < len(mapping.Content); index += 2 {
+		if mappingKeyMatches(mapping.Content[index], key) {
+			count++
+		}
+	}
+	return count
 }
 
 func setMappingValue(mapping *yaml.Node, key string, value *yaml.Node) {

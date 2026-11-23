@@ -1,0 +1,777 @@
+package instill
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"gopkg.in/yaml.v3"
+)
+
+func TestApplyProjectSelectionReplacesManifestAndProjectOutputs(t *testing.T) {
+	home := isolateMCPEnvironment(t)
+	library := overwriteTestLibrary(t, []CatalogEntry{
+		{Type: LibraryTypeSkill, Name: "chosen-skill", Path: "chosen-skill/SKILL.md", Description: "selected"},
+		{Type: LibraryTypeSkill, Name: "stale-skill", Path: "stale-skill/SKILL.md", Description: "not selected"},
+		{Type: LibraryTypePlugin, Name: "chosen-plugin", Path: "chosen-plugin/.claude-plugin/plugin.json", Description: "selected"},
+		{Type: LibraryTypePlugin, Name: "stale-plugin", Path: "stale-plugin/.claude-plugin/plugin.json", Description: "not selected"},
+		{Type: LibraryTypeMCP, Name: "chosen-server", Transport: "stdio", Command: "/usr/bin/true", Args: []string{"chosen"}},
+		{Type: LibraryTypeMCP, Name: "stale-server", Transport: "stdio", Command: "/usr/bin/true", Args: []string{"stale"}},
+		{Type: LibraryTypeInstruction, Name: "chosen-rule", Path: "chosen-rule/INSTRUCTION.md", ApplyTo: "**", Description: "selected"},
+		{Type: LibraryTypeInstruction, Name: "stale-rule", Path: "stale-rule/INSTRUCTION.md", ApplyTo: "**", Description: "not selected"},
+		{Type: LibraryTypePrompt, Name: "chosen-prompt", Path: "chosen-prompt/PROMPT.md", Description: "selected"},
+		{Type: LibraryTypePrompt, Name: "stale-prompt", Path: "stale-prompt/PROMPT.md", Description: "not selected"},
+	})
+	project := overwriteTestProject(t, []byte(`name: overwrite-test
+version: 0.1.0
+targets: [claude, codex, opencode]
+dependencies:
+  apm:
+    - ../foreign-skill
+    - git: https://example.invalid/foreign.git
+      path: package
+      ref: main
+  mcp:
+    - name: foreign-server
+      transport: stdio
+      command: /old/foreign
+`))
+	writeOverwriteJSON(t, filepath.Join(project.Root, ".mcp.json"), map[string]any{
+		"mcpServers": map[string]any{"foreign-server": map[string]any{"command": "/old/foreign"}, "manual": map[string]any{"command": "/manual"}},
+		"unrelated":  "preserve-claude-setting",
+	})
+	writeOverwriteFile(t, filepath.Join(project.Root, ".codex", "config.toml"), []byte("[mcp_servers.\"chosen-server\"]\ncommand = \"/old\"\nenabled = false\n\n[mcp_servers.manual]\ncommand = \"/manual\"\nenabled = true\n"), 0600)
+	writeOverwriteJSON(t, filepath.Join(project.Root, "opencode.json"), map[string]any{
+		"mcp": map[string]any{
+			"foreign-server": map[string]any{"command": []string{"old"}},
+			"chosen-server":  map[string]any{"command": []string{"old"}, "enabled": true},
+			"manual":         map[string]any{"command": []string{"manual"}},
+		},
+		"plugins":   []string{"manual-plugin.ts"},
+		"unrelated": map[string]any{"preserve": true},
+	})
+	writeOverwriteJSON(t, filepath.Join(project.Root, "opencode.jsonc"), map[string]any{
+		"mcp": map[string]any{"chosen-server": map[string]any{"enabled": false}},
+	})
+	for path, content := range map[string]string{
+		".agents/skills/stale-skill/SKILL.md":     "old skill",
+		".agents/skills/manual/SKILL.md":          "manual skill",
+		".claude/skills/manual/SKILL.md":          "manual Claude skill",
+		".cursor/commands/manual.md":              "deselected target output",
+		".apm/instructions/stale.instructions.md": "old instruction",
+		".apm/prompts/stale.prompt.md":            "old prompt",
+		"apm_modules/_local/foreign/old-file":     "pruned package",
+	} {
+		writeOverwriteFile(t, filepath.Join(project.Root, path), []byte(content), 0644)
+	}
+	globalSentinels := map[string][]byte{
+		filepath.Join(home, ".claude.json"):                            []byte(`{"global":"claude-sentinel"}`),
+		filepath.Join(home, ".codeium", "windsurf", "mcp_config.json"): []byte(`{"global":"windsurf-sentinel"}`),
+	}
+	for path, content := range globalSentinels {
+		writeOverwriteFile(t, path, content, 0600)
+	}
+
+	var output bytes.Buffer
+	runner := newOverwriteStatefulRunner(t, project.Root, library)
+	err := ApplyProjectSelection(ProjectSelectionOptions{
+		Project: project, LibraryPath: library,
+		Selection: ProjectSelection{
+			Skills: []string{"chosen-skill"}, Plugins: []string{"chosen-plugin"}, MCPs: []string{"chosen-server"},
+			Instructions: []string{"chosen-rule"}, Prompts: []string{"chosen-prompt"},
+		},
+		Runner: runner.Run, Stdout: &output,
+	})
+	if err != nil {
+		t.Fatalf("ApplyProjectSelection() error = %v", err)
+	}
+	if got, want := output.String(), "ok: replaced project selection and reconciled targets\n"; got != want {
+		t.Fatalf("success output = %q, want %q", got, want)
+	}
+
+	manifest, err := ReadAPMManifest(ProjectAPMPath(project.Root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Dependencies.APM) != 2 || manifest.Dependencies.APM[0].Local != filepath.Join(library, "skills", "chosen-skill") || manifest.Dependencies.APM[1].Local != filepath.Join(library, "plugins", "chosen-plugin") {
+		t.Fatalf("replacement packages = %#v; want only selected Skill and Plugin paths", manifest.Dependencies.APM)
+	}
+	if len(manifest.Dependencies.MCP) != 1 || manifest.Dependencies.MCP[0].Name != "chosen-server" {
+		t.Fatalf("replacement MCPs = %#v; want only chosen-server", manifest.Dependencies.MCP)
+	}
+	for _, path := range []string{
+		".agents/skills/stale-skill", ".agents/skills/manual", ".claude/skills/manual", ".cursor/commands/manual.md",
+		".apm/instructions/stale.instructions.md", ".apm/prompts/stale.prompt.md", "apm_modules/_local/foreign",
+	} {
+		if _, err := os.Lstat(filepath.Join(project.Root, path)); !os.IsNotExist(err) {
+			t.Errorf("stale project output %s remains (Lstat error %v)", path, err)
+		}
+	}
+	for path, want := range map[string]string{
+		".agents/skills/chosen-skill/SKILL.md":          "# chosen-skill",
+		".claude/skills/chosen-skill/SKILL.md":          "# chosen-skill",
+		".apm/instructions/chosen-rule.instructions.md": "---\napplyTo: \"**\"\n---\n# chosen-rule",
+		".apm/prompts/chosen-prompt.prompt.md":          "---\ndescription: selected prompt\n---\n# chosen-prompt",
+	} {
+		data, err := os.ReadFile(filepath.Join(project.Root, path))
+		if err != nil || string(data) != want {
+			t.Errorf("selected output %s = %q, %v; want %q", path, data, err, want)
+		}
+	}
+	generated, err := os.ReadFile(filepath.Join(project.Root, "AGENTS.md"))
+	if err != nil || !bytes.HasPrefix(generated, []byte("<!-- Generated by APM CLI from .apm/ primitives -->")) {
+		t.Errorf("compiled project context = %q, err %v", generated, err)
+	}
+	claude := readOverwriteJSON(t, filepath.Join(project.Root, ".mcp.json"))
+	if got := sortedJSONMapKeys(t, claude["mcpServers"]); !slices.Equal(got, []string{"chosen-server"}) {
+		t.Errorf("Claude MCP names = %v, want [chosen-server]", got)
+	}
+	if claude["unrelated"] != "preserve-claude-setting" {
+		t.Errorf("unrelated Claude config = %#v", claude["unrelated"])
+	}
+	opencode := readOverwriteJSON(t, filepath.Join(project.Root, "opencode.json"))
+	if got := sortedJSONMapKeys(t, opencode["mcp"]); !slices.Equal(got, []string{"chosen-server"}) {
+		t.Errorf("OpenCode MCP names = %v, want [chosen-server]", got)
+	}
+	chosenOpenCode := jsonObject(t, jsonObject(t, opencode["mcp"])["chosen-server"])
+	if got := chosenOpenCode["enabled"]; got != false {
+		t.Errorf("OpenCode selected server enabled = %#v, want effective later project-layer value false", got)
+	}
+	codexDocument, _, err := readCodexDocument(filepath.Join(project.Root, ".codex", "config.toml"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codexState, err := codexDocumentEnableState(filepath.Join(project.Root, ".codex", "config.toml"), codexDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := codexState["chosen-server"]; !got.Present || string(got.Value) != "false" || len(codexState) != 1 {
+		t.Errorf("Codex selected MCP state = %#v, want only chosen-server enabled=false", codexState)
+	}
+	if got := opencode["plugins"]; fmt.Sprint(got) != "[]" {
+		t.Errorf("OpenCode plugins = %#v, want empty array", got)
+	}
+	if got := opencode["unrelated"]; fmt.Sprint(got) != "map[preserve:true]" {
+		t.Errorf("unrelated OpenCode config = %#v", got)
+	}
+	for path, want := range globalSentinels {
+		got, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(got, want) {
+			t.Errorf("user-global sentinel %s changed: got %q, err %v", path, got, err)
+		}
+	}
+}
+
+func TestApplyProjectSelectionFailureAfterPublicationKeepsDesiredManifest(t *testing.T) {
+	isolateMCPEnvironment(t)
+	library := overwriteTestLibrary(t, []CatalogEntry{
+		{Type: LibraryTypeMCP, Name: "new-server", Transport: "stdio", Command: "/usr/bin/true", Args: []string{"new"}},
+	})
+	project := overwriteTestProject(t, []byte(`name: retry-test
+version: 0.1.0
+targets: [claude]
+dependencies:
+  apm: [../foreign]
+  mcp:
+    - name: old-server
+      transport: stdio
+      command: /old
+`))
+	var output bytes.Buffer
+	runner := newOverwriteStatefulRunner(t, project.Root, library)
+	runner.failAt = "prune"
+	err := ApplyProjectSelection(ProjectSelectionOptions{
+		Project: project, LibraryPath: library,
+		Selection: ProjectSelection{MCPs: []string{"new-server"}},
+		Runner:    runner.Run, Stdout: &output,
+	})
+	if err == nil || !strings.Contains(err.Error(), "injected prune failure") {
+		t.Fatalf("ApplyProjectSelection() error = %v; want injected post-publication prune failure", err)
+	}
+	if output.Len() != 0 || strings.Contains(output.String(), "ok: replaced project selection") {
+		t.Fatalf("failure printed success output %q", output.String())
+	}
+	manifest, readErr := ReadAPMManifest(ProjectAPMPath(project.Root))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(manifest.Dependencies.APM) != 0 || len(manifest.Dependencies.MCP) != 1 || manifest.Dependencies.MCP[0].Name != "new-server" {
+		t.Fatalf("published manifest = %#v; want only new-server and no package dependencies", manifest.Dependencies)
+	}
+}
+
+func TestApplyProjectSelectionReconcilesPiRootAndPluginMCPs(t *testing.T) {
+	isolateMCPEnvironment(t)
+	library := overwriteTestLibrary(t, []CatalogEntry{
+		{Type: LibraryTypePlugin, Name: "pi-plugin", Path: "pi-plugin/.claude-plugin/plugin.json", Description: "Pi package"},
+		{Type: LibraryTypeMCP, Name: "root-server", Transport: "stdio", Command: "/usr/bin/true", Args: []string{"root"}, DefaultEnabled: new(true)},
+	})
+	packageManifest := []byte(`name: pi-plugin
+version: 1.0.0
+dependencies:
+  mcp:
+    - name: plugin-server
+      transport: stdio
+      command: /usr/bin/true
+      args: [plugin]
+`)
+	writeOverwriteFile(t, filepath.Join(library, "plugins", "pi-plugin", "apm.yml"), packageManifest, 0644)
+	project := overwriteTestProject(t, []byte(`name: pi-overwrite
+version: 0.1.0
+targets: [agent-skills]
+dependencies:
+  apm: [../foreign]
+  mcp:
+    - name: obsolete-server
+      transport: stdio
+      command: /old
+`))
+	if err := os.MkdirAll(filepath.Join(project.Root, ".pi"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeOverwriteJSON(t, piProjectMCPPath(project.Root), map[string]any{
+		"mcpServers": map[string]any{
+			"root-server":   map[string]any{"command": "/old-root", "args": []string{"old"}, "disabled": true, "directTools": []string{"search"}, "note": "root user metadata"},
+			"plugin-server": map[string]any{"command": "/old-plugin", "args": []string{"old"}, "disabled": true, "directTools": []string{"inspect"}, "note": "plugin user metadata"},
+			"manual-server": map[string]any{"command": "/manual", "args": []string{}, "disabled": false},
+		},
+		piManagedKey: []string{"manual-server"},
+		"unrelated":  map[string]any{"keep": true},
+	})
+
+	var output bytes.Buffer
+	runner := newOverwriteStatefulRunner(t, project.Root, library)
+	if err := ApplyProjectSelection(ProjectSelectionOptions{
+		Project: project, LibraryPath: library,
+		Selection: ProjectSelection{Plugins: []string{"pi-plugin"}, MCPs: []string{"root-server"}},
+		Runner:    runner.Run, Stdout: &output,
+	}); err != nil {
+		t.Fatalf("ApplyProjectSelection() error = %v", err)
+	}
+	pi := readOverwriteJSON(t, piProjectMCPPath(project.Root))
+	servers := jsonObject(t, pi["mcpServers"])
+	if got := sortedJSONMapKeys(t, servers); !slices.Equal(got, []string{"plugin-server", "root-server"}) {
+		t.Fatalf("Pi MCP names = %v; want only root and selected Plugin servers", got)
+	}
+	for name, note := range map[string]string{"root-server": "root user metadata", "plugin-server": "plugin user metadata"} {
+		server := jsonObject(t, servers[name])
+		if server["command"] != "/usr/bin/true" {
+			t.Errorf("Pi %s command = %#v", name, server["command"])
+		}
+		if server["disabled"] != true || server["note"] != note {
+			t.Errorf("Pi %s user-owned metadata = %#v", name, server)
+		}
+		if len(jsonStringSlice(t, server["directTools"])) != 1 {
+			t.Errorf("Pi %s directTools not preserved: %#v", name, server["directTools"])
+		}
+	}
+	if got := jsonStringSlice(t, pi[piManagedKey]); !slices.Equal(got, []string{"plugin-server", "root-server"}) {
+		t.Errorf("managed Pi names = %v; want exact sorted selected names", got)
+	}
+	if got := jsonObject(t, pi["unrelated"])["keep"]; got != true {
+		t.Errorf("unrelated Pi config = %#v", pi["unrelated"])
+	}
+	manifest, err := ReadAPMManifest(ProjectAPMPath(project.Root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Dependencies.MCP) != 1 || manifest.Dependencies.MCP[0].Name != "root-server" {
+		t.Fatalf("root manifest MCPs include package-derived MCPs: %#v", manifest.Dependencies.MCP)
+	}
+}
+
+type overwriteStatefulRunner struct {
+	t       *testing.T
+	root    string
+	library string
+	failAt  string
+}
+
+func newOverwriteStatefulRunner(t *testing.T, root, library string) *overwriteStatefulRunner {
+	t.Helper()
+	return &overwriteStatefulRunner{t: t, root: root, library: library}
+}
+
+func (r *overwriteStatefulRunner) Run(name string, args ...string) ([]byte, error) {
+	if name != "apm" {
+		return nil, fmt.Errorf("unexpected executable %q", name)
+	}
+	if len(args) == 1 && args[0] == "--version" {
+		return []byte("apm 0.35.0\n"), nil
+	}
+	if len(args) == 0 {
+		return nil, errors.New("missing APM command")
+	}
+	if r.failAt == args[0] {
+		return nil, fmt.Errorf("injected %s failure", args[0])
+	}
+	switch args[0] {
+	case "install":
+		return nil, r.installFromManifest()
+	case "prune":
+		return nil, r.pruneUnselectedPackages()
+	case "compile":
+		return nil, r.compileProject()
+	default:
+		return nil, fmt.Errorf("unexpected APM command %q", args[0])
+	}
+}
+func (r *overwriteStatefulRunner) pruneUnselectedPackages() error {
+	manifest, err := ReadAPMManifest(ProjectAPMPath(r.root))
+	if err != nil {
+		return err
+	}
+	wanted := make(map[string]struct{}, len(manifest.Dependencies.APM))
+	for _, dependency := range manifest.Dependencies.APM {
+		if dependency.Local != "" {
+			wanted[filepath.Base(filepath.Clean(dependency.Local))] = struct{}{}
+		}
+	}
+	root := filepath.Join(r.root, "apm_modules", "_local")
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if _, keep := wanted[entry.Name()]; keep {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *overwriteStatefulRunner) compileProject() error {
+	content := []byte("<!-- Generated by APM CLI from .apm/ primitives -->\n\n# Compiled project context\n")
+	return os.WriteFile(filepath.Join(r.root, "AGENTS.md"), content, 0644)
+}
+
+func (r *overwriteStatefulRunner) installFromManifest() error {
+	manifest, err := ReadAPMManifest(ProjectAPMPath(r.root))
+	if err != nil {
+		return err
+	}
+	lockDependencies := make([]map[string]any, 0, len(manifest.Dependencies.APM))
+	installedRoots := make(map[string]string, len(manifest.Dependencies.APM))
+	for _, dependency := range manifest.Dependencies.APM {
+		if dependency.Local == "" {
+			return fmt.Errorf("test runner only materializes local packages, got %#v", dependency)
+		}
+		source := dependency.Local
+		if !filepath.IsAbs(source) {
+			source = filepath.Join(r.root, source)
+		}
+		base := filepath.Base(filepath.Clean(source))
+		destination := filepath.Join(r.root, "apm_modules", "_local", base)
+		if err := copyOverwriteTree(source, destination); err != nil {
+			return err
+		}
+		installedRoots[base] = destination
+		packageType := "skill"
+		if _, err := os.Stat(filepath.Join(source, ".claude-plugin", "plugin.json")); err == nil {
+			packageType = "plugin"
+		}
+		lockDependencies = append(lockDependencies, map[string]any{
+			"name": base, "package_type": packageType, "source": "local", "local_path": source,
+			"deployed_files": []string{},
+		})
+	}
+
+	servers := make(map[string]MCPDependency, len(manifest.Dependencies.MCP))
+	for _, dependency := range manifest.Dependencies.MCP {
+		servers[dependency.Name] = dependency
+	}
+	for _, dependency := range manifest.Dependencies.APM {
+		root := installedRoots[filepath.Base(filepath.Clean(dependency.Local))]
+		manifestPath := ProjectAPMPath(root)
+		if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
+			continue // Plain Skills need not be APM packages.
+		} else if err != nil {
+			return err
+		}
+		packageManifest, err := ReadAPMManifest(manifestPath)
+		if err != nil {
+			return err
+		}
+		for _, server := range packageManifest.Dependencies.MCP {
+			if _, exists := servers[server.Name]; !exists {
+				servers[server.Name] = server
+			}
+		}
+	}
+	if err := r.writeSelectedSkillOutputs(manifest); err != nil {
+		return err
+	}
+	if err := r.writeNativeMCPOutputs(manifest, servers); err != nil {
+		return err
+	}
+	return r.writeFreshLock(manifest, lockDependencies, servers)
+}
+
+func (r *overwriteStatefulRunner) writeSelectedSkillOutputs(manifest APMManifest) error {
+	for _, dependency := range manifest.Dependencies.APM {
+		source := dependency.Local
+		if !filepath.IsAbs(source) {
+			source = filepath.Join(r.root, source)
+		}
+		if _, err := os.Stat(filepath.Join(source, "SKILL.md")); err != nil {
+			continue
+		}
+		name := filepath.Base(filepath.Clean(source))
+		for _, rel := range []string{filepath.Join(".agents", "skills", name, "SKILL.md"), filepath.Join(".claude", "skills", name, "SKILL.md")} {
+			path := filepath.Join(r.root, rel)
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(path, []byte("# "+name), 0644); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *overwriteStatefulRunner) writeNativeMCPOutputs(manifest APMManifest, servers map[string]MCPDependency) error {
+	for _, target := range manifest.Targets {
+		switch target {
+		case "claude":
+			entries := make(map[string]any, len(servers))
+			for name, dependency := range servers {
+				entries[name] = map[string]any{"command": dependency.Command, "args": dependency.Args}
+			}
+			if err := r.patchJSON(filepath.Join(r.root, ".mcp.json"), "mcpServers", entries); err != nil {
+				return err
+			}
+		case "codex":
+			var config strings.Builder
+			for name, dependency := range servers {
+				fmt.Fprintf(&config, "[mcp_servers.%q]\ncommand = %q\n", name, dependency.Command)
+				if dependency.Args != nil {
+					args, err := json.Marshal(dependency.Args)
+					if err != nil {
+						return err
+					}
+					fmt.Fprintf(&config, "args = %s\n", args)
+				}
+				config.WriteString("enabled = true\n\n")
+			}
+			path := filepath.Join(r.root, ".codex", "config.toml")
+			if err := os.WriteFile(path, []byte(config.String()), 0600); err != nil {
+				return err
+			}
+		case "opencode":
+			entries := make(map[string]any, len(servers))
+			for name, dependency := range servers {
+				command := append([]string{dependency.Command}, dependency.Args...)
+				entries[name] = map[string]any{"type": "local", "command": command, "enabled": true}
+			}
+			if err := r.patchJSON(filepath.Join(r.root, "opencode.json"), "mcp", entries); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *overwriteStatefulRunner) patchJSON(path, key string, value any) error {
+	object := map[string]any{}
+	data, err := os.ReadFile(path)
+	if err == nil {
+		if err := json.Unmarshal(data, &object); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	object[key] = value
+	encoded, err := json.MarshalIndent(object, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, encoded, 0644)
+}
+
+func (r *overwriteStatefulRunner) writeFreshLock(manifest APMManifest, dependencies []map[string]any, servers map[string]MCPDependency) error {
+	mcpNames := make([]string, 0, len(servers))
+	configs := make(map[string]any, len(servers))
+	for name, server := range servers {
+		mcpNames = append(mcpNames, name)
+		configs[name] = map[string]any{"transport": server.Transport, "command": server.Command, "args": server.Args}
+	}
+	slices.Sort(mcpNames)
+	targets := make(map[string][]string, len(manifest.Targets))
+	for _, target := range manifest.Targets {
+		targets[target] = append([]string{}, mcpNames...)
+	}
+	lock := map[string]any{
+		"lockfile_version": "3", "dependencies": dependencies, "mcp_servers": mcpNames,
+		"mcp_target_servers": targets, "mcp_configs": configs, "deployments": []any{},
+	}
+	data, err := yaml.Marshal(lock)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(r.root, "apm.lock.yaml"), data, 0644)
+}
+
+func overwriteTestLibrary(t *testing.T, entries []CatalogEntry) string {
+	t.Helper()
+	root := t.TempDir()
+	byType := make(map[LibraryType][]CatalogEntry)
+	for _, entry := range entries {
+		byType[entry.Type] = append(byType[entry.Type], entry)
+	}
+	for _, typ := range []LibraryType{LibraryTypeSkill, LibraryTypePlugin, LibraryTypeMCP, LibraryTypeInstruction, LibraryTypePrompt} {
+		if err := WriteCatalog(root, typ, byType[typ]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, entry := range entries {
+		var rel string
+		var body string
+		switch entry.Type {
+		case LibraryTypeSkill:
+			rel, body = filepath.Join("skills", filepath.FromSlash(entry.Path)), "# "+entry.Name
+		case LibraryTypePlugin:
+			rel = filepath.Join("plugins", filepath.FromSlash(entry.Path))
+			body = `{"name":"` + entry.Name + `"}`
+		case LibraryTypeInstruction:
+			rel, body = filepath.Join("instructions", filepath.FromSlash(entry.Path)), "---\napplyTo: \"**\"\n---\n# "+entry.Name
+		case LibraryTypePrompt:
+			rel, body = filepath.Join("prompts", filepath.FromSlash(entry.Path)), "---\ndescription: selected prompt\n---\n# "+entry.Name
+		case LibraryTypeMCP:
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, rel)), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, rel), []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if entry.Type == LibraryTypePlugin {
+			pluginRoot := filepath.Dir(filepath.Dir(filepath.Join(root, rel)))
+			manifest := []byte("name: " + entry.Name + "\nversion: 1.0.0\ndependencies:\n  mcp: []\n")
+			if err := os.WriteFile(filepath.Join(pluginRoot, "apm.yml"), manifest, 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return root
+}
+
+func overwriteTestProject(t *testing.T, manifest []byte) Project {
+	t.Helper()
+	project := createAPMProject(t, APMManifest{Name: "placeholder", Version: "0.1.0"})
+	if err := os.WriteFile(ProjectAPMPath(project.Root), manifest, 0644); err != nil {
+		t.Fatal(err)
+	}
+	return project
+}
+
+func writeOverwriteFile(t *testing.T, path string, data []byte, mode fs.FileMode) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, mode); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeOverwriteJSON(t *testing.T, path string, value any) {
+	t.Helper()
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeOverwriteFile(t, path, data, 0644)
+}
+
+func readOverwriteJSON(t *testing.T, path string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var object map[string]any
+	if err := json.Unmarshal(data, &object); err != nil {
+		t.Fatalf("decode %s: %v", path, err)
+	}
+	return object
+}
+
+func jsonObject(t *testing.T, value any) map[string]any {
+	t.Helper()
+	object, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("JSON value has type %T, want object", value)
+	}
+	return object
+}
+
+func sortedJSONMapKeys(t *testing.T, value any) []string {
+	t.Helper()
+	object := jsonObject(t, value)
+	keys := make([]string, 0, len(object))
+	for key := range object {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+func jsonStringSlice(t *testing.T, value any) []string {
+	t.Helper()
+	array, ok := value.([]any)
+	if !ok {
+		t.Fatalf("JSON value has type %T, want array", value)
+	}
+	result := make([]string, 0, len(array))
+	for _, item := range array {
+		text, ok := item.(string)
+		if !ok {
+			t.Fatalf("JSON array item has type %T, want string", item)
+		}
+		result = append(result, text)
+	}
+	return result
+}
+
+func copyOverwriteTree(source, destination string) error {
+	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(destination, relative)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0755)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode().Perm())
+	})
+}
+
+func TestEqualOverwriteMCPDefinitionNormalizesMapsAndRuntimeReferences(t *testing.T) {
+	expected := CatalogEntry{
+		Transport: "http",
+		URL:       "https://example.test/${TOKEN}",
+		Args:      []string{"--first", "--second"},
+		Env:       []string{"Z=last", "TOKEN=old", "A=first", "TOKEN=${TOKEN}"},
+		Headers:   []string{"X-Api-Key=${TOKEN}", "Authorization=Bearer ${TOKEN}"},
+	}
+	actual := CatalogEntry{
+		Transport: "http",
+		URL:       "https://example.test/{env:TOKEN}",
+		Args:      []string{"--first", "--second"},
+		Env:       []string{"TOKEN={env:TOKEN}", "A=first", "Z=last"},
+		Headers:   []string{"authorization=Bearer ${env:TOKEN}", "X-Api-Key=${env:TOKEN}"},
+	}
+	if !equalOverwriteMCPDefinition(expected, actual) {
+		t.Fatalf("equivalent MCP definitions did not compare equal: expected=%#v actual=%#v", expected, actual)
+	}
+	actual.Args = []string{"--second", "--first"}
+	if equalOverwriteMCPDefinition(expected, actual) {
+		t.Fatal("MCP argument order was ignored")
+	}
+}
+
+func TestCodexOverwriteMCPDefinitionsReadsEnvironmentBackedHeaders(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	contents := []byte(`[mcp_servers.bearer]
+type = "http"
+url = "https://example.test/bearer"
+bearer_token_env_var = "TOKEN"
+
+[mcp_servers.api_key]
+type = "http"
+url = "https://example.test/api-key"
+http_headers = { "X-Static" = "preserve" }
+
+[mcp_servers.api_key.env_http_headers]
+"X-Api-Key" = "API_KEY"
+`)
+	if err := os.WriteFile(path, contents, 0600); err != nil {
+		t.Fatal(err)
+	}
+	document, _, err := readCodexDocument(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions, err := codexOverwriteMCPDefinitions(path, document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := map[string]CatalogEntry{
+		"bearer": {
+			Type: LibraryTypeMCP, Name: "bearer", Transport: "http",
+			URL: "https://example.test/bearer", Headers: []string{"Authorization=Bearer ${TOKEN}"},
+		},
+		"api_key": {
+			Type: LibraryTypeMCP, Name: "api_key", Transport: "http",
+			URL:     "https://example.test/api-key",
+			Headers: []string{"X-Api-Key=${API_KEY}", "X-Static=preserve"},
+		},
+	}
+	for name, want := range expected {
+		got, exists := definitions[name]
+		if !exists || !equalOverwriteMCPDefinition(want, got) {
+			t.Errorf("Codex MCP definition %q = %#v, exists %t; want %#v", name, got, exists, want)
+		}
+	}
+}
+
+func TestEqualOverwriteMCPRuntimeDefinitionHandlesRemoteEnvReferences(t *testing.T) {
+	expected := CatalogEntry{
+		Transport: "http",
+		Env:       []string{"TOKEN=${TOKEN}"},
+		Headers:   []string{"Authorization=Bearer ${TOKEN}", "X-Api-Key=${TOKEN}"},
+	}
+	actual := CatalogEntry{
+		Transport: "http",
+		Headers:   []string{"X-Api-Key={env:TOKEN}", "Authorization=Bearer {env:TOKEN}"},
+	}
+	for _, target := range []string{"codex", "opencode"} {
+		if !equalOverwriteMCPRuntimeDefinition(expected, actual, target) {
+			t.Errorf("%s remote MCP definition did not accept equivalent environment-backed headers", target)
+		}
+	}
+	actual.Env = []string{"EXTRA=unexpected"}
+	if equalOverwriteMCPRuntimeDefinition(expected, actual, "codex") {
+		t.Fatal("remote runtime comparison ignored an unexpected native environment map")
+	}
+	if equalOverwriteMCPRuntimeDefinition(expected, actual, "claude") {
+		t.Fatal("non-normalizing runtime ignored an unrepresented environment map")
+	}
+	if equalOverwriteMCPDefinition(expected, actual) {
+		t.Fatal("lock comparison ignored an unrepresented environment map")
+	}
+}

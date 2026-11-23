@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Per-MCP optional `default_enabled` catalog/marker metadata and `library add --default-enabled`, applying initial OpenCode/Codex/Claude/Pi state only to genuinely new server names while preserving each harness's existing choice.
 - MCP catalog entries now support HTTP/SSE `headers`, including environment-variable placeholders, through catalog markers, APM dependencies, and Pi configuration.
 - Plugin marketplace imports now accept Claude and Codex indexes, preserve the selected format for updates, and recognize portable and compatibility Codex plugin manifests.
+- `instill pick --overwrite` replaces the complete five-type project selection and reconciles project-local target output, removing manual entries and stale output outside the selection. It requires APM 0.35.0+ and does not rewrite user-global configuration or unrelated project configuration keys.
 
 ### Changed
 

@@ -42,6 +42,22 @@ func TestSkillPickerPrechecksTogglesFiltersAndConfirms(t *testing.T) {
 	}
 }
 
+func TestPickPickerOrdinaryModeDoesNotApplyOnAKey(t *testing.T) {
+	t.Parallel()
+
+	model := newPickPickerModel([]pickTypeState{
+		{typ: LibraryTypeSkill, available: []string{"skill-a", "skill-b"}, selected: []string{"skill-a"}},
+	}, LibraryTypeSkill, false)
+	model.active = true
+	model.items = model.itemModel()
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	model = updated.(pickPickerModel)
+	if model.confirmed || !model.active {
+		t.Fatalf("ordinary picker after 'a': confirmed=%v active=%v, want browsing without applying", model.confirmed, model.active)
+	}
+}
+
 func TestPickPickerTopLevelShowsLibraryTypesWithCounts(t *testing.T) {
 	t.Parallel()
 
@@ -51,7 +67,7 @@ func TestPickPickerTopLevelShowsLibraryTypesWithCounts(t *testing.T) {
 		{typ: LibraryTypeMCP, available: []string{"filesystem", "github", "slack"}, selected: []string{"github", "slack"}},
 		{typ: LibraryTypeInstruction, available: []string{"architecture"}, selected: []string{}},
 		{typ: LibraryTypePrompt, available: []string{"daily", "retro"}, selected: []string{"daily"}},
-	}, LibraryTypeSkill)
+	}, LibraryTypeSkill, false)
 
 	view := model.View()
 	want := []string{
@@ -76,11 +92,154 @@ func TestPickPickerInitialTypeStartsOnMCP(t *testing.T) {
 		{typ: LibraryTypeMCP, available: []string{"github"}},
 		{typ: LibraryTypeInstruction, available: []string{"architecture"}},
 		{typ: LibraryTypePrompt, available: []string{"daily"}},
-	}, LibraryTypeMCP)
+	}, LibraryTypeMCP, false)
 
 	view := model.View()
 	if !strings.Contains(view, "▶ MCP Servers (1 available, 0 installed)") {
 		t.Fatalf("view = %q, want MCP row focused", view)
+	}
+}
+
+func TestPickPickerOverwriteStartsWithVisibleSelectionAndWarns(t *testing.T) {
+	t.Parallel()
+
+	states := []pickTypeState{
+		{typ: LibraryTypeSkill, available: []string{"skill-a", "skill-b"}, selected: []string{"hidden-old"}},
+		{typ: LibraryTypePlugin, available: []string{"plugin-a"}},
+		{typ: LibraryTypeMCP, available: []string{"server-a"}},
+		{typ: LibraryTypeInstruction, available: []string{"instruction-a"}},
+		{typ: LibraryTypePrompt, available: []string{"prompt-a"}},
+	}
+	model := newPickPickerModel(states, LibraryTypeSkill, true)
+
+	for _, state := range model.types {
+		if !slices.Equal(state.selected, state.available) {
+			t.Errorf("%s selected = %#v, want every visible entry %#v", state.typ, state.selected, state.available)
+		}
+	}
+	if view := model.View(); !strings.Contains(view, "WARNING: overwrite") ||
+		!strings.Contains(view, "Package/MCP declarations") ||
+		!strings.Contains(view, "project Skill/Plugin/MCP/agent/command/rule/hook content") {
+		t.Fatalf("overwrite view = %q, want destructive warning", view)
+	}
+}
+
+func TestPickPickerOverwriteRetainsSelectionsAcrossTypesAndAppliesAll(t *testing.T) {
+	t.Parallel()
+
+	model := newPickPickerModel([]pickTypeState{
+		{typ: LibraryTypeSkill, available: []string{"skill-a", "skill-b"}},
+		{typ: LibraryTypePlugin, available: []string{"plugin-a"}},
+		{typ: LibraryTypeMCP, available: []string{"server-a"}},
+		{typ: LibraryTypeInstruction, available: []string{"instruction-a"}},
+		{typ: LibraryTypePrompt, available: []string{"prompt-a"}},
+	}, LibraryTypeSkill, true)
+	update := func(key tea.KeyMsg) {
+		t.Helper()
+		updated, _ := model.Update(key)
+		model = updated.(pickPickerModel)
+	}
+
+	update(tea.KeyMsg{Type: tea.KeyEnter})
+	update(tea.KeyMsg{Type: tea.KeySpace})
+	update(tea.KeyMsg{Type: tea.KeyTab})
+	if model.active || model.confirmed {
+		t.Fatalf("after Tab active = %v confirmed = %v, want menu without applying", model.active, model.confirmed)
+	}
+	if got := model.types[pickTypeIndex(model.types, LibraryTypeSkill)].selected; !slices.Equal(got, []string{"skill-b"}) {
+		t.Fatalf("saved Skills = %#v, want [skill-b]", got)
+	}
+
+	update(tea.KeyMsg{Type: tea.KeyDown})
+	update(tea.KeyMsg{Type: tea.KeyEnter})
+	update(tea.KeyMsg{Type: tea.KeySpace})
+	update(tea.KeyMsg{Type: tea.KeyTab})
+	if got := model.types[pickTypeIndex(model.types, LibraryTypePlugin)].selected; len(got) != 0 {
+		t.Fatalf("saved Plugins = %#v, want empty after toggle", got)
+	}
+
+	update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := model.items.selectedSkills(); !slices.Equal(got, []string{"skill-b"}) {
+		t.Fatalf("reopened Skills selection = %#v, want [skill-b]", got)
+	}
+	update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !model.confirmed || model.cancelled {
+		t.Fatalf("confirmed = %v cancelled = %v, want apply only", model.confirmed, model.cancelled)
+	}
+	if got := model.types[pickTypeIndex(model.types, LibraryTypeSkill)].selected; !slices.Equal(got, []string{"skill-b"}) {
+		t.Fatalf("applied Skills = %#v, want [skill-b]", got)
+	}
+	if got := model.types[pickTypeIndex(model.types, LibraryTypePlugin)].selected; len(got) != 0 {
+		t.Fatalf("applied Plugins = %#v, want empty", got)
+	}
+}
+
+func TestPickPickerOverwriteCancelDoesNotConfirmEditedSelection(t *testing.T) {
+	t.Parallel()
+
+	model := newPickPickerModel([]pickTypeState{
+		{typ: LibraryTypeSkill, available: []string{"skill-a"}},
+		{typ: LibraryTypePlugin, available: []string{"plugin-a"}},
+	}, LibraryTypeSkill, true)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(pickPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updated.(pickPickerModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	model = updated.(pickPickerModel)
+
+	if !model.cancelled || model.confirmed {
+		t.Fatalf("cancelled = %v confirmed = %v, want cancel without applying edits", model.cancelled, model.confirmed)
+	}
+}
+
+func TestPickPickerOverwriteSearchEscapeAndApplyShortcuts(t *testing.T) {
+	t.Parallel()
+
+	states := []pickTypeState{
+		{typ: LibraryTypeSkill, available: []string{"skill-a"}},
+		{typ: LibraryTypePlugin, available: []string{"plugin-a"}},
+	}
+	model := newPickPickerModel(states, LibraryTypeSkill, true)
+	update := func(key tea.KeyMsg) {
+		t.Helper()
+		updated, _ := model.Update(key)
+		model = updated.(pickPickerModel)
+	}
+
+	update(tea.KeyMsg{Type: tea.KeyEnter})
+	update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if !model.items.searchMode || model.items.filter != "a" || model.confirmed {
+		t.Fatalf("search mode = %v filter = %q confirmed = %v, want search for a without applying", model.items.searchMode, model.items.filter, model.confirmed)
+	}
+	update(tea.KeyMsg{Type: tea.KeyEsc})
+	if !model.active || model.items.searchMode || model.cancelled || model.confirmed {
+		t.Fatalf("after first Escape active=%v search=%v cancelled=%v confirmed=%v, want browse without cancel", model.active, model.items.searchMode, model.cancelled, model.confirmed)
+	}
+	update(tea.KeyMsg{Type: tea.KeyEsc})
+	if !model.cancelled || model.confirmed {
+		t.Fatalf("after second Escape cancelled=%v confirmed=%v, want cancel only", model.cancelled, model.confirmed)
+	}
+
+	model = newPickPickerModel(states, LibraryTypeSkill, true)
+	update = func(key tea.KeyMsg) {
+		t.Helper()
+		updated, _ := model.Update(key)
+		model = updated.(pickPickerModel)
+	}
+	update(tea.KeyMsg{Type: tea.KeyEnter})
+	update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if !model.confirmed || model.cancelled {
+		t.Fatalf("checklist a confirmed=%v cancelled=%v, want apply", model.confirmed, model.cancelled)
+	}
+
+	model = newPickPickerModel(states, LibraryTypeSkill, true)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	model = updated.(pickPickerModel)
+	if !model.confirmed || model.cancelled {
+		t.Fatalf("type-menu a confirmed=%v cancelled=%v, want apply", model.confirmed, model.cancelled)
 	}
 }
 
