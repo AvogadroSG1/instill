@@ -509,7 +509,7 @@ func TestPickTypeStatesShowMarketplaceAsPluginCategory(t *testing.T) {
 	project := createAPMProject(t, APMManifest{})
 	states, err := loadPickTypeStates(project, library)
 	requireNoError(t, err)
-	model := newPickPickerModel(states, LibraryTypePlugin).itemModel()
+	model := newPickPickerModel(states, LibraryTypePlugin, false).itemModel()
 	requireEqual(t, []string{"All", "mattpocock"}, model.categories)
 	requireEqual(t, []string{"mattpocock/mattpocock-skills"}, model.tree.immediateSkills([]string{"mattpocock"}))
 }

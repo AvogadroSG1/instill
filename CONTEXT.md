@@ -53,7 +53,7 @@ flowchart LR
 - APM MUST own package retrieval, lock state, security scanning, and harness-specific rendering.
 - Local and Git-backed Skills and Plugins share `dependencies.apm`; typed catalog membership is the Instill ownership boundary.
 - Git package replacement and removal use stable identity (`repository + package path`), while exact installation changes include the immutable ref.
-- Entries in `dependencies.apm` not owned by the selected typed catalog MUST remain unchanged when Instill applies a Skill or Plugin selection.
+- Incremental selection changes preserve Project entries not owned by the modified typed Library selection; a complete replacement makes the typed selection and Project targets authoritative for project-local managed output. User-global state remains outside the Project ownership boundary.
 
 ## Example Dialogue
 

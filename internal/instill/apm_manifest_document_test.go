@@ -1064,3 +1064,63 @@ func TestManifestDocumentErrorsNameManifestPath(t *testing.T) {
 		t.Fatalf("write() error = %v, want named manifest conflict", err)
 	}
 }
+
+func TestReplaceDependenciesReplacesWholeSequencesAndPreservesOtherFields(t *testing.T) {
+	path := writeManifestFixture(t, "name: project\nversion: 1.0.0\ncustom: keep\ndependencies:\n  apm: [old, {git: opaque, path: pkg}]\n  mcp: [{name: old, transport: stdio}, shorthand]\n")
+	document, err := loadManifestDocument(path)
+	requireNoError(t, err)
+	requireNoError(t, document.replaceAPM([]APMDependency{{Local: "/library/skills/new"}}))
+	requireNoError(t, document.replaceMCP([]MCPDependency{{Name: "new", Transport: "stdio", Registry: false, Command: "run"}}))
+	requireNoError(t, document.write())
+	after := mustManifestNode(t, path)
+	root, _ := apmManifestMapping(after)
+	requireNodeValue(t, root, "custom", "keep")
+	dependencies := mappingValue(root, "dependencies")
+	apm := mappingValue(dependencies, "apm")
+	mcp := mappingValue(dependencies, "mcp")
+	requireEqual(t, 1, len(apm.Content))
+	requireEqual(t, "/library/skills/new", apm.Content[0].Value)
+	requireEqual(t, 1, len(mcp.Content))
+	requireNodeValue(t, mcp.Content[0], "name", "new")
+}
+
+func TestReplaceDependenciesAllowsOldFieldNodeKindsAndWritesEmptySequences(t *testing.T) {
+	path := writeManifestFixture(t, "dependencies:\n  apm: wrong-kind\n  mcp: null\n")
+	document, err := loadManifestDocument(path)
+	requireNoError(t, err)
+	requireNoError(t, document.replaceAPM(nil))
+	requireNoError(t, document.replaceMCP(nil))
+	requireNoError(t, document.write())
+	after := mustManifestNode(t, path)
+	root, _ := apmManifestMapping(after)
+	dependencies := mappingValue(root, "dependencies")
+	for _, key := range []string{"apm", "mcp"} {
+		sequence := mappingValue(dependencies, key)
+		if sequence == nil || sequence.Kind != yaml.SequenceNode || len(sequence.Content) != 0 || sequence.Style&yaml.FlowStyle == 0 {
+			t.Fatalf("dependencies.%s = %#v, want explicit empty sequence", key, sequence)
+		}
+	}
+}
+
+func TestReplaceDependenciesValueEqualityDoesNotWrite(t *testing.T) {
+	path := writeManifestFixture(t, "dependencies:\n  apm: [/library/skills/new]\n  mcp: []\n")
+	document, err := loadManifestDocument(path)
+	requireNoError(t, err)
+	document.atomicWrite = func(string, []byte, os.FileMode) error {
+		t.Fatal("equal replacement wrote the manifest")
+		return nil
+	}
+	requireNoError(t, document.replaceAPM([]APMDependency{{Local: "/library/skills/new"}}))
+	requireNoError(t, document.replaceMCP([]MCPDependency{}))
+	requireNoError(t, document.write())
+}
+
+func TestReplaceDependenciesRejectsDuplicateOwnedKeys(t *testing.T) {
+	path := writeManifestFixture(t, "dependencies:\n  apm: []\n  apm: [stale]\n")
+	document, err := loadManifestDocument(path)
+	requireNoError(t, err)
+	err = document.replaceAPM([]APMDependency{})
+	if err == nil || !strings.Contains(ErrorMessage(err), "duplicate keys") {
+		t.Fatalf("replaceAPM error = %v, want duplicate-key rejection", err)
+	}
+}

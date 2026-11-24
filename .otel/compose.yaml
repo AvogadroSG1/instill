@@ -1,0 +1,65 @@
+# forge-otel: one system-wide OpenTelemetry Collector and Aspire Dashboard
+# shared by every repo on this machine. `mise run otel` copies this file (and
+# collector.yaml) to ${XDG_DATA_HOME:-$HOME/.local/share}/forge-otel/ and runs
+# `docker compose -p forge-otel -f <that dir>/compose.yaml up -d --wait
+# --force-recreate otel-collector`, which restarts only the collector on every run.
+# Do not run `docker compose` on this file directly from the repo -- use
+# `mise run otel` / `mise run otel:down` / `mise run otel:status`.
+
+name: forge-otel
+
+services:
+  # otelcol-contrib runs as the non-root uid 10001. The named volume below is
+  # created and owned by root on first use, so this one-shot init step chowns
+  # it to 10001:10001 before the collector starts; it then exits and the
+  # collector's `depends_on` condition waits for that success.
+  otel-data-init:
+    image: busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+    entrypoint: ["sh", "-c", "chown -R 10001:10001 /data"]
+    user: "0"
+    volumes:
+      - forge-otel-data:/data
+
+  otel-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:13.6.5@sha256:e2b7cf9a4ead932de46c6fa2a289c7d6159cfcf06a51aa65f38253a8fae75407
+    container_name: forge-otel-dashboard
+    restart: unless-stopped
+    environment:
+      DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: "true"
+    ports:
+      - "127.0.0.1:18888:18888" # Aspire Dashboard UI
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
+    container_name: forge-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    depends_on:
+      otel-data-init:
+        condition: service_completed_successfully
+      otel-dashboard:
+        condition: service_started
+    volumes:
+      - ./collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - forge-otel-data:/data
+    # OTLP/HTTP only: every forge stack exports over 4318, and publishing 4317 would shadow a vendor agent (e.g. Datadog) already listening there.
+    ports:
+      - "127.0.0.1:4318:4318" # OTLP HTTP
+      - "127.0.0.1:13133:13133" # health_check extension
+    # The `debug` exporter writes every batch to stdout, and this collector
+    # runs indefinitely (`restart: unless-stopped`). Bound Docker's copy of
+    # that stdout to 3 x 10 MB with the rotating `local` driver so it cannot
+    # grow without limit; `docker logs` / `mise run otel:logs` still work.
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  forge-otel-data:

@@ -2,24 +2,47 @@
   "hooks": {
     "PreCompact": [
       {
-        "matcher": "",
         "hooks": [
           {
-            "type": "command",
-            "command": "bd prime"
+            "command": "bd prime",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": ""
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "./.claude/hooks/guard",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
       }
     ],
     "SessionStart": [
       {
-        "matcher": "",
         "hooks": [
           {
-            "type": "command",
-            "command": "bd prime"
+            "command": "bd prime || true",
+            "type": "command"
+          },
+          {
+            "command": "instill sync || true",
+            "type": "command"
+          },
+          {
+            "command": "command -v forge \u003e/dev/null 2\u003e\u00261 \u0026\u0026 forge sync-allowlist --check || true",
+            "type": "command"
+          },
+          {
+            "command": "command -v forge \u003e/dev/null 2\u003e\u00261 \u0026\u0026 forge upgrade --check || true",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": ""
       }
     ]
   }

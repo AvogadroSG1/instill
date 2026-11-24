@@ -1,0 +1,44 @@
+[tasks.build]
+description = "Build the instill binary"
+alias = "default"
+run = 'go build -o "${BINARY-instill}" .'
+
+[tasks.unit-test]
+description = "Run Go unit tests"
+run = "go test ./..."
+
+[tasks.bats-test]
+description = "Run Bats integration tests"
+run = '''
+if command -v bats >/dev/null 2>&1; then
+  bats test
+elif command -v npx >/dev/null 2>&1; then
+  npx --yes "bats@${BATS_VERSION-1.12.0}" test
+else
+  echo "bats is required; install bats or npm/npx"
+  exit 127
+fi
+'''
+
+[tasks.test]
+description = "Run unit and integration tests"
+run = [{ task = "unit-test" }, { task = "bats-test" }]
+
+[tasks.vet]
+description = "Run go vet"
+run = "go vet ./..."
+
+[tasks.lint]
+description = "Run golangci-lint"
+run = 'go run "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION-v2.6.2}" run ./...'
+
+[tasks.install]
+description = "Install the instill binary"
+run = [
+  'mkdir -p "${PREFIX-$HOME/.local}/bin"',
+  'go build -o "${PREFIX-$HOME/.local}/bin/${BINARY-instill}" .',
+]
+
+[tasks.clean]
+description = "Remove build outputs"
+run = "rm -rf dist instill"

@@ -1,0 +1,692 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+secret_scan="$script_dir/secret-scan.sh"
+
+usage() {
+  echo "usage: $0 [--command <line>]" >&2
+}
+
+trim() {
+  local value="${1-}"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s\n' "$value"
+}
+
+normalize_token() {
+  local token="${1-}"
+
+  while :; do
+    case "$token" in
+      "'"*|\"*|\(*|\[* )
+        token="${token#?}"
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  while :; do
+    case "$token" in
+      *"'"|*\"|*\)|*\])
+        token="${token%?}"
+        ;;
+      *,|*\;)
+        token="${token%?}"
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  printf '%s\n' "$token"
+}
+
+command_basename() {
+  local command_line first_token
+  command_line="$(trim "$1")"
+  [ -n "$command_line" ] || return 0
+  first_token="${command_line%%[[:space:]]*}"
+  first_token="$(normalize_token "$first_token")"
+  basename "$first_token"
+}
+
+read_payload() {
+  if [ -t 0 ]; then
+    return 0
+  fi
+
+  cat
+}
+
+read_command_from_payload() {
+  local payload="$1"
+
+  if command -v jq >/dev/null 2>&1; then
+    jq -r '.tool_input.command // .command // empty' 2>/dev/null <<<"$payload" || true
+    return 0
+  fi
+
+  printf '%s\n' "$payload" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+}
+
+emit_segment() {
+  local segment
+  segment="$(trim "$1")"
+  if [ -n "$segment" ]; then
+    printf '%s\n' "$segment"
+  fi
+}
+
+split_compound_commands() {
+  local input="$1"
+  local current="" char="" next=""
+  local in_single=0 in_double=0 escaped=0
+  local i=0 length=${#input}
+
+  while [ "$i" -lt "$length" ]; do
+    char="${input:$i:1}"
+    if [ $((i + 1)) -lt "$length" ]; then
+      next="${input:$((i + 1)):1}"
+    else
+      next=""
+    fi
+
+    if [ "$escaped" -eq 1 ]; then
+      current="${current}${char}"
+      escaped=0
+      i=$((i + 1))
+      continue
+    fi
+
+    if [ "$in_single" -eq 0 ] && [ "$char" = "\\" ]; then
+      escaped=1
+      current="${current}${char}"
+      i=$((i + 1))
+      continue
+    fi
+
+    if [ "$char" = "'" ] && [ "$in_double" -eq 0 ]; then
+      if [ "$in_single" -eq 1 ]; then
+        in_single=0
+      else
+        in_single=1
+      fi
+      current="${current}${char}"
+      i=$((i + 1))
+      continue
+    fi
+
+    if [ "$char" = '"' ] && [ "$in_single" -eq 0 ]; then
+      if [ "$in_double" -eq 1 ]; then
+        in_double=0
+      else
+        in_double=1
+      fi
+      current="${current}${char}"
+      i=$((i + 1))
+      continue
+    fi
+
+    if [ "$in_single" -eq 0 ] && [ "$in_double" -eq 0 ]; then
+      case "${char}${next}" in
+        '&&'|'||'|'|&')
+          emit_segment "$current"
+          current=""
+          i=$((i + 2))
+          continue
+          ;;
+      esac
+
+      case "$char" in
+        ';'|'|'|'&')
+          emit_segment "$current"
+          current=""
+          i=$((i + 1))
+          continue
+          ;;
+      esac
+
+      if [ "$char" = $'\n' ]; then
+        emit_segment "$current"
+        current=""
+        i=$((i + 1))
+        continue
+      fi
+    fi
+
+    current="${current}${char}"
+    i=$((i + 1))
+  done
+
+  emit_segment "$current"
+}
+
+has_short_flag() {
+  local token flag
+  token="$(normalize_token "$1")"
+  flag="$2"
+  case "$token" in
+    -*)
+      case "$token" in
+        *"$flag"*)
+          return 0
+          ;;
+      esac
+      ;;
+  esac
+  return 1
+}
+
+is_protected_branch() {
+  case "$1" in
+    main|master|develop|production|release/*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+normalize_branch_target() {
+  local target="${1-}"
+  target="${target#+}"
+  target="${target#refs/heads/}"
+  target="${target#heads/}"
+  printf '%s\n' "$target"
+}
+
+push_targets_include_protected() {
+  local segment="$1" token target
+  local tokens=() positionals=()
+  read -r -a tokens <<<"$segment" || true
+
+  for token in "${tokens[@]:2}"; do
+    token="$(normalize_token "$token")"
+    case "$token" in
+      --*|-*)
+        continue
+        ;;
+    esac
+
+    positionals+=("$token")
+    case "$token" in
+      *:*)
+        target="${token##*:}"
+        target="$(normalize_branch_target "$target")"
+        if is_protected_branch "$target"; then
+          return 0
+        fi
+        ;;
+    esac
+  done
+
+  if [ "${#positionals[@]}" -ge 2 ]; then
+    target="$(normalize_branch_target "${positionals[1]}")"
+    if is_protected_branch "$target"; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+is_rm_recursive_force() {
+  local segment="$1" token saw_r=0 saw_f=0
+  local tokens=()
+  read -r -a tokens <<<"$segment" || true
+  [ "$(command_basename "$segment")" = "rm" ] || return 1
+
+  for token in "${tokens[@]:1}"; do
+    token="$(normalize_token "$token")"
+    case "$token" in
+      --recursive)
+        saw_r=1
+        ;;
+      --force)
+        saw_f=1
+        ;;
+      -*)
+        has_short_flag "$token" r && saw_r=1 || true
+        has_short_flag "$token" f && saw_f=1 || true
+        ;;
+    esac
+  done
+
+  [ "$saw_r" -eq 1 ] && [ "$saw_f" -eq 1 ]
+}
+
+is_git_rm_destructive() {
+  local segment="$1" token saw_r=0 saw_f=0 saw_cached=0
+  local tokens=()
+  read -r -a tokens <<<"$segment" || true
+  [ "${#tokens[@]}" -ge 2 ] || return 1
+  [ "$(command_basename "$segment")" = "git" ] || return 1
+  [ "$(normalize_token "${tokens[1]}")" = "rm" ] || return 1
+
+  for token in "${tokens[@]:2}"; do
+    token="$(normalize_token "$token")"
+    case "$token" in
+      --cached)
+        saw_cached=1
+        ;;
+      --recursive)
+        saw_r=1
+        ;;
+      --force)
+        saw_f=1
+        ;;
+      -*)
+        has_short_flag "$token" r && saw_r=1 || true
+        has_short_flag "$token" f && saw_f=1 || true
+        ;;
+    esac
+  done
+
+  [ "$saw_r" -eq 1 ] && { [ "$saw_f" -eq 1 ] || [ "$saw_cached" -eq 1 ]; }
+}
+
+is_git_push_force_protected() {
+  local segment="$1" token
+  local tokens=()
+  read -r -a tokens <<<"$segment" || true
+  [ "${#tokens[@]}" -ge 2 ] || return 1
+  [ "$(command_basename "$segment")" = "git" ] || return 1
+  [ "$(normalize_token "${tokens[1]}")" = "push" ] || return 1
+
+  for token in "${tokens[@]:2}"; do
+    token="$(normalize_token "$token")"
+    case "$token" in
+      --force|-f)
+        push_targets_include_protected "$segment" && return 0
+        ;;
+    esac
+  done
+
+  return 1
+}
+
+is_git_push_rewrite_protected() {
+  local segment="$1" token saw_mirror=0
+  local tokens=()
+  read -r -a tokens <<<"$segment" || true
+  [ "${#tokens[@]}" -ge 2 ] || return 1
+  [ "$(command_basename "$segment")" = "git" ] || return 1
+  [ "$(normalize_token "${tokens[1]}")" = "push" ] || return 1
+
+  for token in "${tokens[@]:2}"; do
+    token="$(normalize_token "$token")"
+    case "$token" in
+      --mirror)
+        saw_mirror=1
+        ;;
+      --force-with-lease*)
+        push_targets_include_protected "$segment" && return 0
+        ;;
+      +*:*)
+        if is_protected_branch "$(normalize_branch_target "${token##*:}")"; then
+          return 0
+        fi
+        ;;
+    esac
+  done
+
+  [ "$saw_mirror" -eq 1 ]
+}
+
+is_destructive_database() {
+  local segment="$1" uppercase
+  [ "$(command_basename "$segment")" = "dropdb" ] && return 0
+
+  uppercase="$(printf '%s' "$segment" | tr '[:lower:]' '[:upper:]')"
+  case "$uppercase" in
+    *"DROP DATABASE"*|*"DROP SCHEMA"*|*"TRUNCATE "*|*"TRUNCATE;"*|TRUNCATE)
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
+is_irreversible_system_change() {
+  local segment="$1" first token
+  local tokens=()
+  first="$(command_basename "$segment")"
+  case "$first" in
+    mkfs*)
+      return 0
+      ;;
+  esac
+
+  case "$segment" in
+    *"of=/dev/"*|*"> /dev/sd"*|*">/dev/sd"*)
+      return 0
+      ;;
+  esac
+
+  if printf '%s' "$segment" | grep -Fq ':(){'; then
+    return 0
+  fi
+
+  read -r -a tokens <<<"$segment" || true
+  if [ "$first" = "chmod" ]; then
+    for token in "${tokens[@]:1}"; do
+      token="$(normalize_token "$token")"
+      [ "$token" = "777" ] && return 0
+    done
+  fi
+
+  return 1
+}
+
+is_git_local_destructive() {
+  local segment="$1" token subcommand saw_f=0 saw_d=0 saw_x=0
+  local tokens=()
+  read -r -a tokens <<<"$segment" || true
+  [ "${#tokens[@]}" -ge 2 ] || return 1
+  [ "$(command_basename "$segment")" = "git" ] || return 1
+
+  subcommand="$(normalize_token "${tokens[1]}")"
+  case "$subcommand" in
+    reset)
+      for token in "${tokens[@]:2}"; do
+        [ "$(normalize_token "$token")" = "--hard" ] && return 0
+      done
+      ;;
+    clean)
+      for token in "${tokens[@]:2}"; do
+        token="$(normalize_token "$token")"
+        case "$token" in
+          -*)
+            has_short_flag "$token" f && saw_f=1 || true
+            has_short_flag "$token" d && saw_d=1 || true
+            has_short_flag "$token" x && saw_x=1 || true
+            ;;
+        esac
+      done
+      [ "$saw_f" -eq 1 ] && [ "$saw_d" -eq 1 ] && [ "$saw_x" -eq 1 ] && return 0
+      ;;
+    checkout)
+      for token in "${tokens[@]:2}"; do
+        [ "$(normalize_token "$token")" = "." ] && return 0
+      done
+      ;;
+  esac
+
+  return 1
+}
+
+is_git_commit_bypass() {
+  local segment="$1" token
+  local tokens=()
+  read -r -a tokens <<<"$segment" || true
+  [ "${#tokens[@]}" -ge 2 ] || return 1
+  [ "$(command_basename "$segment")" = "git" ] || return 1
+  [ "$(normalize_token "${tokens[1]}")" = "commit" ] || return 1
+
+  for token in "${tokens[@]:2}"; do
+    token="$(normalize_token "$token")"
+    case "$token" in
+      --no-verify|--no-gpg-sign)
+        return 0
+        ;;
+      -*)
+        has_short_flag "$token" n && return 0
+        ;;
+    esac
+  done
+
+  return 1
+}
+
+is_exfil_channel() {
+  local segment="$1" first token
+  local tokens=()
+  first="$(command_basename "$segment")"
+
+  read -r -a tokens <<<"$segment" || true
+
+  case "$first" in
+    curl)
+      for token in "${tokens[@]:1}"; do
+        token="$(normalize_token "$token")"
+        case "$token" in
+          -d|-d?*|-F|-F?*|-T|-T?*|-K|-K?*|--data*|--form*|--upload-file*|--json*|--config*|--url-query*|--variable*|--expand-*)
+            return 0
+            ;;
+        esac
+      done
+      return 1
+      ;;
+    wget)
+      for token in "${tokens[@]:1}"; do
+        token="$(normalize_token "$token")"
+        case "$token" in
+          --post-data*|--post-file*|--body-data*|--body-file*)
+            return 0
+            ;;
+        esac
+      done
+      return 1
+      ;;
+  esac
+
+  case "$first" in
+    nc|ncat|socat|scp|sftp|rsync|pbcopy|xclip|xsel|wl-copy|dig|drill|host|nslookup)
+      return 0
+      ;;
+  esac
+
+  case "$segment" in
+    *"/dev/tcp/"*|*"/dev/udp/"*)
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
+is_system_process_control() {
+  case "$(command_basename "$1")" in
+    sudo|kill|killall|pkill|shutdown|reboot)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+is_remote_shell() {
+  [ "$(command_basename "$1")" = "ssh" ]
+}
+
+is_destructive_docker() {
+  local segment="$1"
+  local tokens=()
+  read -r -a tokens <<<"$segment" || true
+  [ "${#tokens[@]}" -ge 2 ] || return 1
+  [ "$(command_basename "$segment")" = "docker" ] || return 1
+
+  case "$(normalize_token "${tokens[1]}")" in
+    rm|rmi)
+      return 0
+      ;;
+    system)
+      [ "${#tokens[@]}" -ge 3 ] && [ "$(normalize_token "${tokens[2]}")" = "prune" ]
+      return
+      ;;
+  esac
+
+  return 1
+}
+
+is_shell_history_access() {
+  local segment="$1" token
+  local tokens=()
+  read -r -a tokens <<<"$segment" || true
+
+  case "$(command_basename "$segment")" in
+    history)
+      return 0
+      ;;
+    fc)
+      for token in "${tokens[@]:1}"; do
+        token="$(normalize_token "$token")"
+        case "$token" in
+          -l)
+            return 0
+            ;;
+          -*)
+            has_short_flag "$token" l && return 0
+            ;;
+        esac
+      done
+      ;;
+  esac
+
+  return 1
+}
+
+is_interpreter_command() {
+  local segment="$1" token flag=""
+  local first
+  local tokens=()
+  read -r -a tokens <<<"$segment" || true
+  first="$(command_basename "$segment")"
+
+  case "$first" in
+    eval)
+      return 0
+      ;;
+    bash|sh|zsh|python|python3)
+      flag="-c"
+      ;;
+    node|perl|ruby)
+      flag="-e"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  for token in "${tokens[@]:1}"; do
+    token="$(normalize_token "$token")"
+    case "$token" in
+      "$flag") return 0 ;;
+      --*) ;;
+      -*) has_short_flag "$token" "${flag#-}" && return 0 ;;
+    esac
+  done
+
+  return 1
+}
+
+check_segment() {
+  local segment="$1"
+
+  if is_rm_recursive_force "$segment"; then
+    echo "BLOCKED [D1]: recursive force delete is denied" >&2
+    return 2
+  fi
+  if is_git_rm_destructive "$segment"; then
+    echo "BLOCKED [D2]: mass git removal is denied" >&2
+    return 2
+  fi
+  if is_git_push_force_protected "$segment"; then
+    echo "BLOCKED [D3]: force push to a protected branch is denied" >&2
+    return 2
+  fi
+  if is_git_push_rewrite_protected "$segment"; then
+    echo "BLOCKED [D4]: history-rewriting push to a protected branch is denied" >&2
+    return 2
+  fi
+  if is_destructive_database "$segment"; then
+    echo "BLOCKED [D5]: destructive database command is denied" >&2
+    return 2
+  fi
+  if is_irreversible_system_change "$segment"; then
+    echo "BLOCKED [D6]: irreversible system change is denied" >&2
+    return 2
+  fi
+  if is_git_local_destructive "$segment"; then
+    echo "BLOCKED [D7]: destructive git workspace command is denied" >&2
+    return 2
+  fi
+  if is_git_commit_bypass "$segment"; then
+    echo "BLOCKED [D8]: commit-hook bypass is denied" >&2
+    return 2
+  fi
+  if is_exfil_channel "$segment"; then
+    echo "BLOCKED [D11]: exfiltration channel is denied" >&2
+    return 2
+  fi
+  if is_system_process_control "$segment"; then
+    echo "BLOCKED [D12]: system or process control command is denied" >&2
+    return 2
+  fi
+  if is_remote_shell "$segment"; then
+    echo "BLOCKED [D13]: remote shell command is denied" >&2
+    return 2
+  fi
+  if is_destructive_docker "$segment"; then
+    echo "BLOCKED [D14]: destructive docker command is denied" >&2
+    return 2
+  fi
+  if is_shell_history_access "$segment"; then
+    echo "BLOCKED [D15]: shell history access is denied" >&2
+    return 2
+  fi
+  if is_interpreter_command "$segment"; then
+    echo "BLOCKED [D16]: interpreter command execution is denied" >&2
+    return 2
+  fi
+
+  return 0
+}
+
+main() {
+  local payload="" command_line="" status segment
+
+  if [ "${1:-}" = "--command" ]; then
+    if [ "$#" -lt 2 ]; then
+      usage
+      return 64
+    fi
+    command_line="$2"
+  elif [ "$#" -gt 0 ]; then
+    usage
+    return 64
+  else
+    payload="$(read_payload || true)"
+    if [ -n "$payload" ]; then
+      command_line="$(read_command_from_payload "$payload")"
+    fi
+  fi
+
+  command_line="$(trim "$command_line")"
+  if [ -z "$command_line" ]; then
+    return 0
+  fi
+
+  if "$secret_scan" scan-command --command "$command_line"; then
+    :
+  else
+    status=$?
+    return "$status"
+  fi
+
+  while IFS= read -r segment; do
+    if check_segment "$segment"; then
+      :
+    else
+      status=$?
+      return "$status"
+    fi
+  done < <(split_compound_commands "$command_line")
+
+  return 0
+}
+
+main "$@"

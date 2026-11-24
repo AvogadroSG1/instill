@@ -45,8 +45,15 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Set up mise
+        uses: jdx/mise-action@v5
+        with:
+          version: "2026.11.2"
+          install: false
+          env: false
+
       - name: Lint
-        run: make lint
+        run: mise run lint
 
       - name: BATS
         env:

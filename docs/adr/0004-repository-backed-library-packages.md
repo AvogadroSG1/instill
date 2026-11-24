@@ -214,6 +214,6 @@ go test ./internal/instill ./internal/cli -run 'Test(AddRemotePlugin|UpdateRemot
 bats test/instill.bats
 ```
 
-Automated CI/CD enforcement is provided by the GitHub Actions `Quality Gates` job, which MUST pass its exact gates: `go test ./...`, `go test -race ./...`, `go vet ./...`, `make lint`, `bats test`, and the GoReleaser configuration check. The `Build darwin/amd64`, `Build darwin/arm64`, `Build linux/amd64`, and `Build linux/arm64` matrix jobs MUST also pass their target `go vet ./...` and `go build` gates. A pull request MUST NOT merge if any test or CI gate fails.
+Automated CI/CD enforcement is provided by the GitHub Actions `Quality Gates` job, which MUST pass its exact gates: `go test ./...`, `go test -race ./...`, `go vet ./...`, `mise run lint`, `bats test`, and the GoReleaser configuration check. The `Build darwin/amd64`, `Build darwin/arm64`, `Build linux/amd64`, and `Build linux/arm64` matrix jobs MUST also pass their target `go vet ./...` and `go build` gates. A pull request MUST NOT merge if any test or CI gate fails.
 
 *Authored By Peter O'Connor with Assistance from OpenCode (openai/gpt-5.6-sol) · 2026-08-22 · Architecture decision for repository-backed Library plugins*

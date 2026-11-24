@@ -1,0 +1,149 @@
+# forge-managed: OpenTelemetry env + tasks for the system-wide OTel stack.
+# mise merges every file under .config/mise/conf.d/ with this repo's own
+# mise.toml; for a key defined in both, mise.toml wins, so these are defaults
+# the stack's mise.toml and mise.local.toml can override. See .otel/
+# for the Collector + Aspire Dashboard stack, started with `mise run otel`.
+# Task bodies MUST stay POSIX sh (`set -eu`, no bashisms): mise's default
+# inline shell is `sh`, which is dash on Debian/Ubuntu.
+# Do not hand-edit; a future `forge upgrade` may overwrite this file.
+
+[env]
+OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318"
+OTEL_EXPORTER_OTLP_PROTOCOL = "http/protobuf"
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = "http://localhost:4318/v1/traces"
+OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = "http://localhost:4318/v1/metrics"
+OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = "http://localhost:4318/v1/logs"
+# A shell or login session (launchctl, systemd) often exports OTEL_* for a
+# vendor agent. SDKs prefer a per-signal protocol over the general one and
+# send OTEL_EXPORTER_OTLP_HEADERS on every export, so pin the per-signal
+# protocols to OTLP/HTTP and unset (`= false`) the header and service-name
+# variables: each repo reports its own slug to the local collector with no
+# vendor credentials. To override any of these, set them in mise.local.toml [env].
+OTEL_EXPORTER_OTLP_TRACES_PROTOCOL = "http/protobuf"
+OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = "http/protobuf"
+OTEL_EXPORTER_OTLP_LOGS_PROTOCOL = "http/protobuf"
+OTEL_EXPORTER_OTLP_HEADERS = false
+OTEL_EXPORTER_OTLP_TRACES_HEADERS = false
+OTEL_EXPORTER_OTLP_METRICS_HEADERS = false
+OTEL_EXPORTER_OTLP_LOGS_HEADERS = false
+OTEL_SERVICE_NAME = false
+# Browsers cannot read the env, so browser stacks get the endpoint at build
+# time as a bare base URL (the telemetry bootstrap appends /v1/traces and
+# /v1/metrics itself). Vite stacks (vite-ts, sveltekit) read the VITE_-prefixed
+# variable below. Angular reads neither: its mise dev/build (or web-dev/
+# web-build) tasks inline OTEL_EXPORTER_OTLP_ENDPOINT via `ng --define` (the
+# OTLP define bridge). To point at another collector, set these in
+# mise.local.toml [env]; it wins over this file, which wins over the shell env.
+VITE_OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318"
+
+[tasks.otel]
+description = "Start the system-wide forge OpenTelemetry stack (Docker)"
+alias = "otel:up"
+# mise resolves `dir` itself (never through a shell), so the checkout path is
+# data, not shell source; the run body then copies from relative .otel/ paths.
+dir = "{{config_root}}"
+run = '''
+set -eu
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "otel: docker is required but was not found on PATH" >&2
+  echo "otel: install Docker (https://docs.docker.com/get-docker/) and re-run 'mise run otel'" >&2
+  exit 1
+fi
+
+if ! docker compose version >/dev/null 2>&1; then
+  echo "otel: 'docker compose' (the Compose v2 plugin) is required but is not available" >&2
+  exit 1
+fi
+
+data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/forge-otel"
+mkdir -p "$data_dir"
+cp -f .otel/compose.yaml .otel/collector.yaml "$data_dir/"
+
+# collector.yaml is bind-mounted, so editing it does not change the compose
+# config hash and a plain `up` would leave the old pipeline running.
+# --force-recreate restarts the shared collector on every run (telemetry from
+# every repo pauses briefly; SDKs typically buffer or retry, but telemetry
+# emitted during the gap MAY be dropped). depends_on starts the one-shot
+# otel-data-init and the Aspire Dashboard without force-recreating the viewer.
+docker compose -p forge-otel -f "$data_dir/compose.yaml" up -d --wait --force-recreate otel-collector
+
+echo "otel: waiting for Collector health and the dashboard UI..."
+ready=""
+for _ in $(seq 1 30); do
+  if curl -fsS -o /dev/null "http://127.0.0.1:13133" 2>/dev/null && curl -fsS -o /dev/null "http://127.0.0.1:18888" 2>/dev/null; then
+    ready="1"
+    break
+  fi
+  sleep 1
+done
+
+if [ -z "$ready" ]; then
+  echo "otel: Collector or dashboard did not become ready within 30s; check 'mise run otel:logs'" >&2
+  exit 1
+fi
+
+cat <<'EOF'
+otel: system-wide OTel stack is up.
+  traces:  http://localhost:4318/v1/traces
+  metrics: http://localhost:4318/v1/metrics
+  logs:    http://localhost:4318/v1/logs
+  health:  http://127.0.0.1:13133
+  viewer:  http://127.0.0.1:18888
+
+Tail raw Collector output with: mise run otel:logs
+EOF
+'''
+
+[tasks."otel:down"]
+description = "Stop the system-wide forge OpenTelemetry stack"
+run = '''
+set -eu
+
+data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/forge-otel"
+if [ ! -f "$data_dir/compose.yaml" ]; then
+  echo "otel: no OTel stack found at $data_dir (run 'mise run otel' first)" >&2
+  exit 0
+fi
+
+docker compose -p forge-otel -f "$data_dir/compose.yaml" down
+'''
+
+[tasks."otel:status"]
+description = "Show the system-wide forge OpenTelemetry stack's status"
+run = '''
+set -eu
+
+data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/forge-otel"
+if [ ! -f "$data_dir/compose.yaml" ]; then
+  echo "otel: no OTel stack found at $data_dir (run 'mise run otel' first)"
+  exit 0
+fi
+
+docker compose -p forge-otel -f "$data_dir/compose.yaml" ps
+echo
+if curl -fsS -o /dev/null "http://127.0.0.1:13133" 2>/dev/null; then
+  echo "otel: Collector health OK (http://127.0.0.1:13133)"
+else
+  echo "otel: Collector health FAILED (http://127.0.0.1:13133)"
+fi
+if curl -fsS -o /dev/null "http://127.0.0.1:18888" 2>/dev/null; then
+  echo "otel: dashboard UI OK (http://127.0.0.1:18888)"
+else
+  echo "otel: dashboard UI FAILED (http://127.0.0.1:18888)"
+fi
+'''
+
+[tasks."otel:logs"]
+description = "Tail the system-wide forge OpenTelemetry collector's logs"
+run = '''
+set -eu
+
+data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/forge-otel"
+if [ ! -f "$data_dir/compose.yaml" ]; then
+  echo "otel: no OTel stack found at $data_dir (run 'mise run otel' first)" >&2
+  exit 1
+fi
+
+docker compose -p forge-otel -f "$data_dir/compose.yaml" logs -f otel-collector
+'''

@@ -48,8 +48,13 @@ external `apm` CLI.
 instill init [--skills name,...] [--force]
     Initialize apm.yml. Launches the unified picker unless --skills is given.
 
-instill pick [--type skill|mcp|instruction|prompt] [name...]
+instill pick [--type skill|plugin|mcp|instruction|prompt] [name...]
     Add typed entries by name. No args opens the unified picker.
+
+instill pick --overwrite
+    Open the complete five-type picker and replace the entire project selection
+    after confirmation. Requires APM 0.35.0+; positional names and --remove are
+    not allowed. User-global configuration is not rewritten.
 
 instill pick --type <type> --remove name...
     Remove typed entries by name.
@@ -123,6 +128,8 @@ internal/instill/               pure domain logic
   init_project.go               InitProject; apm.yml initialization
   pick_skills.go                Pick; typed add/remove behavior
   skill_picker.go               RunPickTUI; Bubbletea unified picker
+  project_selection_apply.go  ApplyProjectSelection; complete selection replacement
+  project_overwrite*.go       project-local reset and package MCP reconciliation
   sync.go                       SyncProject and status orchestration
   opencode_plugins.go           reconcileOpenCodePlugins; .opencode/plugins/instill-* copies
   import.go                     old instill, graft, Claude, directory importers

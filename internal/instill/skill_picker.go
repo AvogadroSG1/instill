@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -28,6 +29,7 @@ type PickTUIOptions struct {
 	Project     Project
 	LibraryPath string
 	InitialType LibraryType
+	Overwrite   bool
 	Stdin       *os.File
 	Stdout      io.Writer
 	Stderr      io.Writer
@@ -79,8 +81,10 @@ func RunPickTUI(opts PickTUIOptions) error {
 	if opts.Stdin == nil || !IsTerminal(opts.Stdin) {
 		return NewExitError(ExitEnvironment, "error: pick TUI requires a terminal")
 	}
-	if err := EnsureAPM(opts.Runner); err != nil {
-		return err
+	if !opts.Overwrite {
+		if err := EnsureAPM(opts.Runner); err != nil {
+			return err
+		}
 	}
 
 	states, err := loadPickTypeStates(opts.Project, opts.LibraryPath)
@@ -93,20 +97,52 @@ func RunPickTUI(opts PickTUIOptions) error {
 		output = io.Discard
 	}
 
-	typ, selected, confirmed, err := runPickPickerProgram(states, opts.InitialType, opts.Stdin, output)
+	var originalStates []pickTypeState
+	if !opts.Overwrite {
+		originalStates = normalizePickTypeStates(states)
+	}
+	states, typ, confirmed, err := runPickPickerProgram(states, opts.InitialType, opts.Overwrite, opts.Stdin, output)
 	if err != nil {
 		return NewExitError(ExitGeneral, "error: pick TUI failed: "+err.Error())
 	}
 	if !confirmed {
 		return nil
 	}
+	if opts.Overwrite {
+		selection := ProjectSelection{}
+		for _, state := range states {
+			switch state.typ {
+			case LibraryTypeSkill:
+				selection.Skills = state.selected
+			case LibraryTypePlugin:
+				selection.Plugins = state.selected
+			case LibraryTypeMCP:
+				selection.MCPs = state.selected
+			case LibraryTypeInstruction:
+				selection.Instructions = state.selected
+			case LibraryTypePrompt:
+				selection.Prompts = state.selected
+			}
+		}
+		return ApplyProjectSelection(ProjectSelectionOptions{
+			Project:     opts.Project,
+			LibraryPath: opts.LibraryPath,
+			Selection:   selection,
+			Runner:      opts.Runner,
+			Stdout:      opts.Stdout,
+		})
+	}
 
 	state, ok := pickStateByType(states, typ)
 	if !ok {
 		return NewExitError(ExitGeneral, "error: invalid library type: "+string(typ))
 	}
-	selected = preserveHiddenSelections(state.available, state.selected, selected)
-	add, remove := selectionDiff(state.selected, selected)
+	previous, ok := pickStateByType(originalStates, typ)
+	if !ok {
+		return NewExitError(ExitGeneral, "error: invalid library type: "+string(typ))
+	}
+	selected := preserveHiddenSelections(previous.available, previous.selected, state.selected)
+	add, remove := selectionDiff(previous.selected, selected)
 	if len(add) == 0 && len(remove) == 0 {
 		return nil
 	}
@@ -178,6 +214,7 @@ type pickPickerModel struct {
 	types      []pickTypeState
 	typeCursor int
 	active     bool
+	overwrite  bool
 	items      skillPickerModel
 	confirmed  bool
 	cancelled  bool
@@ -201,22 +238,23 @@ func runSkillPickerProgram(available []string, selected []string, stdin *os.File
 	return model.selectedSkills(), true, nil
 }
 
-func runPickPickerProgram(states []pickTypeState, initialType LibraryType, stdin *os.File, output io.Writer) (LibraryType, []string, bool, error) {
+func runPickPickerProgram(states []pickTypeState, initialType LibraryType, overwrite bool, stdin *os.File, output io.Writer) ([]pickTypeState, LibraryType, bool, error) {
 	program := tea.NewProgram(
-		newPickPickerModel(states, initialType),
+		newPickPickerModel(states, initialType, overwrite),
 		tea.WithInput(stdin),
 		tea.WithOutput(output),
 	)
 	finalModel, err := program.Run()
 	if err != nil {
-		return "", nil, false, err
+		return nil, "", false, err
 	}
 
 	model, ok := finalModel.(pickPickerModel)
 	if !ok || !model.confirmed {
-		return "", nil, false, nil
+		return nil, "", false, nil
 	}
-	return model.currentType(), model.items.selectedSkills(), true, nil
+	model.saveCurrentItems()
+	return model.types, model.currentType(), true, nil
 }
 
 func loadPickTypeStates(project Project, libraryPath string) ([]pickTypeState, error) {
@@ -293,12 +331,18 @@ func currentProjectSkills(project Project, libraryPath string) ([]string, error)
 	return ownedDependencyNames(manifest.Dependencies.APM, libraryPath, LibraryTypeSkill, entries), nil
 }
 
-func newPickPickerModel(states []pickTypeState, initialType LibraryType) pickPickerModel {
+func newPickPickerModel(states []pickTypeState, initialType LibraryType, overwrite bool) pickPickerModel {
 	normalized := normalizePickTypeStates(states)
+	if overwrite {
+		for i := range normalized {
+			normalized[i].selected = slices.Clone(normalized[i].available)
+		}
+	}
 	cursor := pickTypeIndex(normalized, initialType)
 	model := pickPickerModel{
 		types:      normalized,
 		typeCursor: cursor,
+		overwrite:  overwrite,
 	}
 	model.items = model.itemModel()
 	return model
@@ -336,8 +380,15 @@ func (m pickPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC:
 			m.cancelled = true
 			return m, tea.Quit
+		case tea.KeyTab:
+			if m.overwrite {
+				m.saveCurrentItems()
+				m.active = false
+				return m, nil
+			}
 		case tea.KeyRunes:
-			if !m.items.searchMode && key.String() == "a" {
+			if m.overwrite && !m.items.searchMode && key.String() == "a" {
+				m.saveCurrentItems()
 				m.confirmed = true
 				return m, tea.Quit
 			}
@@ -345,6 +396,7 @@ func (m pickPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		updated, cmd := m.items.Update(msg)
 		m.items = updated.(skillPickerModel)
 		if m.items.confirmed {
+			m.saveCurrentItems()
 			m.confirmed = true
 		}
 		if m.items.cancelled {
@@ -369,6 +421,11 @@ func (m pickPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q":
 			m.cancelled = true
 			return m, tea.Quit
+		case "a":
+			if m.overwrite {
+				m.confirmed = true
+				return m, tea.Quit
+			}
 		case "j":
 			m.moveType(1)
 		case "k":
@@ -390,15 +447,20 @@ func (m pickPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m pickPickerModel) View() string {
+	var builder strings.Builder
+	if m.overwrite {
+		builder.WriteString("WARNING: overwrite replaces the complete project selection. Package/MCP declarations and project Skill/Plugin/MCP/agent/command/rule/hook content not represented by the selection will be removed.\n")
+	}
 	if m.active {
-		var builder strings.Builder
 		builder.WriteString(pickTypeLabel(m.currentType()) + "\n")
 		builder.WriteString(m.items.View())
 		builder.WriteString("a applies selection\n")
+		if m.overwrite {
+			builder.WriteString("Tab saves this type and returns to the type menu\n")
+		}
 		return builder.String()
 	}
 
-	var builder strings.Builder
 	builder.WriteString("Pick library type\n")
 	for i, state := range m.types {
 		prefix := "  "
@@ -408,6 +470,9 @@ func (m pickPickerModel) View() string {
 		_, _ = fmt.Fprintf(&builder, "%s%s (%d available, %d installed)\n", prefix, pickTypeLabel(state.typ), len(state.available), len(state.selected))
 	}
 	builder.WriteString("Enter selects type, s/m/i/p jumps, q/Esc cancels\n")
+	if m.overwrite {
+		builder.WriteString("a applies the complete selection\n")
+	}
 	return builder.String()
 }
 
@@ -437,6 +502,12 @@ func (m pickPickerModel) currentState() pickTypeState {
 		return pickTypeState{typ: LibraryTypeSkill}
 	}
 	return m.types[m.typeCursor]
+}
+func (m *pickPickerModel) saveCurrentItems() {
+	if m.typeCursor < 0 || m.typeCursor >= len(m.types) {
+		return
+	}
+	m.types[m.typeCursor].selected = m.items.selectedSkills()
 }
 
 func (m pickPickerModel) itemModel() skillPickerModel {

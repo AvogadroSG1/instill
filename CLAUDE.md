@@ -72,13 +72,13 @@ bd close <id>         # Complete work
 ## Build And Test
 
 ```bash
-make build           # build binary to ./instill
-make unit-test       # go test ./...
-make bats-test       # integration tests via bats
-make test            # unit + bats
-make lint            # golangci-lint
-make vet             # go vet ./...
-make install         # install to ~/.local/bin/instill
+mise run build       # build binary to ./instill
+mise run unit-test   # go test ./...
+mise run bats-test   # integration tests via bats
+mise run test        # unit + bats
+mise run lint        # golangci-lint
+mise run vet         # go vet ./...
+mise run install     # install to ~/.local/bin/instill
 ```
 
 Focused commands:

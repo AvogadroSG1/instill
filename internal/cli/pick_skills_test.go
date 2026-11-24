@@ -79,6 +79,9 @@ func TestPickCLIInteractivePassesRunnerToTUI(t *testing.T) {
 	if captured.InitialType != instill.LibraryTypeSkill {
 		t.Fatalf("InitialType = %q, want %q", captured.InitialType, instill.LibraryTypeSkill)
 	}
+	if captured.Overwrite {
+		t.Fatal("PickTUIOptions.Overwrite = true, want false for ordinary pick")
+	}
 	if len(calls) != 0 {
 		t.Fatalf("runner calls = %#v, want no direct calls before interactive selection", calls)
 	}
@@ -118,6 +121,81 @@ func TestPickCLIInteractiveStartsAtMCPType(t *testing.T) {
 	if captured.Runner == nil {
 		t.Fatal("captured.Runner = nil, want injected runner")
 	}
+}
+
+func TestPickCLIOverwriteRoutesToCompleteInteractivePicker(t *testing.T) {
+	library := createCatalogLibrary(t, cliCatalogLibrarySeed{})
+	root := createAPMProjectRoot(t, instill.APMManifest{})
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
+
+	var captured instill.PickTUIOptions
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	calls := []string{}
+	code := execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"pick", "--type", "plugin", "--overwrite"},
+		cwd:    root,
+		runner: recordingRunner(&calls),
+		pickTUI: func(opts instill.PickTUIOptions) error {
+			captured = opts
+			return nil
+		},
+	})
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	if !captured.Overwrite {
+		t.Fatal("PickTUIOptions.Overwrite = false, want true")
+	}
+	if captured.InitialType != instill.LibraryTypePlugin {
+		t.Fatalf("InitialType = %q, want %q", captured.InitialType, instill.LibraryTypePlugin)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("runner calls = %#v, want no pre-picker APM command", calls)
+	}
+	flag := newPickSkillsCommand(commandConfig{}).Flags().Lookup("overwrite")
+	if flag == nil {
+		t.Fatal("overwrite flag is not registered")
+	}
+	if flag.DefValue != "false" {
+		t.Fatalf("overwrite default = %q, want false", flag.DefValue)
+	}
+	const help = "Replace the complete project selection and reset project targets, including manual entries"
+	if flag.Usage != help {
+		t.Fatalf("overwrite help = %q, want %q", flag.Usage, help)
+	}
+}
+
+func TestPickCLIOverwriteRejectsNamesAndRemoveCombination(t *testing.T) {
+	t.Run("positional names", func(t *testing.T) {
+		var stderr bytes.Buffer
+		code := execute(commandConfig{
+			stderr: &stderr,
+			args:   []string{"pick", "--overwrite", "docker"},
+		})
+		const want = "error: --overwrite requires the complete interactive picker; omit entry names\n"
+		if code == 0 || stderr.String() != want {
+			t.Fatalf("execute() = %d, stderr = %q, want nonzero and %q", code, stderr.String(), want)
+		}
+	})
+
+	t.Run("remove flag", func(t *testing.T) {
+		var stderr bytes.Buffer
+		called := false
+		code := execute(commandConfig{
+			stderr: &stderr,
+			args:   []string{"pick", "--overwrite", "--remove"},
+			pickTUI: func(instill.PickTUIOptions) error {
+				called = true
+				return nil
+			},
+		})
+		if code == 0 || called {
+			t.Fatalf("execute() = %d, picker called = %v, want mutually-exclusive flag failure", code, called)
+		}
+	})
 }
 
 func TestPickCLIAddsMCPDependency(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 func newPickSkillsCommand(cfg commandConfig) *cobra.Command {
 	var libraryType string
 	var removeMode bool
+	var overwriteMode bool
 
 	command := &cobra.Command{
 		Use:   "pick [name...]",
@@ -15,6 +16,10 @@ func newPickSkillsCommand(cfg commandConfig) *cobra.Command {
 	}
 
 	command.RunE = func(_ *cobra.Command, args []string) error {
+		if overwriteMode && len(args) > 0 {
+			return instill.NewExitError(instill.ExitGeneral, "error: --overwrite requires the complete interactive picker; omit entry names")
+		}
+
 		cwd := cfg.cwd
 		if cwd == "" {
 			cwd = "."
@@ -49,6 +54,7 @@ func newPickSkillsCommand(cfg commandConfig) *cobra.Command {
 				Project:     project,
 				LibraryPath: libraryPath,
 				InitialType: typ,
+				Overwrite:   overwriteMode,
 				Stdin:       cfg.stdin,
 				Stdout:      cfg.stdout,
 				Stderr:      cfg.stderr,
@@ -75,5 +81,7 @@ func newPickSkillsCommand(cfg commandConfig) *cobra.Command {
 
 	command.Flags().StringVar(&libraryType, "type", string(instill.LibraryTypeSkill), "library type to modify")
 	command.Flags().BoolVar(&removeMode, "remove", false, "remove the named entries")
+	command.Flags().BoolVar(&overwriteMode, "overwrite", false, "Replace the complete project selection and reset project targets, including manual entries")
+	command.MarkFlagsMutuallyExclusive("remove", "overwrite")
 	return command
 }

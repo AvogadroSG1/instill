@@ -295,6 +295,6 @@ go test -race ./internal/instill ./internal/cli
 bats test
 ```
 
-Automated CI/CD enforcement is provided by the GitHub Actions `Quality Gates` job, which MUST pass `go test ./...`, `go test -race ./...`, `go vet ./...`, `make lint`, `bats test`, and the GoReleaser configuration check. The `Build darwin/amd64`, `Build darwin/arm64`, `Build linux/amd64`, and `Build linux/arm64` matrix jobs MUST also pass their target `go vet ./...` and `go build` gates. A pull request MUST NOT merge if any focused test, full test, race test, lint, vet, BATS, release, or build gate fails.
+Automated CI/CD enforcement is provided by the GitHub Actions `Quality Gates` job, which MUST pass its exact gates: `go test ./...`, `go test -race ./...`, `go vet ./...`, `mise run lint`, `bats test`, and the GoReleaser configuration check. The `Build darwin/amd64`, `Build darwin/arm64`, `Build linux/amd64`, and `Build linux/arm64` matrix jobs MUST also pass their target `go vet ./...` and `go build` gates. A pull request MUST NOT merge if any focused test, full test, race test, lint, vet, BATS, release, or build gate fails.
 
 *Authored By Peter O'Connor with Assistance from OpenCode (openai/gpt-5.6-sol) · 2026-08-22 · Node-semantic APM manifest update architecture decision*
