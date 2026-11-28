@@ -12,6 +12,10 @@ Complete tracked Beads issues `instill-0m5`, `instill-l7t`, `instill-bh9`, `inst
 1. `instill-0m5` — Closed (`6d6b280b55`). Single-fd pre-sized manifest read + narrowly scoped line-level `//nolint:gosec` annotations. Broader symlink containment hardening split to `instill-1dq`.
 2. `instill-l7t` — Closed (`ebbd27add1`). Bumped `golangci-lint` to `v2.15.0` across `mise.toml`, `build.ps1`, `CONTRIBUTING.md`; resolved `gofmt` and 3 unused helpers (`mise run lint` reports 0 issues).
 3. `instill-bh9` — Closed (`6b153fb7dd`, `2bdc48084d`). Fixed HTTP MCP `Env` projection across all 9 HTTP targets, Gemini `httpUrl`, and Antigravity `serverUrl` + retired `httpUrl` with ambiguous-key rejection. Verified E2E via `test/contracts/overwrite_native_http.py`.
-4. `instill-ekf` (P1) — In progress. Verify overwrite headers resolved by APM at install time via single-pass env expansion without wildcarding arbitrary literals.
-5. `instill-f96` (P2) — Pending. Audit and enforce SSE native transport compatibility (fail pre-reset on `codex`/`antigravity`; verify native SSE shapes on supported targets).
-6. Finalize — Update `AGENTS.md`, `CONTEXT.md`, `README.md`, run all contracts & full local gate, prepare PR description.
+4. `instill-ekf` (P1) — Closed (`33ace574b5`). Single-pass env-expanded runtime header verification with per-header case-variant matching; strict lockfile verification preserved. Verified E2E via `test/contracts/overwrite_resolved_headers.py`.
+5. `instill-f96` (P2) — Closed (`8a1d9e7e7a`). Pre-reset SSE rejection for `codex`/`antigravity` (root MCPs, package `apm.yml`, native plugin JSON) and APM 0.39.0 native SSE verification across supported targets. Verified E2E via `test/contracts/overwrite_sse_transport.py`.
+6. Finalize — Updated `AGENTS.md`, `CONTEXT.md`, `README.md`; verified full local gate and all E2E contracts end-to-end.
+
+## Follow-up Issues Filed
+- `instill-1dq` (P3): Harden catalog and Pi plugin symlink containment without regressing search-only dirs.
+- `instill-xq5` (P1): Support shared workspace `.mcp.json` for Copilot/VS Code targets under APM 0.39.0.

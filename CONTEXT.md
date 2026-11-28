@@ -37,6 +37,12 @@ The operation that runs APM install and compile for the existing manifest select
 **OpenCode plugin copy**:
 A file Sync writes to `.opencode/plugins/instill-<package>-<file>` from a selected APM package's `opencode/plugins/` directory when `opencode` is a target. The `instill-` prefix is the ownership marker (ADR 0001): Sync reconciles only prefixed files and never touches others.
 
+**Remote MCP shape**:
+The per-harness JSON/TOML representation APM emits for remote (`http` or `sse`) MCP Servers, pinned to APM 0.39.0's `_remote_shapes.py` table (including retired legacy keys) as documented in ADR 0009.
+
+**Overwrite verification**:
+The post-install check `instill pick --overwrite` runs against APM lock state and project-local harness configs. It enforces exact placeholder matching on the APM lockfile, accepts single-pass install-time environment expansion for headers on legacy resolving targets (`gemini`, `antigravity`, legacy `claude`), and rejects unsupported SSE targets (`codex`, `antigravity`) before resetting project files.
+
 ## Relationships
 
 ```mermaid
