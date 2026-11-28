@@ -13,6 +13,18 @@ dependencies:
   source: local
   local_path: /Users/poconnor/peter_code/ai_support/skills/ai-workflow/herdr
   content_hash: sha256:489d2c6ff7e951e47071fbc5446d99d20ea215fcc5e55b9e4ceaa5a578f22d06
+- repo_url: _local/instill
+  name: instill
+  version: unknown
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/instill
+  - .agents/skills/instill/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/instill/SKILL.md: sha256:03efa6b74a50af07b846b892ef04c367381346d6c0aa66d492e75ccd08e87609
+  source: local
+  local_path: /Users/poconnor/peter_code/ai_support/skills/ai-workflow/instill
+  content_hash: sha256:a76ff66779ecef0a0d23023d5b5418583c16089f84147ffad64b17cbe53e2461
 - repo_url: _local/mattpocock
   name: mattpocock-skills
   version: 1.3.1
@@ -670,6 +682,24 @@ deployments:
   - /Users/poconnor/peter_code/ai_support/plugins/marketplaces/mattpocock
   active_owner: /Users/poconnor/peter_code/ai_support/plugins/marketplaces/mattpocock
   content_hash: sha256:c8cb20f68ebf0edb4e497bc11ae5fcaa196004e661cd189015b04f4109ced7f1
+- kind: project-relative
+  target: codex
+  value: .agents/skills/instill
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/instill
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/ai-workflow/instill
+  content_hash: null
+- kind: project-relative
+  target: codex
+  value: .agents/skills/instill/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/instill
+  active_owner: /Users/poconnor/peter_code/ai_support/skills/ai-workflow/instill
+  content_hash: sha256:03efa6b74a50af07b846b892ef04c367381346d6c0aa66d492e75ccd08e87609
 - kind: project-relative
   target: codex
   value: .agents/skills/plannotator-compound

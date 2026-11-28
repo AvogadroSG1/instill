@@ -5,6 +5,7 @@ dependencies:
     - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/plannotator-setup-goal
     - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/plannotator-visual-explainer
     - /Users/poconnor/peter_code/ai_support/plugins/marketplaces/mattpocock
+    - /Users/poconnor/peter_code/ai_support/skills/ai-workflow/instill
   mcp: []
 targets:
   - codex
