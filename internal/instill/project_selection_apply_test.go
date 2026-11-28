@@ -864,6 +864,14 @@ func TestOverwriteJSONMCPDefinitionNormalizesNativeHTTP(t *testing.T) {
 	}{
 		{name: "Gemini httpUrl", target: "gemini", raw: nativeHTTP, wantURL: "https://example.invalid/mcp", wantHTTP: true},
 		{name: "Antigravity httpUrl", target: "antigravity", raw: nativeHTTP, wantURL: "https://example.invalid/mcp", wantHTTP: true},
+		{name: "Antigravity serverUrl", target: "antigravity", raw: `{"serverUrl":"https://example.invalid/mcp","headers":{"X-Probe":"literal"}}`, wantURL: "https://example.invalid/mcp", wantHTTP: true},
+		{name: "Antigravity rejects serverUrl with httpUrl", target: "antigravity", raw: `{"serverUrl":"https://example.invalid/a","httpUrl":"https://example.invalid/b"}`, wantError: true},
+		{name: "Antigravity rejects serverUrl with url", target: "antigravity", raw: `{"serverUrl":"https://example.invalid/a","url":"https://example.invalid/b"}`, wantError: true},
+		{name: "Antigravity rejects empty serverUrl with httpUrl", target: "antigravity", raw: `{"serverUrl":"","httpUrl":"https://example.invalid/mcp"}`, wantError: true},
+		{name: "Antigravity rejects null serverUrl with url", target: "antigravity", raw: `{"serverUrl":null,"url":"https://example.invalid/mcp"}`, wantError: true},
+		{name: "Antigravity rejects non-string serverUrl", target: "antigravity", raw: `{"serverUrl":{}}`, wantError: true},
+		{name: "Gemini ignores non-string serverUrl", target: "gemini", raw: `{"httpUrl":"https://example.invalid/mcp","serverUrl":{}}`, wantURL: "https://example.invalid/mcp", wantHTTP: true},
+		{name: "unrelated target ignores non-string native aliases", target: "claude", raw: `{"url":"https://example.invalid/mcp","httpUrl":{},"serverUrl":[]}`, wantURL: "https://example.invalid/mcp", wantHTTP: true},
 		{name: "Gemini rejects ambiguous endpoint fields", target: "gemini", raw: `{"url":"https://example.invalid/a","httpUrl":"https://example.invalid/b"}`, wantError: true},
 		{name: "Antigravity rejects ambiguous endpoint fields", target: "antigravity", raw: `{"url":"https://example.invalid/a","httpUrl":"https://example.invalid/b"}`, wantError: true},
 		{name: "Gemini rejects an empty url alongside httpUrl", target: "gemini", raw: `{"url":"","httpUrl":"https://example.invalid/mcp"}`, wantError: true},
@@ -891,7 +899,7 @@ func TestOverwriteJSONMCPDefinitionNormalizesNativeHTTP(t *testing.T) {
 				t.Errorf("transport = %q, want http", got.Transport)
 			}
 			if tt.target == "gemini" || tt.target == "antigravity" {
-				if tt.name == "Gemini httpUrl" || tt.name == "Antigravity httpUrl" {
+				if tt.name == "Gemini httpUrl" || tt.name == "Antigravity httpUrl" || tt.name == "Antigravity serverUrl" {
 					if len(got.Headers) != 1 || got.Headers[0] != "X-Probe=literal" {
 						t.Errorf("headers = %#v, want [X-Probe=literal]", got.Headers)
 					}

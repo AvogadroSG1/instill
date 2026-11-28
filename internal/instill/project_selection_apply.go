@@ -822,6 +822,7 @@ func overwriteJSONMCPDefinition(name string, raw json.RawMessage, target string)
 		Args          []string          `json:"args"`
 		URL           json.RawMessage   `json:"url"`
 		HTTPURL       json.RawMessage   `json:"httpUrl"`
+		ServerURL     json.RawMessage   `json:"serverUrl"`
 		Env           map[string]string `json:"env"`
 		Environment   map[string]string `json:"environment"`
 		Headers       map[string]string `json:"headers"`
@@ -871,13 +872,20 @@ func overwriteJSONMCPDefinition(name string, raw json.RawMessage, target string)
 		endpointRaw = definition.HTTPURL
 		endpointField = "httpUrl"
 	}
+	if target == "antigravity" && definition.ServerURL != nil {
+		if endpointRaw != nil {
+			return CatalogEntry{}, fmt.Errorf("ambiguous MCP endpoint: both %s and serverUrl are set", endpointField)
+		}
+		endpointRaw = definition.ServerURL
+		endpointField = "serverUrl"
+	}
 	var endpoint string
 	if endpointRaw != nil {
 		if err := json.Unmarshal(endpointRaw, &endpoint); err != nil {
 			return CatalogEntry{}, fmt.Errorf("invalid MCP %s: %w", endpointField, err)
 		}
 	}
-	if endpointField == "httpUrl" && endpoint != "" && transport == "" {
+	if endpointField != "url" && endpoint != "" && transport == "" {
 		transport = "http"
 	}
 	if target == "opencode" {

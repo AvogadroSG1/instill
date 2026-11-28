@@ -40,7 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- `instill pick --overwrite` accepts HTTP MCP output without runtime environment declarations and recognizes native `httpUrl` endpoints in Gemini and Antigravity.
+- `instill pick --overwrite` accepts HTTP MCP output without runtime environment declarations and recognizes Gemini's `httpUrl` and Antigravity's `serverUrl` (or legacy `httpUrl`) endpoints.
 
 ## [0.1.0] - 2026-01-01
 
