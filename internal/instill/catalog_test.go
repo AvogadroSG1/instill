@@ -2,7 +2,6 @@ package instill
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -996,14 +995,6 @@ func mustWriteCatalogMarker(t *testing.T, path string) {
 		content = []byte("{}\n")
 	}
 	requireNoError(t, os.WriteFile(path, content, 0o644))
-}
-
-func writeCatalogFixtureRaw(t *testing.T, root string, typ LibraryType, entries []CatalogEntry) {
-	t.Helper()
-	err := withRootLocks(context.Background(), []string{root}, func(ctx context.Context, held *heldLocks) error {
-		return writeCatalogRawLocked(ctx, held, root, typ, entries)
-	})
-	requireNoError(t, err)
 }
 
 func TestPluginCatalogReadsLegacyFourColumnRows(t *testing.T) {

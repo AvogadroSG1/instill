@@ -823,9 +823,9 @@ func TestEqualOverwriteMCPRuntimeDefinitionHandlesRemoteEnvReferences(t *testing
 	}
 
 	lockTests := []struct {
-		name   string
-		env    []string
-		want   bool
+		name string
+		env  []string
+		want bool
 	}{
 		{name: "actual environment absent", env: nil, want: false},
 		{name: "actual environment changed", env: []string{"TOKEN=changed"}, want: false},
