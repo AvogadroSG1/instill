@@ -773,6 +773,13 @@ func TestEqualOverwriteMCPRuntimeDefinitionHandlesRemoteEnvReferences(t *testing
 				t.Fatalf("%s rejected equivalent HTTP MCP definition without runtime Env", target)
 			}
 		})
+		t.Run(target+" accepts matching runtime environment", func(t *testing.T) {
+			expected, actual := newEntries()
+			actual.Env = []string{"TOKEN={env:TOKEN}"}
+			if !equalOverwriteMCPRuntimeDefinition(expected, actual, target) {
+				t.Fatalf("%s rejected equivalent HTTP MCP definition with matching runtime Env", target)
+			}
+		})
 	}
 
 	tests := []struct {
@@ -783,6 +790,9 @@ func TestEqualOverwriteMCPRuntimeDefinitionHandlesRemoteEnvReferences(t *testing
 	}{
 		{name: "reject unexpected actual environment", target: "claude", mutate: func(actual *CatalogEntry) {
 			actual.Env = []string{"EXTRA=unexpected"}
+		}},
+		{name: "reject changed actual environment", target: "claude", mutate: func(actual *CatalogEntry) {
+			actual.Env = []string{"TOKEN=changed"}
 		}},
 		{name: "reject wrong URL", target: "claude", mutate: func(actual *CatalogEntry) {
 			actual.URL = "https://example.invalid/wrong"
@@ -856,8 +866,13 @@ func TestOverwriteJSONMCPDefinitionNormalizesNativeHTTP(t *testing.T) {
 		{name: "Antigravity httpUrl", target: "antigravity", raw: nativeHTTP, wantURL: "https://example.invalid/mcp", wantHTTP: true},
 		{name: "Gemini rejects ambiguous endpoint fields", target: "gemini", raw: `{"url":"https://example.invalid/a","httpUrl":"https://example.invalid/b"}`, wantError: true},
 		{name: "Antigravity rejects ambiguous endpoint fields", target: "antigravity", raw: `{"url":"https://example.invalid/a","httpUrl":"https://example.invalid/b"}`, wantError: true},
+		{name: "Gemini rejects an empty url alongside httpUrl", target: "gemini", raw: `{"url":"","httpUrl":"https://example.invalid/mcp"}`, wantError: true},
+		{name: "Antigravity rejects an empty httpUrl alongside url", target: "antigravity", raw: `{"url":"https://example.invalid/mcp","httpUrl":""}`, wantError: true},
+		{name: "Gemini rejects a null url alongside httpUrl", target: "gemini", raw: `{"url":null,"httpUrl":"https://example.invalid/mcp"}`, wantError: true},
+		{name: "Gemini rejects non-string httpUrl", target: "gemini", raw: `{"httpUrl":{}}`, wantError: true},
 		{name: "wrong endpoint does not match selection", target: "gemini", raw: `{"httpUrl":"https://example.invalid/wrong","headers":{"X-Probe":"literal"}}`, wantURL: "https://example.invalid/wrong"},
 		{name: "unrelated target does not alias httpUrl", target: "claude", raw: nativeHTTP},
+		{name: "unrelated target ignores non-string httpUrl", target: "claude", raw: `{"url":"https://example.invalid/mcp","httpUrl":{}}`, wantURL: "https://example.invalid/mcp", wantHTTP: true},
 		{name: "Kiro infers HTTP from URL", target: "kiro", raw: `{"url":"https://example.invalid/mcp"}`, wantURL: "https://example.invalid/mcp", wantHTTP: true},
 	}
 	for _, tt := range tests {

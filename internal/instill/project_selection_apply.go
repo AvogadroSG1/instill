@@ -667,8 +667,17 @@ func equalOverwriteMCPDefinition(expected, actual CatalogEntry) bool {
 }
 
 func equalOverwriteMCPRuntimeDefinition(expected, actual CatalogEntry, target string) bool {
-	if (target == "codex" || target == "opencode") && (expected.Transport == "http" || expected.Transport == "sse") {
-		expected.Env = nil
+	switch expected.Transport {
+	case "http":
+		if len(actual.Env) == 0 && slices.ContainsFunc(overwriteMCPRuntimes, func(runtime overwriteMCPRuntime) bool {
+			return runtime.target == target
+		}) {
+			expected.Env = nil
+		}
+	case "sse":
+		if target == "codex" || target == "opencode" {
+			expected.Env = nil
+		}
 	}
 	return equalOverwriteMCPDefinition(expected, actual)
 }
@@ -811,7 +820,8 @@ func overwriteJSONMCPDefinition(name string, raw json.RawMessage, target string)
 		Transport     string            `json:"transport"`
 		Command       json.RawMessage   `json:"command"`
 		Args          []string          `json:"args"`
-		URL           string            `json:"url"`
+		URL           json.RawMessage   `json:"url"`
+		HTTPURL       json.RawMessage   `json:"httpUrl"`
 		Env           map[string]string `json:"env"`
 		Environment   map[string]string `json:"environment"`
 		Headers       map[string]string `json:"headers"`
@@ -852,6 +862,24 @@ func overwriteJSONMCPDefinition(name string, raw json.RawMessage, target string)
 	if transport == "" {
 		transport = definition.Type
 	}
+	endpointRaw := definition.URL
+	endpointField := "url"
+	if (target == "gemini" || target == "antigravity") && definition.HTTPURL != nil {
+		if endpointRaw != nil {
+			return CatalogEntry{}, fmt.Errorf("ambiguous MCP endpoint: both url and httpUrl are set")
+		}
+		endpointRaw = definition.HTTPURL
+		endpointField = "httpUrl"
+	}
+	var endpoint string
+	if endpointRaw != nil {
+		if err := json.Unmarshal(endpointRaw, &endpoint); err != nil {
+			return CatalogEntry{}, fmt.Errorf("invalid MCP %s: %w", endpointField, err)
+		}
+	}
+	if endpointField == "httpUrl" && endpoint != "" && transport == "" {
+		transport = "http"
+	}
 	if target == "opencode" {
 		switch definition.Type {
 		case "local":
@@ -867,7 +895,7 @@ func overwriteJSONMCPDefinition(name string, raw json.RawMessage, target string)
 	}
 	server := mcpServer{
 		Type: definition.Type, Transport: transport, Command: command, Args: args,
-		URL: definition.URL, Env: env, Headers: headers,
+		URL: endpoint, Env: env, Headers: headers,
 	}
 	entry := catalogEntryFromMCPServer(name, server, false)
 	if definition.HTTPTransport == "sse" {

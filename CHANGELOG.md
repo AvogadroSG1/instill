@@ -38,6 +38,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `CLAUDE_CONFIG_DIR` import and toggle state use the real `.claude.json` basename.
 - Remote plugins now come from GitHub plugin marketplaces. `library add --type plugin --repository`, `library update --type plugin`, and `source=git` plugin catalog rows were removed. Plugin catalog reads fail on legacy `source=git` rows until they are deleted.
 
+### Fixed
+
+- `instill pick --overwrite` accepts HTTP MCP output without runtime environment declarations and recognizes native `httpUrl` endpoints in Gemini and Antigravity.
+
 ## [0.1.0] - 2026-01-01
 
 ### Added
