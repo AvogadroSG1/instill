@@ -254,11 +254,6 @@ func expandPathLeadingHome(path string) string {
 	return path
 }
 
-func hasTypeDirInPath(path string, typeDir string) bool {
-	slash := filepath.ToSlash(filepath.Clean(path))
-	return strings.Contains(slash, "/"+typeDir+"/") || strings.HasPrefix(slash, typeDir+"/")
-}
-
 func catalogRootMarkerExists(typeRoot string, typ LibraryType) (bool, error) {
 	markers := []string{catalogMarkerFileName(typ)}
 	if typ == LibraryTypePlugin {
@@ -1165,7 +1160,7 @@ func catalogContentExists(root string, entry CatalogEntry) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	info, err := os.Stat(path)
+	info, err := os.Stat(path) //nolint:gosec // Scan probes marker metadata from the selected library catalog, including intentional external paths.
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil

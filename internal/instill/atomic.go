@@ -17,7 +17,7 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 
 	tmp := file.Name()
 	defer func() {
-		_ = os.Remove(tmp)
+		_ = os.Remove(tmp) //nolint:gosec // CreateTemp supplied the temporary name in the destination directory.
 	}()
 
 	if _, err := file.Write(data); err != nil {
@@ -32,7 +32,7 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 
-	return os.Rename(tmp, path)
+	return os.Rename(tmp, path) //nolint:gosec // CreateTemp made tmp beside the caller-selected project, library, or config destination.
 }
 
 func writeNewFileAtomic(path string, data []byte, perm os.FileMode) error {
@@ -59,7 +59,7 @@ func writeNewFileAtomic(path string, data []byte, perm os.FileMode) error {
 
 	tmp := file.Name()
 	defer func() {
-		_ = os.Remove(tmp)
+		_ = os.Remove(tmp) //nolint:gosec // tmp is the generated sibling opened exclusively above.
 	}()
 	if _, err := file.Write(data); err != nil {
 		_ = file.Close()
@@ -68,5 +68,5 @@ func writeNewFileAtomic(path string, data []byte, perm os.FileMode) error {
 	if err := file.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	return os.Rename(tmp, path) //nolint:gosec // The exclusively created temp file is beside the caller-selected manifest destination.
 }

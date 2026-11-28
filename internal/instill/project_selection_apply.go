@@ -667,29 +667,77 @@ func equalOverwriteMCPDefinition(expected, actual CatalogEntry) bool {
 }
 
 func equalOverwriteMCPRuntimeDefinition(expected, actual CatalogEntry, target string) bool {
-	if (target == "codex" || target == "opencode") && (expected.Transport == "http" || expected.Transport == "sse") {
+	var omitsRemoteEnv bool
+	switch expected.Transport {
+	case "http":
+		omitsRemoteEnv = slices.ContainsFunc(overwriteMCPRuntimes, func(runtime overwriteMCPRuntime) bool {
+			return runtime.target == target
+		})
+	case "sse":
+		switch target {
+		case "cursor", "kiro", "opencode":
+			// APM 0.39.0 writes the same native shape for HTTP and SSE on these targets.
+			if actual.Transport == "http" {
+				actual.Transport = "sse"
+			}
+			omitsRemoteEnv = true
+		case "claude", "copilot", "gemini", "vscode":
+			omitsRemoteEnv = true
+		}
+	}
+	if omitsRemoteEnv && len(actual.Env) == 0 {
 		expected.Env = nil
 	}
-	return equalOverwriteMCPDefinition(expected, actual)
+	equalHeaders := equalOverwriteMCPValue
+	if expected.Transport == "http" || expected.Transport == "sse" {
+		switch target {
+		case "antigravity", "claude", "gemini":
+			// Older APM releases also resolved Claude headers at install time.
+			equalHeaders = equalOverwriteMCPRuntimeHeader
+		}
+	}
+	expectedHeaders, actualHeaders := expected.Headers, actual.Headers
+	expected.Headers, actual.Headers = nil, nil
+	return equalOverwriteMCPDefinition(expected, actual) &&
+		equalOverwriteMCPRuntimeHeaders(expectedHeaders, actualHeaders, equalHeaders)
 }
 
 var overwriteMCPEnvironmentReference = regexp.MustCompile(
 	`\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}|\{env:([A-Za-z_][A-Za-z0-9_]*)\}`,
 )
 
+var overwriteMCPHeaderReference = regexp.MustCompile(
+	`\$\{(?:env:)?[A-Za-z_][A-Za-z0-9_]*\}|\{env:[A-Za-z_][A-Za-z0-9_]*\}`,
+)
+
+func overwriteMCPReferenceName(reference string) string {
+	reference = strings.TrimPrefix(reference, "$")
+	return strings.TrimPrefix(reference[1:len(reference)-1], "env:")
+}
+
 func normalizeOverwriteMCPValue(value string) string {
 	return overwriteMCPEnvironmentReference.ReplaceAllStringFunc(value, func(reference string) string {
-		name := strings.TrimPrefix(reference, "${env:")
-		if name == reference {
-			name = strings.TrimPrefix(reference, "{env:")
-		}
-		name = strings.TrimSuffix(name, "}")
-		return "${" + name + "}"
+		return "${" + overwriteMCPReferenceName(reference) + "}"
 	})
 }
 
 func equalOverwriteMCPValue(expected, actual string) bool {
 	return normalizeOverwriteMCPValue(expected) == normalizeOverwriteMCPValue(actual)
+}
+
+func equalOverwriteMCPRuntimeHeader(expected, actual string) bool {
+	if equalOverwriteMCPValue(expected, actual) {
+		return true
+	}
+	changed := false
+	expanded := overwriteMCPHeaderReference.ReplaceAllStringFunc(expected, func(reference string) string {
+		if value := os.Getenv(overwriteMCPReferenceName(reference)); value != "" {
+			changed = true
+			return value
+		}
+		return reference
+	})
+	return changed && expanded == actual
 }
 
 func equalOverwriteMCPValues(expected, actual []string) bool {
@@ -705,27 +753,69 @@ func equalOverwriteMCPValues(expected, actual []string) bool {
 }
 
 func equalOverwriteMCPValueMaps(expected, actual []string, httpHeaders bool) bool {
-	toMap := func(values []string) map[string]string {
-		result := make(map[string]string, len(values))
-		for _, pair := range values {
-			key, value, ok := strings.Cut(pair, "=")
-			if !ok {
-				continue
-			}
-			if httpHeaders {
-				key = strings.ToLower(key)
-			}
-			result[key] = normalizeOverwriteMCPValue(value)
-		}
-		return result
+	return matchOverwriteMCPValueMaps(overwriteMCPValueMap(expected, httpHeaders), overwriteMCPValueMap(actual, httpHeaders), equalOverwriteMCPValue)
+}
+
+func equalOverwriteMCPRuntimeHeaders(expected, actual []string, equalValues func(string, string) bool) bool {
+	expectedValues, actualValues := overwriteMCPValueMap(expected, true), overwriteMCPValueMap(actual, true)
+	if len(expectedValues) == len(expected) && len(actualValues) == len(actual) {
+		return matchOverwriteMCPValueMaps(expectedValues, actualValues, equalValues)
 	}
-	expectedValues, actualValues := toMap(expected), toMap(actual)
+
+	// Deduplicate exact keys the same way as manifest serialization.
+	expectedKeys, actualKeys := mcpEnvironment(expected), mcpEnvironment(actual)
+	if len(expectedKeys) != len(actualKeys) {
+		return false
+	}
+	// Match unique names case-insensitively. When multiple variants are present,
+	// match their exact keys so none of their values are hidden by case folding.
+	uniqueKeys := make(map[string]string, len(actualKeys))
+	for key := range actualKeys {
+		name := strings.ToLower(key)
+		if _, exists := uniqueKeys[name]; exists {
+			uniqueKeys[name] = ""
+		} else {
+			uniqueKeys[name] = key
+		}
+	}
+	for key, value := range expectedKeys {
+		if uniqueKey := uniqueKeys[strings.ToLower(key)]; uniqueKey != "" {
+			key = uniqueKey
+		}
+		actualValue, exists := actualKeys[key]
+		if !exists || !equalValues(value, actualValue) {
+			return false
+		}
+		delete(actualKeys, key) // A serialized header can satisfy only one selected header.
+	}
+	return true
+}
+
+func overwriteMCPValueMap(values []string, httpHeaders bool) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(values))
+	for _, pair := range values {
+		key, value, ok := strings.Cut(pair, "=")
+		if !ok {
+			continue
+		}
+		if httpHeaders {
+			key = strings.ToLower(key)
+		}
+		result[key] = value
+	}
+	return result
+}
+
+func matchOverwriteMCPValueMaps(expectedValues, actualValues map[string]string, equalValues func(string, string) bool) bool {
 	if len(expectedValues) != len(actualValues) {
 		return false
 	}
 	for key, value := range expectedValues {
 		actualValue, exists := actualValues[key]
-		if !exists || actualValue != value {
+		if !exists || !equalValues(value, actualValue) {
 			return false
 		}
 	}
@@ -811,7 +901,9 @@ func overwriteJSONMCPDefinition(name string, raw json.RawMessage, target string)
 		Transport     string            `json:"transport"`
 		Command       json.RawMessage   `json:"command"`
 		Args          []string          `json:"args"`
-		URL           string            `json:"url"`
+		URL           json.RawMessage   `json:"url"`
+		HTTPURL       json.RawMessage   `json:"httpUrl"`
+		ServerURL     json.RawMessage   `json:"serverUrl"`
 		Env           map[string]string `json:"env"`
 		Environment   map[string]string `json:"environment"`
 		Headers       map[string]string `json:"headers"`
@@ -852,28 +944,72 @@ func overwriteJSONMCPDefinition(name string, raw json.RawMessage, target string)
 	if transport == "" {
 		transport = definition.Type
 	}
-	if target == "opencode" {
+	endpointRaw := definition.URL
+	endpointField := "url"
+	if (target == "gemini" || target == "antigravity") && definition.HTTPURL != nil {
+		if endpointRaw != nil {
+			return CatalogEntry{}, fmt.Errorf("ambiguous MCP endpoint: both url and httpUrl are set")
+		}
+		endpointRaw = definition.HTTPURL
+		endpointField = "httpUrl"
+	}
+	if target == "antigravity" && definition.ServerURL != nil {
+		if endpointRaw != nil {
+			return CatalogEntry{}, fmt.Errorf("ambiguous MCP endpoint: both %s and serverUrl are set", endpointField)
+		}
+		endpointRaw = definition.ServerURL
+		endpointField = "serverUrl"
+	}
+	var endpoint string
+	if endpointRaw != nil {
+		if err := json.Unmarshal(endpointRaw, &endpoint); err != nil {
+			return CatalogEntry{}, fmt.Errorf("invalid MCP %s: %w", endpointField, err)
+		}
+	}
+	switch target {
+	case "claude", "copilot", "vscode":
+		if definition.Type != "" && definition.Transport != "" && definition.Type != definition.Transport {
+			return CatalogEntry{}, fmt.Errorf("conflicting MCP type %q and transport %q", definition.Type, definition.Transport)
+		}
+		if endpoint != "" && strings.TrimSpace(transport) == "sse" && definition.Type != "sse" {
+			return CatalogEntry{}, fmt.Errorf(`SSE MCP definition requires type: "sse"`)
+		}
+	case "gemini":
+		if endpoint != "" {
+			// Gemini uses the endpoint key, not a type field, to distinguish HTTP from SSE.
+			nativeTransport := "sse"
+			if endpointField == "httpUrl" {
+				nativeTransport = "http"
+			}
+			if transport != "" && transport != nativeTransport {
+				return CatalogEntry{}, fmt.Errorf("MCP %s endpoint conflicts with transport %q", endpointField, transport)
+			}
+			transport = nativeTransport
+		}
+	case "antigravity":
+		if endpointField != "url" && endpoint != "" && transport == "" {
+			transport = "http"
+		}
+	case "opencode":
+		if endpoint != "" && definition.Type != "remote" {
+			return CatalogEntry{}, fmt.Errorf(`OpenCode MCP definition with url requires type: "remote"`)
+		}
 		switch definition.Type {
 		case "local":
 			transport = "stdio"
 		case "remote":
-			if definition.Transport == "" {
-				transport = "http"
-			}
 			if definition.HTTPTransport == "sse" {
 				transport = "sse"
+			} else if definition.Transport == "" {
+				transport = "http"
 			}
 		}
 	}
 	server := mcpServer{
 		Type: definition.Type, Transport: transport, Command: command, Args: args,
-		URL: definition.URL, Env: env, Headers: headers,
+		URL: endpoint, Env: env, Headers: headers,
 	}
-	entry := catalogEntryFromMCPServer(name, server, false)
-	if definition.HTTPTransport == "sse" {
-		entry.Transport = "sse"
-	}
-	return entry, nil
+	return catalogEntryFromMCPServer(name, server, false), nil
 }
 
 func codexOverwriteMCPDefinitions(path string, document *tomledit.Document) (map[string]CatalogEntry, error) {

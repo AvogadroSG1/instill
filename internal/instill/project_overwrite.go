@@ -79,6 +79,14 @@ func prepareProjectOverwrite(opts ProjectSelectionOptions, manifest APMManifest,
 		return nil, err
 	}
 	for _, target := range targets {
+		if target == "antigravity" || target == "codex" {
+			if err := validateOverwriteSSETarget(root, target, manifest.Dependencies); err != nil {
+				return nil, err
+			}
+			break
+		}
+	}
+	for _, target := range targets {
 		if target == "windsurf" || target == "hermes" {
 			return nil, NewExitError(ExitEnvironment, "error: pick --overwrite cannot reset user-global MCP targets; remove windsurf/hermes from project targets")
 		}
@@ -212,6 +220,179 @@ func prepareProjectOverwrite(opts ProjectSelectionOptions, manifest APMManifest,
 	}
 	return plan, nil
 }
+
+func validateOverwriteSSETarget(root, target string, selected APMDependencies) error {
+	unsupported := func(name, path string) error {
+		message := fmt.Sprintf("error: pick --overwrite target %s does not support sse transport for MCP server %q", target, name)
+		if path != "" {
+			message += " declared in " + path
+		}
+		return NewExitError(ExitGeneral, message)
+	}
+	rootNames := make(map[string]struct{}, len(selected.MCP))
+	for _, server := range selected.MCP {
+		if server.Transport == "sse" {
+			return unsupported(server.Name, "")
+		}
+		rootNames[server.Name] = struct{}{}
+	}
+
+	// Selected local skills and plugins can declare MCPs in their source manifests.
+	for _, dependency := range selected.APM {
+		if dependency.Local == "" {
+			continue
+		}
+		source := filepath.FromSlash(dependency.Local)
+		if !filepath.IsAbs(source) {
+			source = expandPathLeadingHome(source)
+			if !filepath.IsAbs(source) {
+				source = filepath.Join(root, source)
+			}
+		}
+		path := ProjectAPMPath(source)
+		if _, statErr := os.Stat(path); statErr == nil {
+			document, err := loadManifestDocument(path)
+			if err != nil {
+				return newExitErrorWithCause(ExitCode(err), fmt.Sprintf("error: cannot read selected package manifest %s: %s", path, ErrorMessage(err)), err)
+			}
+			servers, err := packageMCPDependencies(document)
+			if err != nil {
+				return newExitErrorWithCause(ExitGeneral, fmt.Sprintf("error: invalid MCP dependencies in selected package manifest %s: %v", path, err), err)
+			}
+			for _, server := range servers {
+				if _, shadowed := rootNames[server.Name]; shadowed {
+					continue
+				}
+				transport := server.Transport
+				if transport == "" {
+					transport, _ = server.Extra["type"].(string)
+				}
+				if strings.TrimSpace(transport) == "sse" {
+					return unsupported(server.Name, path)
+				}
+			}
+			continue
+		} else if !os.IsNotExist(statErr) {
+			return filesystemError("error: cannot inspect selected package manifest: "+path, statErr)
+		}
+		native, path, err := overwritePluginMCPServers(source)
+		if err != nil {
+			return err
+		}
+		var firstSSE string
+		for name, raw := range native {
+			if _, shadowed := rootNames[name]; shadowed || name == "" || firstSSE != "" && name >= firstSSE {
+				continue
+			}
+			var server struct {
+				Command string `json:"command"`
+				URL     string `json:"url"`
+				Type    string `json:"type"`
+			}
+			if json.Unmarshal(raw, &server) == nil && strings.TrimSpace(server.Command) == "" && strings.TrimSpace(server.URL) != "" && strings.TrimSpace(server.Type) == "sse" {
+				firstSSE = name
+			}
+		}
+		if firstSSE != "" {
+			return unsupported(firstSSE, path)
+		}
+	}
+	return nil
+}
+
+func overwritePluginMCPServers(root string) (map[string]json.RawMessage, string, error) {
+	// The flat manifest takes precedence over the nested marker in APM 0.39.0.
+	hasMarker := false
+	for _, marker := range []string{"plugin.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json"} {
+		path := filepath.Join(root, marker)
+		manifest, err := readOverwritePluginMCPObject(root, path)
+		if err != nil {
+			return nil, "", err
+		}
+		if manifest == nil {
+			continue
+		}
+		hasMarker = true
+		if raw := manifest["mcpServers"]; len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+			if raw[0] == '{' {
+				servers, err := mcpJSONObject(path, raw, "mcpServers")
+				return servers, path, err
+			}
+			// Explicit file references are not auto-discovered defaults.
+			return nil, "", nil
+		}
+		break
+	}
+	if !hasMarker {
+		return nil, "", nil
+	}
+	// APM uses the first valid nonempty default server map; an inline map bypasses it.
+	for _, fallback := range []string{"mcp.json", ".mcp.json", filepath.Join(".github", ".mcp.json")} {
+		path := filepath.Join(root, fallback)
+		servers, err := readOverwritePluginMCPObject(root, path)
+		if err != nil {
+			if ExitCode(err) == ExitGeneral {
+				// APM skips invalid optional MCP JSON and tries the next default.
+				continue
+			}
+			return nil, "", err
+		}
+		if raw, wrapped := servers["mcpServers"]; wrapped {
+			if len(raw) == 0 || raw[0] != '{' {
+				continue
+			}
+			servers, err = mcpJSONObject(path, raw, "mcpServers")
+			if err != nil {
+				continue
+			}
+		} else {
+			for _, server := range servers {
+				if len(server) == 0 || server[0] != '{' {
+					servers = nil
+					break
+				}
+			}
+		}
+		if len(servers) > 0 {
+			return servers, path, nil
+		}
+	}
+	return nil, "", nil
+}
+
+func readOverwritePluginMCPObject(pkgRoot, path string) (map[string]json.RawMessage, error) {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, filesystemError("error: cannot inspect selected package file: "+path, err)
+	}
+	target := path
+	if info.Mode()&os.ModeSymlink != 0 {
+		resolvedRoot, rootErr := filepath.EvalSymlinks(pkgRoot)
+		if rootErr != nil {
+			return nil, nil
+		}
+		resolvedTarget, linkErr := filepath.EvalSymlinks(path)
+		if linkErr != nil || !isInOrUnderDir(resolvedRoot, resolvedTarget) {
+			return nil, nil
+		}
+		targetInfo, statErr := os.Stat(resolvedTarget)
+		if statErr != nil || !targetInfo.Mode().IsRegular() {
+			return nil, nil
+		}
+		target = resolvedTarget
+	} else if !info.Mode().IsRegular() {
+		return nil, nil
+	}
+	data, err := os.ReadFile(target) //nolint:gosec // Inspect known MCP files contained in the selected package.
+	if err != nil {
+		return nil, filesystemError("error: cannot read selected package file: "+path, err)
+	}
+	return mcpJSONObject(path, data, "root")
+}
+
 func captureOverwriteOpenCode(root string) (map[string]mcpEnableValue, error) {
 	paths := []string{"opencode.json", "opencode.jsonc", ".opencode/opencode.json", ".opencode/opencode.jsonc"}
 	merged := make(map[string]mcpEnableValue)

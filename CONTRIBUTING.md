@@ -5,7 +5,7 @@
 - Go matching the version required by `go.mod` (`go version`)
 - [mise](https://mise.jdx.dev/getting-started.html) (verified with `2026.11.2`)
 - [bats](https://bats-core.readthedocs.io/) or `npx` (for integration tests)
-- [golangci-lint](https://golangci-lint.run/) v2.6.2 (run via `mise run lint` — no separate install needed)
+- [golangci-lint](https://golangci-lint.run/) v2.15.0 (run via `mise run lint` — no separate install needed)
 
 ## Setup
 
@@ -36,7 +36,7 @@ Configure task overrides via environment variables before `mise run` (for exampl
 - `BINARY` (default: `instill`) — output binary name for `build` and `install`
 - `PREFIX` (default: `$HOME/.local`) — install prefix for `install` (`${PREFIX}/bin/${BINARY}`)
 - `GOFLAGS` (default: unset) — Go toolchain flags consumed natively by `go`
-- `GOLANGCI_LINT_VERSION` (default: `v2.6.2`) — golangci-lint module version for `lint`
+- `GOLANGCI_LINT_VERSION` (default: `v2.15.0`) — golangci-lint module version for `lint`
 - `BATS_VERSION` (default: `1.12.0`) — Bats version for the `npx` fallback in `bats-test`
 
 ```bash

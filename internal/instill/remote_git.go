@@ -231,17 +231,6 @@ func (s *gitSnapshot) regularFile(file string, maxBytes ...int64) ([]byte, error
 	return output, nil
 }
 
-func (s *gitSnapshot) requireTree(dir string) error {
-	mode, typ, err := s.object(dir)
-	if err != nil {
-		return err
-	}
-	if mode != "040000" || typ != "tree" {
-		return NewExitError(ExitGeneral, "error: remote path is not a directory: "+dir)
-	}
-	return nil
-}
-
 // checkoutTo writes the snapshot commit's tree into dest (absolute, empty) without a .git directory.
 func (s *gitSnapshot) checkoutTo(dest string) error {
 	output, err := s.run("--git-dir="+filepath.Join(s.dir, ".git"), "--work-tree="+dest, "-c", "advice.detachedHead=false", "checkout", "--force", "--detach", s.sha)

@@ -36,6 +36,19 @@ cp -rf source dest          # NOT: cp -r source dest
 - `apt-get` - use `-y` flag
 - `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
 
+## Local Quality Gates
+
+Run these locally before committing:
+```bash
+git ls-files '*.go' | xargs gofmt -l   # must be empty
+mise run lint                          # golangci-lint v2.15.0 (Go 1.27+)
+go vet ./...
+go test -count=1 ./...
+bats test
+mise run contracts                     # executable E2E contracts against built instill + real APM >= 0.39.0
+go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+```
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
 ## Beads Issue Tracker
 

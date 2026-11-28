@@ -750,6 +750,7 @@ http_headers = { "X-Static" = "preserve" }
 }
 
 func TestEqualOverwriteMCPRuntimeDefinitionHandlesRemoteEnvReferences(t *testing.T) {
+	t.Setenv("TOKEN", "")
 	newEntries := func() (CatalogEntry, CatalogEntry) {
 		expected := CatalogEntry{
 			Transport: "http",
@@ -773,6 +774,13 @@ func TestEqualOverwriteMCPRuntimeDefinitionHandlesRemoteEnvReferences(t *testing
 				t.Fatalf("%s rejected equivalent HTTP MCP definition without runtime Env", target)
 			}
 		})
+		t.Run(target+" accepts matching runtime environment", func(t *testing.T) {
+			expected, actual := newEntries()
+			actual.Env = []string{"TOKEN={env:TOKEN}"}
+			if !equalOverwriteMCPRuntimeDefinition(expected, actual, target) {
+				t.Fatalf("%s rejected equivalent HTTP MCP definition with matching runtime Env", target)
+			}
+		})
 	}
 
 	tests := []struct {
@@ -783,6 +791,9 @@ func TestEqualOverwriteMCPRuntimeDefinitionHandlesRemoteEnvReferences(t *testing
 	}{
 		{name: "reject unexpected actual environment", target: "claude", mutate: func(actual *CatalogEntry) {
 			actual.Env = []string{"EXTRA=unexpected"}
+		}},
+		{name: "reject changed actual environment", target: "claude", mutate: func(actual *CatalogEntry) {
+			actual.Env = []string{"TOKEN=changed"}
 		}},
 		{name: "reject wrong URL", target: "claude", mutate: func(actual *CatalogEntry) {
 			actual.URL = "https://example.invalid/wrong"
@@ -823,9 +834,9 @@ func TestEqualOverwriteMCPRuntimeDefinitionHandlesRemoteEnvReferences(t *testing
 	}
 
 	lockTests := []struct {
-		name   string
-		env    []string
-		want   bool
+		name string
+		env  []string
+		want bool
 	}{
 		{name: "actual environment absent", env: nil, want: false},
 		{name: "actual environment changed", env: []string{"TOKEN=changed"}, want: false},
@@ -842,6 +853,154 @@ func TestEqualOverwriteMCPRuntimeDefinitionHandlesRemoteEnvReferences(t *testing
 	}
 }
 
+func TestEqualOverwriteMCPRuntimeDefinitionVerifiesInstallTimeHeaders(t *testing.T) {
+	t.Setenv("TOKEN", "nonsecret")
+	t.Setenv("EMPTY_TOKEN", "")
+	t.Setenv("UNSET_TOKEN", "")
+	if err := os.Unsetenv("UNSET_TOKEN"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NESTED_TOKEN", "${OTHER}")
+	t.Setenv("NESTED_ENV_TOKEN", "{env:OTHER}")
+	t.Setenv("OTHER", "other-nonsecret")
+
+	const placeholder = "Authorization=Bearer ${TOKEN}"
+	const resolved = "authorization=Bearer nonsecret"
+	expected := CatalogEntry{
+		Transport: "http",
+		URL:       "https://example.invalid/mcp",
+		Headers:   []string{placeholder},
+	}
+	for _, tt := range []struct {
+		target          string
+		resolvesHeaders bool
+	}{
+		{target: "antigravity", resolvesHeaders: true},
+		{target: "claude", resolvesHeaders: true},
+		{target: "gemini", resolvesHeaders: true},
+		{target: "codex"},
+		{target: "copilot"},
+		{target: "cursor"},
+		{target: "kiro"},
+		{target: "opencode"},
+		{target: "vscode"},
+		{target: "unknown"},
+	} {
+		t.Run(tt.target, func(t *testing.T) {
+			actual := expected
+			if !equalOverwriteMCPRuntimeDefinition(expected, actual, tt.target) {
+				t.Fatal("runtime comparison rejected preserved placeholder")
+			}
+			actual.Headers = []string{resolved}
+			if got := equalOverwriteMCPRuntimeDefinition(expected, actual, tt.target); got != tt.resolvesHeaders {
+				t.Fatalf("runtime comparison with resolved header = %t, want %t", got, tt.resolvesHeaders)
+			}
+		})
+	}
+
+	for _, tt := range []struct {
+		name     string
+		template string
+		headers  []string
+		url      string
+		want     bool
+	}{
+		{name: "dollar env form", template: "Authorization=Bearer ${env:TOKEN}", headers: []string{resolved}, want: true},
+		{name: "brace env form", template: "Authorization=Bearer {env:TOKEN}", headers: []string{resolved}, want: true},
+		{name: "mixed resolved and unresolved", template: "Authorization=${TOKEN}/${env:UNSET_TOKEN}/{env:OTHER}",
+			headers: []string{"Authorization=nonsecret/${env:UNSET_TOKEN}/other-nonsecret"}, want: true},
+		{name: "wrong value", headers: []string{"Authorization=Bearer wrong"}},
+		{name: "literal with no template", template: "Authorization=Bearer static", headers: []string{resolved}},
+		{name: "unset variable", template: "Authorization=Bearer ${UNSET_TOKEN}", headers: []string{resolved}},
+		{name: "empty variable", template: "Authorization=Bearer ${EMPTY_TOKEN}", headers: []string{"Authorization=Bearer "}},
+		{name: "wrong URL", headers: []string{resolved}, url: "https://example.invalid/wrong"},
+		{name: "missing header"},
+		{name: "extra header", headers: []string{resolved, "X-Extra=extra"}},
+		{name: "wrong header name", headers: []string{"X-Other=Bearer nonsecret"}},
+		{name: "single pass", template: "Authorization=Bearer ${NESTED_TOKEN}", headers: []string{"Authorization=Bearer ${OTHER}"}, want: true},
+		{name: "recursive resolution", template: "Authorization=Bearer ${NESTED_TOKEN}", headers: []string{"Authorization=Bearer other-nonsecret"}},
+		{name: "exact resolved value", template: "Authorization=Bearer ${NESTED_ENV_TOKEN}", headers: []string{"Authorization=Bearer {env:OTHER}"}, want: true},
+		{name: "normalized resolved value is not exact", template: "Authorization=Bearer ${NESTED_ENV_TOKEN}", headers: []string{"Authorization=Bearer ${OTHER}"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			want, actual := expected, expected
+			if tt.template != "" {
+				want.Headers = []string{tt.template}
+			}
+			actual.Headers = tt.headers
+			if tt.url != "" {
+				actual.URL = tt.url
+			}
+			if got := equalOverwriteMCPRuntimeDefinition(want, actual, "gemini"); got != tt.want {
+				t.Fatalf("runtime comparison = %t, want %t", got, tt.want)
+			}
+		})
+	}
+
+	t.Run("duplicate marker header uses last value", func(t *testing.T) {
+		want, actual := expected, expected
+		want.Headers = []string{"X-Probe=old", "X-Probe=selected"}
+		for _, target := range []string{"gemini", "codex"} {
+			actual.Headers = []string{"x-probe=selected"}
+			if !equalOverwriteMCPRuntimeDefinition(want, actual, target) {
+				t.Errorf("%s rejected the last value of a duplicate marker header", target)
+			}
+			actual.Headers = []string{"x-probe=old"}
+			if equalOverwriteMCPRuntimeDefinition(want, actual, target) {
+				t.Errorf("%s accepted the overwritten value of a duplicate marker header", target)
+			}
+			actual.Headers = []string{"X-Probe=old", "x-probe=selected"}
+			if equalOverwriteMCPRuntimeDefinition(want, actual, target) {
+				t.Errorf("%s accepted an extra serialized header when the marker had duplicates", target)
+			}
+		}
+	})
+
+	t.Run("extra header with case variant", func(t *testing.T) {
+		actual := expected
+		actual.Headers = []string{"Authorization=Bearer wrong", resolved}
+		if equalOverwriteMCPRuntimeDefinition(expected, actual, "gemini") {
+			t.Fatal("runtime comparison accepted an extra header with the same case-insensitive name")
+		}
+	})
+
+	t.Run("extra case variant cannot hide a missing variant of another header", func(t *testing.T) {
+		t.Setenv("TOKEN", "ok")
+		want, actual := expected, expected
+		want.Headers = []string{"X-A=keep", "x-a=${TOKEN}", "X-B=keep"}
+		actual.Headers = []string{"x-a=ok", "X-B=wrong", "x-b=keep"}
+		if equalOverwriteMCPRuntimeDefinition(want, actual, "gemini") {
+			t.Fatal("runtime comparison accepted a missing variant of X-A and an extra variant of X-B")
+		}
+		actual.Headers = []string{"x-a=ok", "X-A=wrong", "x-b=keep"}
+		if equalOverwriteMCPRuntimeDefinition(want, actual, "gemini") {
+			t.Fatal("runtime comparison accepted the wrong value for one variant of X-A")
+		}
+		actual.Headers = []string{"x-a=ok", "X-A=keep", "x-b=keep"}
+		if !equalOverwriteMCPRuntimeDefinition(want, actual, "gemini") {
+			t.Fatal("runtime comparison rejected equivalent header variants")
+		}
+	})
+
+	t.Run("SSE uses HTTP headers", func(t *testing.T) {
+		sse := expected
+		sse.Transport = "sse"
+		actual := sse
+		actual.Headers = []string{resolved}
+		if !equalOverwriteMCPRuntimeDefinition(sse, actual, "gemini") {
+			t.Fatal("runtime comparison rejected an SSE server with a correctly resolved header")
+		}
+	})
+
+	t.Run("lock comparison stays strict", func(t *testing.T) {
+		actual := expected
+		actual.Headers = []string{resolved}
+		if equalOverwriteMCPDefinition(expected, actual) {
+			t.Fatal("lock comparison accepted an expanded header")
+		}
+	})
+}
+
 func TestOverwriteJSONMCPDefinitionNormalizesNativeHTTP(t *testing.T) {
 	const nativeHTTP = `{"httpUrl":"https://example.invalid/mcp","headers":{"X-Probe":"literal"}}`
 	tests := []struct {
@@ -854,10 +1013,23 @@ func TestOverwriteJSONMCPDefinitionNormalizesNativeHTTP(t *testing.T) {
 	}{
 		{name: "Gemini httpUrl", target: "gemini", raw: nativeHTTP, wantURL: "https://example.invalid/mcp", wantHTTP: true},
 		{name: "Antigravity httpUrl", target: "antigravity", raw: nativeHTTP, wantURL: "https://example.invalid/mcp", wantHTTP: true},
+		{name: "Antigravity serverUrl", target: "antigravity", raw: `{"serverUrl":"https://example.invalid/mcp","headers":{"X-Probe":"literal"}}`, wantURL: "https://example.invalid/mcp", wantHTTP: true},
+		{name: "Antigravity rejects serverUrl with httpUrl", target: "antigravity", raw: `{"serverUrl":"https://example.invalid/a","httpUrl":"https://example.invalid/b"}`, wantError: true},
+		{name: "Antigravity rejects serverUrl with url", target: "antigravity", raw: `{"serverUrl":"https://example.invalid/a","url":"https://example.invalid/b"}`, wantError: true},
+		{name: "Antigravity rejects empty serverUrl with httpUrl", target: "antigravity", raw: `{"serverUrl":"","httpUrl":"https://example.invalid/mcp"}`, wantError: true},
+		{name: "Antigravity rejects null serverUrl with url", target: "antigravity", raw: `{"serverUrl":null,"url":"https://example.invalid/mcp"}`, wantError: true},
+		{name: "Antigravity rejects non-string serverUrl", target: "antigravity", raw: `{"serverUrl":{}}`, wantError: true},
+		{name: "Gemini ignores non-string serverUrl", target: "gemini", raw: `{"httpUrl":"https://example.invalid/mcp","serverUrl":{}}`, wantURL: "https://example.invalid/mcp", wantHTTP: true},
+		{name: "unrelated target ignores non-string native aliases", target: "claude", raw: `{"url":"https://example.invalid/mcp","httpUrl":{},"serverUrl":[]}`, wantURL: "https://example.invalid/mcp", wantHTTP: true},
 		{name: "Gemini rejects ambiguous endpoint fields", target: "gemini", raw: `{"url":"https://example.invalid/a","httpUrl":"https://example.invalid/b"}`, wantError: true},
 		{name: "Antigravity rejects ambiguous endpoint fields", target: "antigravity", raw: `{"url":"https://example.invalid/a","httpUrl":"https://example.invalid/b"}`, wantError: true},
+		{name: "Gemini rejects an empty url alongside httpUrl", target: "gemini", raw: `{"url":"","httpUrl":"https://example.invalid/mcp"}`, wantError: true},
+		{name: "Antigravity rejects an empty httpUrl alongside url", target: "antigravity", raw: `{"url":"https://example.invalid/mcp","httpUrl":""}`, wantError: true},
+		{name: "Gemini rejects a null url alongside httpUrl", target: "gemini", raw: `{"url":null,"httpUrl":"https://example.invalid/mcp"}`, wantError: true},
+		{name: "Gemini rejects non-string httpUrl", target: "gemini", raw: `{"httpUrl":{}}`, wantError: true},
 		{name: "wrong endpoint does not match selection", target: "gemini", raw: `{"httpUrl":"https://example.invalid/wrong","headers":{"X-Probe":"literal"}}`, wantURL: "https://example.invalid/wrong"},
 		{name: "unrelated target does not alias httpUrl", target: "claude", raw: nativeHTTP},
+		{name: "unrelated target ignores non-string httpUrl", target: "claude", raw: `{"url":"https://example.invalid/mcp","httpUrl":{}}`, wantURL: "https://example.invalid/mcp", wantHTTP: true},
 		{name: "Kiro infers HTTP from URL", target: "kiro", raw: `{"url":"https://example.invalid/mcp"}`, wantURL: "https://example.invalid/mcp", wantHTTP: true},
 	}
 	for _, tt := range tests {
@@ -876,7 +1048,7 @@ func TestOverwriteJSONMCPDefinitionNormalizesNativeHTTP(t *testing.T) {
 				t.Errorf("transport = %q, want http", got.Transport)
 			}
 			if tt.target == "gemini" || tt.target == "antigravity" {
-				if tt.name == "Gemini httpUrl" || tt.name == "Antigravity httpUrl" {
+				if tt.name == "Gemini httpUrl" || tt.name == "Antigravity httpUrl" || tt.name == "Antigravity serverUrl" {
 					if len(got.Headers) != 1 || got.Headers[0] != "X-Probe=literal" {
 						t.Errorf("headers = %#v, want [X-Probe=literal]", got.Headers)
 					}
@@ -889,5 +1061,143 @@ func TestOverwriteJSONMCPDefinitionNormalizesNativeHTTP(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestOverwriteJSONMCPDefinitionVerifiesNativeSSE(t *testing.T) {
+	const endpoint = "https://example.invalid/events"
+	for _, tt := range []struct {
+		target, shape, endpointField, fields, transport string
+		wantSSE                                         bool
+	}{
+		{target: "gemini", shape: "httpUrl", endpointField: "httpUrl", transport: "http"},
+		{target: "gemini", shape: "url", endpointField: "url", transport: "sse", wantSSE: true},
+		{target: "claude", shape: "explicit HTTP", endpointField: "url", fields: `"type":"http",`, transport: "http"},
+		{target: "claude", shape: "explicit SSE", endpointField: "url", fields: `"type":"sse",`, transport: "sse", wantSSE: true},
+		{target: "copilot", shape: "explicit HTTP", endpointField: "url", fields: `"type":"http",`, transport: "http"},
+		{target: "copilot", shape: "explicit SSE", endpointField: "url", fields: `"type":"sse",`, transport: "sse", wantSSE: true},
+		{target: "vscode", shape: "explicit HTTP", endpointField: "url", fields: `"type":"http",`, transport: "http"},
+		{target: "vscode", shape: "explicit SSE", endpointField: "url", fields: `"type":"sse",`, transport: "sse", wantSSE: true},
+		{target: "cursor", shape: "collapsed SSE", endpointField: "url", fields: `"type":"http",`, transport: "http", wantSSE: true},
+		{target: "cursor", shape: "explicit SSE", endpointField: "url", fields: `"type":"sse",`, transport: "sse", wantSSE: true},
+		{target: "kiro", shape: "collapsed SSE", endpointField: "url", transport: "http", wantSSE: true},
+		{target: "kiro", shape: "explicit SSE", endpointField: "url", fields: `"type":"sse",`, transport: "sse", wantSSE: true},
+		{target: "opencode", shape: "collapsed SSE", endpointField: "url", fields: `"type":"remote",`, transport: "http", wantSSE: true},
+		{target: "opencode", shape: "legacy explicit SSE", endpointField: "url", fields: `"type":"remote","httpTransport":"sse",`, transport: "sse", wantSSE: true},
+	} {
+		t.Run(tt.target+"/"+tt.shape, func(t *testing.T) {
+			raw := fmt.Sprintf(`{%s%q:%q,"headers":{"X-Probe":"literal"}}`, tt.fields, tt.endpointField, endpoint)
+			actual, err := overwriteJSONMCPDefinition("sse-probe", json.RawMessage(raw), tt.target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if actual.Transport != tt.transport {
+				t.Errorf("transport = %q, want %q", actual.Transport, tt.transport)
+			}
+			expected := CatalogEntry{URL: endpoint, Headers: []string{"X-Probe=literal"}, Env: []string{"TOKEN=${TOKEN}"}}
+			check := func(label, transport string, candidate CatalogEntry, want bool) {
+				t.Helper()
+				expected.Transport = transport
+				if got := equalOverwriteMCPRuntimeDefinition(expected, candidate, tt.target); got != want {
+					t.Errorf("%s with expected %s: comparison = %t, want %t", label, transport, got, want)
+				}
+			}
+			check("native output", "http", actual, tt.transport == "http")
+			check("native output without runtime environment", "sse", actual, tt.wantSSE)
+			if tt.wantSSE {
+				changed := actual
+				changed.Env = []string{"TOKEN=${TOKEN}"}
+				check("matching runtime environment", "sse", changed, true)
+				changed.Env = []string{"TOKEN=changed"}
+				check("changed runtime environment", "sse", changed, false)
+				changed.Env = []string{"TOKEN=${TOKEN}", "EXTRA=unexpected"}
+				check("unexpected runtime environment entry", "sse", changed, false)
+				changed = actual
+				changed.URL = "https://example.invalid/wrong"
+				check("wrong URL", "sse", changed, false)
+				changed = actual
+				changed.Headers = []string{"X-Probe=changed"}
+				check("wrong header", "sse", changed, false)
+			}
+		})
+	}
+}
+
+func TestOverwriteJSONMCPDefinitionRequiresNativeSSEDiscriminator(t *testing.T) {
+	for _, target := range []string{"claude", "copilot", "vscode"} {
+		t.Run(target, func(t *testing.T) {
+			expected := CatalogEntry{Transport: "sse", URL: "https://example.invalid/events"}
+			for _, raw := range []json.RawMessage{
+				json.RawMessage(`{"url":"https://example.invalid/events"}`),
+				json.RawMessage(`{"transport":"sse","url":"https://example.invalid/events"}`),
+				json.RawMessage(`{"type":"http","transport":"sse","url":"https://example.invalid/events"}`),
+				json.RawMessage(`{"type":"http","httpTransport":"sse","url":"https://example.invalid/events"}`),
+			} {
+				actual, err := overwriteJSONMCPDefinition("sse-probe", raw, target)
+				if err == nil && equalOverwriteMCPRuntimeDefinition(expected, actual, target) {
+					t.Errorf("SSE matched a definition without type:sse: %s", raw)
+				}
+			}
+		})
+	}
+}
+
+func TestOverwriteJSONMCPDefinitionRejectsConflictingNativeTransport(t *testing.T) {
+	const endpoint = "https://example.invalid/mcp"
+	for _, target := range []string{"claude", "copilot", "vscode"} {
+		t.Run(target, func(t *testing.T) {
+			for _, tt := range []struct{ native, alias string }{{"sse", "http"}, {"http", "sse"}} {
+				raw := fmt.Sprintf(`{"type":%q,"transport":%q,"url":%q}`, tt.native, tt.alias, endpoint)
+				actual, err := overwriteJSONMCPDefinition("probe", json.RawMessage(raw), target)
+				if err == nil {
+					t.Errorf("conflicting fields in %s were not rejected; decoded as %q", raw, actual.Transport)
+				}
+			}
+		})
+	}
+}
+
+func TestOverwriteJSONMCPDefinitionRequiresOpenCodeRemoteType(t *testing.T) {
+	for _, raw := range []string{
+		`{"type":"http","url":"https://example.invalid/mcp"}`,
+		`{"type":"http","url":"https://example.invalid/mcp","httpTransport":"sse"}`,
+		`{"url":"https://example.invalid/mcp"}`,
+	} {
+		actual, err := overwriteJSONMCPDefinition("probe", json.RawMessage(raw), "opencode")
+		if err == nil {
+			t.Errorf("invalid OpenCode remote definition %s was not rejected; decoded as %q", raw, actual.Transport)
+		}
+	}
+	actual, err := overwriteJSONMCPDefinition("probe", json.RawMessage(`{"type":"local","command":["/bin/true"],"httpTransport":"sse"}`), "opencode")
+	if err != nil || actual.Transport != "stdio" {
+		t.Errorf("legacy OpenCode SSE hint changed a local definition: got transport %q, error %v", actual.Transport, err)
+	}
+}
+
+func TestEqualOverwriteMCPDefinitionKeepsSSETransportAndEnvironmentStrict(t *testing.T) {
+	expected := CatalogEntry{Transport: "sse", URL: "https://example.invalid/events", Env: []string{"TOKEN=${TOKEN}"}}
+	if !equalOverwriteMCPDefinition(expected, expected) {
+		t.Fatal("exact SSE lock definition did not match")
+	}
+	collapsed := expected
+	collapsed.Transport = "http"
+	if equalOverwriteMCPDefinition(expected, collapsed) {
+		t.Error("collapsed transport matched a selected SSE definition in the lock")
+	}
+	omitted := expected
+	omitted.Env = nil
+	if equalOverwriteMCPDefinition(expected, omitted) {
+		t.Error("missing environment matched a selected SSE definition in the lock")
+	}
+	changed := expected
+	changed.Env = []string{"TOKEN=changed"}
+	if equalOverwriteMCPDefinition(expected, changed) {
+		t.Error("changed environment matched a selected SSE definition in the lock")
+	}
+	for _, target := range []string{"antigravity", "codex", "unknown"} {
+		if equalOverwriteMCPRuntimeDefinition(expected, collapsed, target) ||
+			equalOverwriteMCPRuntimeDefinition(expected, omitted, target) {
+			t.Errorf("%s accepted collapsed transport or omitted SSE environment", target)
+		}
 	}
 }

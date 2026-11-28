@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 
 $Binary        = "instill.exe"
 $InstallDir    = "$env:LOCALAPPDATA\Programs\instill"
-$LintVersion   = "v2.6.2"
+$LintVersion   = "v2.15.0"
 
 switch ($Task) {
     "build" {

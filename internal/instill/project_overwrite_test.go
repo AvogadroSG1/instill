@@ -106,6 +106,267 @@ func TestPrepareProjectOverwriteDetectsAuditedTargetBeforePiFallback(t *testing.
 	}
 }
 
+func TestApplyProjectSelectionRejectsUnsupportedSSEBeforeReset(t *testing.T) {
+	isolateMCPEnvironment(t)
+	library := overwriteTestLibrary(t, []CatalogEntry{
+		{Type: LibraryTypeMCP, Name: "sse-probe", Transport: "sse", URL: "https://example.invalid/events"},
+	})
+	for _, tt := range []struct {
+		target string
+		path   string
+		config string
+	}{
+		{target: "codex", path: ".codex/config.toml", config: "[mcp_servers.sentinel]\ncommand = \"/bin/true\"\n"},
+		{target: "antigravity", path: ".agents/mcp_config.json", config: `{"mcpServers":{"sentinel":{"command":"/bin/true"}}}` + "\n"},
+	} {
+		t.Run(tt.target, func(t *testing.T) {
+			manifest := "name: example\nversion: 1.0.0\ntargets: [claude, " + tt.target + "]\n"
+			project := overwriteTestProject(t, []byte(manifest))
+			configPath := filepath.Join(project.Root, tt.path)
+			writeOverwriteFile(t, configPath, []byte(tt.config), 0600)
+			err := ApplyProjectSelection(ProjectSelectionOptions{
+				Project: project, LibraryPath: library,
+				Selection: ProjectSelection{MCPs: []string{"sse-probe"}},
+				Runner: func(name string, args ...string) ([]byte, error) {
+					if name == "apm" && len(args) == 1 && args[0] == "--version" {
+						return []byte("apm 0.39.0\n"), nil
+					}
+					t.Errorf("APM called after version check: %s %v", name, args)
+					return nil, nil
+				},
+			})
+			if ExitCode(err) != ExitGeneral || !strings.Contains(ErrorMessage(err), "target "+tt.target) ||
+				!strings.Contains(ErrorMessage(err), "sse-probe") || !strings.Contains(ErrorMessage(err), "sse transport") {
+				t.Errorf("overwrite error = %v, want an SSE compatibility error naming %s and sse-probe", err, tt.target)
+			}
+			for path, want := range map[string]string{project.ManifestPath: manifest, configPath: tt.config} {
+				if got, readErr := os.ReadFile(path); readErr != nil || string(got) != want {
+					t.Errorf("%s changed: got %q (%v), want %q", path, got, readErr, want)
+				}
+			}
+		})
+	}
+}
+
+func TestApplyProjectSelectionRejectsPackageSSEBeforeReset(t *testing.T) {
+	isolateMCPEnvironment(t)
+	const packageManifest = `name: events-package
+version: 1.0.0
+dependencies:
+  mcp:
+    - name: package-events
+      transport: sse
+      registry: false
+      url: https://example.invalid/events
+`
+	const server = `{"type":"sse","url":"https://example.invalid/events"}`
+	const wrappedMCP = `{"mcpServers":{"package-events":` + server + `}}`
+	const inlineMCP = `{"name":"events-plugin","mcpServers":{"package-events":` + server + `}}`
+	plugin := CatalogEntry{Type: LibraryTypePlugin, Name: "events-plugin", Path: "events-plugin/.claude-plugin/plugin.json"}
+	marketplace := CatalogEntry{
+		Type: LibraryTypePlugin, Name: "fixtures/events-plugin", Category: "fixtures",
+		Path: "marketplaces/fixtures/events-plugin/.claude-plugin/plugin.json", Source: pluginMarketplaceSource,
+		Repository: "https://github.com/example/plugins.git", Ref: strings.Repeat("a", 40),
+	}
+	for _, tt := range []struct {
+		label, sourceDir string
+		entry            CatalogEntry
+		selection        ProjectSelection
+		files            map[string]string
+		rootShadows      bool
+		allowInstall     bool
+	}{
+		{
+			label:     "local plugin",
+			entry:     plugin,
+			sourceDir: "plugins/events-plugin",
+			selection: ProjectSelection{Plugins: []string{"events-plugin"}},
+		},
+		{
+			label:     "marketplace plugin",
+			entry:     marketplace,
+			sourceDir: "plugins/marketplaces/fixtures/events-plugin",
+			selection: ProjectSelection{Plugins: []string{"fixtures/events-plugin"}},
+		},
+		{
+			label:     "local skill",
+			entry:     CatalogEntry{Type: LibraryTypeSkill, Name: "events-skill", Path: "events-skill/SKILL.md"},
+			sourceDir: "skills/events-skill",
+			selection: ProjectSelection{Skills: []string{"events-skill"}},
+		},
+		{
+			label:     "legacy manifest type",
+			entry:     plugin,
+			sourceDir: "plugins/events-plugin",
+			selection: ProjectSelection{Plugins: []string{"events-plugin"}},
+			files:     map[string]string{"apm.yml": strings.Replace(packageManifest, "transport: sse", "type: sse", 1)},
+		},
+		{
+			label:       "root HTTP shadows manifest SSE",
+			entry:       plugin,
+			sourceDir:   "plugins/events-plugin",
+			selection:   ProjectSelection{Plugins: []string{"events-plugin"}},
+			rootShadows: true,
+		},
+		{
+			label:     "native MCP file without apm.yml",
+			entry:     plugin,
+			sourceDir: "plugins/events-plugin",
+			selection: ProjectSelection{Plugins: []string{"events-plugin"}},
+			files:     map[string]string{".mcp.json": wrappedMCP},
+		},
+		{
+			label:     "native MCP file with flat transport declaration treated as HTTP by APM",
+			entry:     plugin,
+			sourceDir: "plugins/events-plugin",
+			selection: ProjectSelection{Plugins: []string{"events-plugin"}},
+			files: map[string]string{
+				".mcp.json": `{"package-events":{"transport":"sse","url":"https://example.invalid/events"}}`,
+			},
+			allowInstall: true,
+		},
+		{
+			label:     "native .github/.mcp.json SSE rejected",
+			entry:     plugin,
+			sourceDir: "plugins/events-plugin",
+			selection: ProjectSelection{Plugins: []string{"events-plugin"}},
+			files: map[string]string{
+				".github/.mcp.json": wrappedMCP,
+			},
+		},
+		{
+			label:     "malformed mcp.json falls back to valid HTTP .mcp.json",
+			entry:     plugin,
+			sourceDir: "plugins/events-plugin",
+			selection: ProjectSelection{Plugins: []string{"events-plugin"}},
+			files: map[string]string{
+				"mcp.json":  "{not valid json",
+				".mcp.json": `{"package-events":{"type":"http","url":"https://example.invalid/http"}}`,
+			},
+			allowInstall: true,
+		},
+		{
+			label:     "authored apm.yml HTTP takes precedence over sidecar plugin JSON SSE",
+			entry:     plugin,
+			sourceDir: "plugins/events-plugin",
+			selection: ProjectSelection{Plugins: []string{"events-plugin"}},
+			files: map[string]string{
+				"apm.yml":                    "name: events-plugin\nversion: 1.0.0\ndependencies:\n  mcp:\n    - name: package-events\n      registry: false\n      transport: http\n      url: https://example.invalid/http\n",
+				".claude-plugin/plugin.json": inlineMCP,
+			},
+			allowInstall: true,
+		},
+		{
+			label:     "native marketplace plugin inline MCP",
+			entry:     marketplace,
+			sourceDir: "plugins/marketplaces/fixtures/events-plugin",
+			selection: ProjectSelection{Plugins: []string{"fixtures/events-plugin"}},
+			files:     map[string]string{".claude-plugin/plugin.json": inlineMCP},
+		},
+		{
+			label:     "native root plugin manifest inline MCP",
+			entry:     CatalogEntry{Type: LibraryTypePlugin, Name: "events-plugin", Path: "events-plugin/plugin.json"},
+			sourceDir: "plugins/events-plugin",
+			selection: ProjectSelection{Plugins: []string{"events-plugin"}},
+			files:     map[string]string{"plugin.json": inlineMCP},
+		},
+		{
+			label:       "root HTTP shadows native inline SSE",
+			entry:       plugin,
+			sourceDir:   "plugins/events-plugin",
+			selection:   ProjectSelection{Plugins: []string{"events-plugin"}},
+			files:       map[string]string{".claude-plugin/plugin.json": inlineMCP},
+			rootShadows: true,
+		},
+		{
+			label:     "native mcp.json takes precedence over .mcp.json",
+			entry:     plugin,
+			sourceDir: "plugins/events-plugin",
+			selection: ProjectSelection{Plugins: []string{"events-plugin"}},
+			files: map[string]string{
+				"mcp.json":  wrappedMCP,
+				".mcp.json": `{"package-events":{"type":"http","url":"https://example.invalid/http"}}`,
+			},
+		},
+		{
+			label:     "inline map bypasses native default",
+			entry:     plugin,
+			sourceDir: "plugins/events-plugin",
+			selection: ProjectSelection{Plugins: []string{"events-plugin"}},
+			files: map[string]string{
+				".mcp.json":                  wrappedMCP,
+				".claude-plugin/plugin.json": `{"name":"events-plugin","mcpServers":{}}`,
+			},
+			allowInstall: true,
+		},
+		{
+			label:        "skill without a plugin marker does not load native MCP",
+			entry:        CatalogEntry{Type: LibraryTypeSkill, Name: "events-skill", Path: "events-skill/SKILL.md"},
+			sourceDir:    "skills/events-skill",
+			selection:    ProjectSelection{Skills: []string{"events-skill"}},
+			files:        map[string]string{".mcp.json": wrappedMCP},
+			allowInstall: true,
+		},
+	} {
+		t.Run(tt.label, func(t *testing.T) {
+			entries := []CatalogEntry{tt.entry}
+			if tt.rootShadows {
+				entries = append(entries, CatalogEntry{Type: LibraryTypeMCP, Name: "package-events", Transport: "http", URL: "https://example.invalid/http"})
+				tt.selection.MCPs = []string{"package-events"}
+			}
+			library := overwriteTestLibrary(t, entries)
+			source := filepath.Join(library, tt.sourceDir)
+			if tt.files == nil {
+				writeOverwriteFile(t, filepath.Join(source, "apm.yml"), []byte(packageManifest), 0644)
+			} else {
+				if err := os.Remove(filepath.Join(source, "apm.yml")); err != nil && !os.IsNotExist(err) {
+					t.Fatal(err)
+				}
+				for name, contents := range tt.files {
+					writeOverwriteFile(t, filepath.Join(source, name), []byte(contents), 0644)
+				}
+			}
+			const manifest = "name: example\nversion: 1.0.0\ntargets: [claude, codex]\n"
+			const sentinel = "[mcp_servers.sentinel]\ncommand = \"/bin/true\"\n"
+			project := overwriteTestProject(t, []byte(manifest))
+			configPath := filepath.Join(project.Root, ".codex", "config.toml")
+			writeOverwriteFile(t, configPath, []byte(sentinel), 0600)
+			const reachedInstall = "APM install reached after SSE validation"
+			allowInstall := tt.rootShadows || tt.allowInstall
+			err := ApplyProjectSelection(ProjectSelectionOptions{
+				Project: project, LibraryPath: library,
+				Selection: tt.selection,
+				Runner: func(name string, args ...string) ([]byte, error) {
+					if name == "apm" && len(args) == 1 && args[0] == "--version" {
+						return []byte("apm 0.39.0\n"), nil
+					}
+					if allowInstall && name == "apm" && len(args) > 0 && args[0] == "install" {
+						return []byte(reachedInstall), os.ErrPermission
+					}
+					t.Errorf("APM called after version check: %s %v", name, args)
+					return nil, nil
+				},
+			})
+			message := ErrorMessage(err)
+			if allowInstall {
+				if !strings.Contains(message, reachedInstall) {
+					t.Errorf("overwrite error = %v, want APM install to run after SSE preflight", err)
+				}
+				return
+			}
+			if ExitCode(err) != ExitGeneral || !strings.Contains(message, "target codex") ||
+				!strings.Contains(message, "package-events") || !strings.Contains(message, "sse transport") {
+				t.Errorf("overwrite error = %v, want an SSE compatibility error naming codex and package-events", err)
+			}
+			for path, want := range map[string]string{project.ManifestPath: manifest, configPath: sentinel} {
+				if got, readErr := os.ReadFile(path); readErr != nil || string(got) != want {
+					t.Errorf("%s changed: got %q (%v), want %q", path, got, readErr, want)
+				}
+			}
+		})
+	}
+}
+
 func TestDetachOverwriteLockPreservesOtherLockFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "apm.lock.yaml")
 	before := []byte("lockfile_version: \"3\"\nmcp_target_servers:\n  windsurf: [old]\nmcp_servers: [old]\nmcp_configs: {old: {command: stale}}\nmcp_config_provenance: {old: stale}\nmcp_omissions: {old: stale}\ndependencies: [{name: pkg, resolved: abc}]\ndeployments:\n  - target: mcp\n    name: old\n  - target: codex\n    name: skill\n")

@@ -75,18 +75,28 @@ func loadManifestDocumentObserved(path string, metrics *manifestIOMetrics) (*man
 		metrics.authoritativeLoads++
 		metrics.events = append(metrics.events, "authoritative-load")
 	}
-	data, err := os.ReadFile(path) //nolint:gosec // The selected project owns the manifest path.
+	file, err := os.Open(path) //nolint:gosec // The selected project owns the manifest path.
 	existed := err == nil
+	var data []byte
 	mode := os.FileMode(0o644)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot read manifest: %v", err))
 	}
 	if existed {
-		info, statErr := os.Stat(path)
+		defer func() { _ = file.Close() }()
+		info, statErr := file.Stat()
 		if statErr != nil {
 			return nil, NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot inspect manifest: %v", statErr))
 		}
 		mode = info.Mode().Perm()
+		var buf bytes.Buffer
+		if size := info.Size(); size > 0 && size < 1<<30 {
+			buf.Grow(int(size) + bytes.MinRead)
+		}
+		if _, err = buf.ReadFrom(file); err != nil {
+			return nil, NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot read manifest: %v", err))
+		}
+		data = buf.Bytes()
 	}
 
 	document := emptyAPMManifestDocument()
