@@ -161,7 +161,7 @@ instill add-hooks
 Overwrite requires APM 0.35.0 or newer, runs only through the interactive picker, and cannot be combined with positional names or `--remove`. It leaves user-global configuration and unrelated project configuration keys untouched. Projects declaring `windsurf` or `hermes` targets are rejected because their MCP integration requires user-global writes.
 
 Overwrite validates remote MCP compatibility before resetting project files and verifies generated runtime configs against APM 0.39.0 native shapes (see [ADR 0009](./docs/adr/0009-apm-remote-mcp-shapes-and-overwrite-verification.md)):
-- Targets without native SSE support (`codex`, `antigravity`) fail before any project reset when an SSE MCP server is selected (directly or via a selected local package/plugin).
+- Targets without native SSE support (`codex`, `antigravity`) fail before any project reset when an SSE MCP server is selected directly, via a selected local package `apm.yml`, or via a local plugin's inline `mcpServers` or default `mcp.json`/`.mcp.json`/`.github/.mcp.json` (custom plugin `mcpServers` file references and uncloned remote Git packages are tracked in `instill-9fw`).
 - Runtime verification normalizes native HTTP/SSE keys (including Gemini `httpUrl`/`url`, Antigravity `serverUrl` and retired `httpUrl`, and OpenCode `type: "remote"`) and accepts exact single-pass install-time environment expansion for header placeholders (`${VAR}`, `${env:VAR}`, `{env:VAR}`) on targets that resolve headers at install time while keeping APM lockfile verification strict.
 
 Project artifacts:

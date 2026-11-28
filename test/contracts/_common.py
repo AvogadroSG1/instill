@@ -10,6 +10,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import tempfile
 import time
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
