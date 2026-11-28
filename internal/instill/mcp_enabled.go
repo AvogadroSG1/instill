@@ -90,7 +90,7 @@ func mcpConfigurationError(path, detail string) error {
 
 func checkMCPWritablePath(path string) error {
 	for _, candidate := range []string{filepath.Dir(path), path} {
-		info, err := os.Lstat(candidate)
+		info, err := os.Lstat(candidate) //nolint:gosec // Writable config names are fixed under selected roots; Lstat checks for symlinks without following the final component.
 		if os.IsNotExist(err) {
 			continue
 		}
@@ -114,7 +114,7 @@ func readMCPFile(path string, writable bool) ([]byte, os.FileMode, error) {
 		}
 	}
 	mode := os.FileMode(0600)
-	info, err := os.Stat(path)
+	info, err := os.Stat(path) //nolint:gosec // The caller selects the config source, which can intentionally be outside the project.
 	if os.IsNotExist(err) {
 		return nil, mode, nil
 	}

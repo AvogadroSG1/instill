@@ -1165,7 +1165,7 @@ func catalogContentExists(root string, entry CatalogEntry) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	info, err := os.Stat(path)
+	info, err := os.Stat(path) //nolint:gosec // Scan probes marker metadata from the selected library catalog, including intentional external paths.
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
