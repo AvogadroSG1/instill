@@ -41,6 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - `instill pick --overwrite` accepts HTTP MCP output without runtime environment declarations and recognizes Gemini's `httpUrl` and Antigravity's `serverUrl` (or legacy `httpUrl`) endpoints.
+- `instill pick --overwrite` verifies MCP headers resolved at install time by Gemini, Antigravity, and older APM versions of Claude against the current environment, without relaxing lockfile verification.
 
 ## [0.1.0] - 2026-01-01
 

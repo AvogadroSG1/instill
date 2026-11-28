@@ -34,7 +34,7 @@ go build -o "$bin" .
 for script in test/contracts/*.py; do
   case "$(basename "$script")" in _*) continue ;; esac
   echo "==> $script"
-  python3 "$script" "$bin"
+  python3 -B "$script" "$bin"
 done
 '''
 

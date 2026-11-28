@@ -750,6 +750,7 @@ http_headers = { "X-Static" = "preserve" }
 }
 
 func TestEqualOverwriteMCPRuntimeDefinitionHandlesRemoteEnvReferences(t *testing.T) {
+	t.Setenv("TOKEN", "")
 	newEntries := func() (CatalogEntry, CatalogEntry) {
 		expected := CatalogEntry{
 			Transport: "http",
@@ -850,6 +851,154 @@ func TestEqualOverwriteMCPRuntimeDefinitionHandlesRemoteEnvReferences(t *testing
 			}
 		})
 	}
+}
+
+func TestEqualOverwriteMCPRuntimeDefinitionVerifiesInstallTimeHeaders(t *testing.T) {
+	t.Setenv("TOKEN", "nonsecret")
+	t.Setenv("EMPTY_TOKEN", "")
+	t.Setenv("UNSET_TOKEN", "")
+	if err := os.Unsetenv("UNSET_TOKEN"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NESTED_TOKEN", "${OTHER}")
+	t.Setenv("NESTED_ENV_TOKEN", "{env:OTHER}")
+	t.Setenv("OTHER", "other-nonsecret")
+
+	const placeholder = "Authorization=Bearer ${TOKEN}"
+	const resolved = "authorization=Bearer nonsecret"
+	expected := CatalogEntry{
+		Transport: "http",
+		URL:       "https://example.invalid/mcp",
+		Headers:   []string{placeholder},
+	}
+	for _, tt := range []struct {
+		target          string
+		resolvesHeaders bool
+	}{
+		{target: "antigravity", resolvesHeaders: true},
+		{target: "claude", resolvesHeaders: true},
+		{target: "gemini", resolvesHeaders: true},
+		{target: "codex"},
+		{target: "copilot"},
+		{target: "cursor"},
+		{target: "kiro"},
+		{target: "opencode"},
+		{target: "vscode"},
+		{target: "unknown"},
+	} {
+		t.Run(tt.target, func(t *testing.T) {
+			actual := expected
+			if !equalOverwriteMCPRuntimeDefinition(expected, actual, tt.target) {
+				t.Fatal("runtime comparison rejected preserved placeholder")
+			}
+			actual.Headers = []string{resolved}
+			if got := equalOverwriteMCPRuntimeDefinition(expected, actual, tt.target); got != tt.resolvesHeaders {
+				t.Fatalf("runtime comparison with resolved header = %t, want %t", got, tt.resolvesHeaders)
+			}
+		})
+	}
+
+	for _, tt := range []struct {
+		name     string
+		template string
+		headers  []string
+		url      string
+		want     bool
+	}{
+		{name: "dollar env form", template: "Authorization=Bearer ${env:TOKEN}", headers: []string{resolved}, want: true},
+		{name: "brace env form", template: "Authorization=Bearer {env:TOKEN}", headers: []string{resolved}, want: true},
+		{name: "mixed resolved and unresolved", template: "Authorization=${TOKEN}/${env:UNSET_TOKEN}/{env:OTHER}",
+			headers: []string{"Authorization=nonsecret/${env:UNSET_TOKEN}/other-nonsecret"}, want: true},
+		{name: "wrong value", headers: []string{"Authorization=Bearer wrong"}},
+		{name: "literal with no template", template: "Authorization=Bearer static", headers: []string{resolved}},
+		{name: "unset variable", template: "Authorization=Bearer ${UNSET_TOKEN}", headers: []string{resolved}},
+		{name: "empty variable", template: "Authorization=Bearer ${EMPTY_TOKEN}", headers: []string{"Authorization=Bearer "}},
+		{name: "wrong URL", headers: []string{resolved}, url: "https://example.invalid/wrong"},
+		{name: "missing header"},
+		{name: "extra header", headers: []string{resolved, "X-Extra=extra"}},
+		{name: "wrong header name", headers: []string{"X-Other=Bearer nonsecret"}},
+		{name: "single pass", template: "Authorization=Bearer ${NESTED_TOKEN}", headers: []string{"Authorization=Bearer ${OTHER}"}, want: true},
+		{name: "recursive resolution", template: "Authorization=Bearer ${NESTED_TOKEN}", headers: []string{"Authorization=Bearer other-nonsecret"}},
+		{name: "exact resolved value", template: "Authorization=Bearer ${NESTED_ENV_TOKEN}", headers: []string{"Authorization=Bearer {env:OTHER}"}, want: true},
+		{name: "normalized resolved value is not exact", template: "Authorization=Bearer ${NESTED_ENV_TOKEN}", headers: []string{"Authorization=Bearer ${OTHER}"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			want, actual := expected, expected
+			if tt.template != "" {
+				want.Headers = []string{tt.template}
+			}
+			actual.Headers = tt.headers
+			if tt.url != "" {
+				actual.URL = tt.url
+			}
+			if got := equalOverwriteMCPRuntimeDefinition(want, actual, "gemini"); got != tt.want {
+				t.Fatalf("runtime comparison = %t, want %t", got, tt.want)
+			}
+		})
+	}
+
+	t.Run("duplicate marker header uses last value", func(t *testing.T) {
+		want, actual := expected, expected
+		want.Headers = []string{"X-Probe=old", "X-Probe=selected"}
+		for _, target := range []string{"gemini", "codex"} {
+			actual.Headers = []string{"x-probe=selected"}
+			if !equalOverwriteMCPRuntimeDefinition(want, actual, target) {
+				t.Errorf("%s rejected the last value of a duplicate marker header", target)
+			}
+			actual.Headers = []string{"x-probe=old"}
+			if equalOverwriteMCPRuntimeDefinition(want, actual, target) {
+				t.Errorf("%s accepted the overwritten value of a duplicate marker header", target)
+			}
+			actual.Headers = []string{"X-Probe=old", "x-probe=selected"}
+			if equalOverwriteMCPRuntimeDefinition(want, actual, target) {
+				t.Errorf("%s accepted an extra serialized header when the marker had duplicates", target)
+			}
+		}
+	})
+
+	t.Run("extra header with case variant", func(t *testing.T) {
+		actual := expected
+		actual.Headers = []string{"Authorization=Bearer wrong", resolved}
+		if equalOverwriteMCPRuntimeDefinition(expected, actual, "gemini") {
+			t.Fatal("runtime comparison accepted an extra header with the same case-insensitive name")
+		}
+	})
+
+	t.Run("extra case variant cannot hide a missing variant of another header", func(t *testing.T) {
+		t.Setenv("TOKEN", "ok")
+		want, actual := expected, expected
+		want.Headers = []string{"X-A=keep", "x-a=${TOKEN}", "X-B=keep"}
+		actual.Headers = []string{"x-a=ok", "X-B=wrong", "x-b=keep"}
+		if equalOverwriteMCPRuntimeDefinition(want, actual, "gemini") {
+			t.Fatal("runtime comparison accepted a missing variant of X-A and an extra variant of X-B")
+		}
+		actual.Headers = []string{"x-a=ok", "X-A=wrong", "x-b=keep"}
+		if equalOverwriteMCPRuntimeDefinition(want, actual, "gemini") {
+			t.Fatal("runtime comparison accepted the wrong value for one variant of X-A")
+		}
+		actual.Headers = []string{"x-a=ok", "X-A=keep", "x-b=keep"}
+		if !equalOverwriteMCPRuntimeDefinition(want, actual, "gemini") {
+			t.Fatal("runtime comparison rejected equivalent header variants")
+		}
+	})
+
+	t.Run("SSE uses HTTP headers", func(t *testing.T) {
+		sse := expected
+		sse.Transport = "sse"
+		actual := sse
+		actual.Headers = []string{resolved}
+		if !equalOverwriteMCPRuntimeDefinition(sse, actual, "gemini") {
+			t.Fatal("runtime comparison rejected an SSE server with a correctly resolved header")
+		}
+	})
+
+	t.Run("lock comparison stays strict", func(t *testing.T) {
+		actual := expected
+		actual.Headers = []string{resolved}
+		if equalOverwriteMCPDefinition(expected, actual) {
+			t.Fatal("lock comparison accepted an expanded header")
+		}
+	})
 }
 
 func TestOverwriteJSONMCPDefinitionNormalizesNativeHTTP(t *testing.T) {

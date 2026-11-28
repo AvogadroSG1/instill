@@ -30,7 +30,7 @@ Pin Instill's overwrite runtime MCP verification contract to APM 0.39.0's author
 
 For runtime MCP headers whose selected template contains `${VAR}`, `${env:VAR}`, or `{env:VAR}`:
 1. **Preserved placeholder:** Normalized placeholder forms (`${VAR}`, `${env:VAR}`, `{env:VAR}`) match the normalized expected template.
-2. **Install-time environment resolution:** When a target adapter resolves `${VAR}` from the process environment at install time (`_supports_runtime_env_substitution = False`, e.g., `gemini`, `antigravity`), a runtime header value is accepted if and only if single-pass expansion of `${VAR}` / `${env:VAR}` / `{env:VAR}` using non-empty values from the current process environment produces the exact runtime header value.
+2. **Install-time environment resolution:** For Gemini, Antigravity, and compatibility with Claude on older APM releases, a runtime header value is accepted if single-pass expansion of `${VAR}` / `${env:VAR}` / `{env:VAR}` using non-empty values from the current process environment produces the exact runtime header value. APM lockfile verification does not expand placeholders.
 3. **Strict rejection:** Unset/empty variables never match arbitrary literals, wrong header values fail verification, wrong URLs fail verification, and expansion is strictly single-pass (matching APM's `_ENV_PLACEHOLDER_RE.sub` semantics).
 
 ## Consequences
