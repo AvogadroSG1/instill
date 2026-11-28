@@ -263,10 +263,10 @@ func ProjectStatus(opts StatusOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := reportSkillStatus(opts.Stdout, opts.LibraryPath, manifest.Dependencies.APM, skillCatalog); err != nil {
+	if err := reportSkillStatus(opts.Stdout, opts.LibraryPath, manifest.Dependencies.APM, skillCatalog, pluginCatalog); err != nil {
 		return err
 	}
-	if err := reportSkillContentDrift(opts.Stdout, opts.LibraryPath, lock.Dependencies); err != nil {
+	if err := reportSkillContentDrift(opts.Stdout, opts.LibraryPath, lock.Dependencies, skillCatalog); err != nil {
 		return err
 	}
 	if err := reportPluginStatus(opts.Stdout, opts.LibraryPath, manifest.Dependencies.APM, pluginCatalog); err != nil {
@@ -348,7 +348,7 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func reportSkillStatus(stdout io.Writer, libraryPath string, dependencies []APMDependency, catalog []CatalogEntry) error {
+func reportSkillStatus(stdout io.Writer, libraryPath string, dependencies []APMDependency, catalog []CatalogEntry, pluginCatalog []CatalogEntry) error {
 	librarySkills := make(map[string]CatalogEntry, len(catalog))
 	dependencyToName := make(map[string]string, len(catalog))
 	for _, entry := range catalog {
@@ -369,6 +369,9 @@ func reportSkillStatus(stdout io.Writer, libraryPath string, dependencies []APMD
 				name = entry.Name
 			} else {
 				if isUnderDir(pluginsRoot, dependency.Local) {
+					continue
+				}
+				if _, matchedPlugin := matchCatalogEntryForLocalDependency(libraryPath, LibraryTypePlugin, dependency.Local, pluginCatalog); matchedPlugin {
 					continue
 				}
 				name = skillDependencyName(libraryPath, dependency.Local)
@@ -401,14 +404,26 @@ func reportSkillStatus(stdout io.Writer, libraryPath string, dependencies []APMD
 // reportSkillContentDrift compares each locked local claude_skill dependency
 // against the library files it was hashed from, reporting a mismatch line
 // when the library has drifted since the last apm install.
-func reportSkillContentDrift(stdout io.Writer, libraryPath string, dependencies []apmLockDependency) error {
+func reportSkillContentDrift(stdout io.Writer, libraryPath string, dependencies []apmLockDependency, catalog []CatalogEntry) error {
 	skillsRoot := filepath.Join(libraryPath, "skills")
+	catalogByPath := make(map[string]string, len(catalog))
+	for _, entry := range catalog {
+		if entry.Source == "git" {
+			continue
+		}
+		catalogByPath[filepath.Clean(skillDependencyPath(libraryPath, entry))] = entry.Name
+	}
 	for _, dependency := range dependencies {
 		if dependency.PackageType != "claude_skill" || dependency.Source != "local" || dependency.LocalPath == "" {
 			continue
 		}
-		if !isUnderDir(skillsRoot, dependency.LocalPath) {
-			continue
+		cleanPath := filepath.Clean(expandPathLeadingHome(dependency.LocalPath))
+		name, ok := catalogByPath[cleanPath]
+		if !ok {
+			if !isUnderDir(skillsRoot, dependency.LocalPath) {
+				continue
+			}
+			name = skillDependencyName(libraryPath, dependency.LocalPath)
 		}
 		drifted, err := skillLockDependencyDrifted(dependency)
 		if err != nil {
@@ -417,7 +432,7 @@ func reportSkillContentDrift(stdout io.Writer, libraryPath string, dependencies 
 		if !drifted {
 			continue
 		}
-		if err := writeLine(stdout, "hash mismatch: skill "+skillDependencyName(libraryPath, dependency.LocalPath)); err != nil {
+		if err := writeLine(stdout, "hash mismatch: skill "+name); err != nil {
 			return err
 		}
 	}

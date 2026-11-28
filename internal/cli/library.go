@@ -45,8 +45,8 @@ func newLibraryScanCommand(cfg commandConfig) *cobra.Command {
 func newLibraryAddCommand(cfg commandConfig) *cobra.Command {
 	var entry instill.CatalogEntry
 	var repository string
+	var localPath string
 	var defaultEnabled bool
-
 	command := &cobra.Command{
 		Use:   "add",
 		Short: "Add a catalog entry to the configured library",
@@ -58,7 +58,13 @@ func newLibraryAddCommand(cfg commandConfig) *cobra.Command {
 				}
 				entry.DefaultEnabled = &defaultEnabled
 			}
-			if repository == "" && entry.Name == "" {
+			if localPath != "" && repository != "" {
+				return instill.NewExitError(instill.ExitGeneral, "error: --local-path cannot be used with --repository")
+			}
+			if localPath != "" && entry.Path != "" {
+				return instill.NewExitError(instill.ExitGeneral, "error: --local-path cannot be used with --path")
+			}
+			if repository == "" && localPath == "" && entry.Name == "" {
 				return instill.NewExitError(instill.ExitGeneral, "error: required flag(s) \"name\" not set")
 			}
 			libraryPath, err := instill.ResolveLibraryPath(instill.ConfigResolverOptions{
@@ -78,6 +84,9 @@ func newLibraryAddCommand(cfg commandConfig) *cobra.Command {
 				}
 				return instill.AddRemoteSkill(cmd.Context(), libraryPath, repository, cfg.runner)
 			}
+			if localPath != "" {
+				return instill.AddLocalCatalogEntry(cmd.Context(), libraryPath, entry, localPath)
+			}
 			return instill.AddCatalogEntry(libraryPath, entry)
 		},
 	}
@@ -96,6 +105,7 @@ func newLibraryAddCommand(cfg commandConfig) *cobra.Command {
 	command.Flags().StringVar(&entry.ApplyTo, "apply-to", "", "instruction apply_to glob")
 	command.Flags().StringVar(&entry.Description, "description", "", "entry description")
 	command.Flags().StringVar(&repository, "repository", "", "GitHub owner/repo for a remote skill")
+	command.Flags().StringVar(&localPath, "local-path", "", "external local directory path for a skill or plugin")
 	_ = command.MarkFlagRequired("type")
 	command.AddCommand(newLibraryAddPluginMarketplaceCommand(cfg))
 

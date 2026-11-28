@@ -443,6 +443,13 @@ func unknownLibraryEntryError(typ, name string) error {
 }
 
 func pluginDependencyPath(libraryPath string, entry CatalogEntry) string {
+	if entry.Source == localExternalSource {
+		pluginDir := filepath.Dir(filepath.Clean(expandPathLeadingHome(filepath.FromSlash(entry.Path))))
+		if filepath.Base(pluginDir) == ".claude-plugin" || filepath.Base(pluginDir) == ".codex-plugin" {
+			pluginDir = filepath.Dir(pluginDir)
+		}
+		return pluginDir
+	}
 	pluginDir := filepath.Dir(entry.Path)
 	if filepath.Base(pluginDir) == ".claude-plugin" || filepath.Base(pluginDir) == ".codex-plugin" {
 		pluginDir = filepath.Dir(pluginDir)
@@ -636,6 +643,9 @@ func ownedDependencyNames(dependencies []APMDependency, libraryPath string, typ 
 }
 
 func skillDependencyPath(libraryPath string, entry CatalogEntry) string {
+	if entry.Source == localExternalSource {
+		return filepath.Dir(filepath.Clean(expandPathLeadingHome(filepath.FromSlash(entry.Path))))
+	}
 	return filepath.Join(libraryPath, "skills", filepath.Dir(entry.Path))
 }
 

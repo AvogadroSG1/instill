@@ -253,3 +253,113 @@ func remoteSkillRunner(t *testing.T, sha string) CommandRunner {
 		}
 	}
 }
+
+func TestAddRemoteSkillFallsBackToRootSkillMD(t *testing.T) {
+	root := t.TempDir()
+	runner := rootRemoteSkillRunner(t, remoteSkillSHA, false, true)
+
+	requireNoError(t, AddRemoteSkill(context.Background(), root, "owner/example", runner))
+	entries, err := LoadCatalog(root, LibraryTypeSkill)
+	requireNoError(t, err)
+	requireEqual(t, []CatalogEntry{{
+		Type:       LibraryTypeSkill,
+		Name:       "example",
+		Path:       ".",
+		Source:     "git",
+		Repository: "https://github.com/owner/example.git",
+		Ref:        remoteSkillSHA,
+	}}, entries)
+
+	// Pick writes GitDependency with Path: "."
+	project := createAPMProject(t, APMManifest{})
+	requireNoError(t, Pick(PickOptions{
+		Project:     project,
+		LibraryPath: root,
+		Type:        LibraryTypeSkill,
+		Add:         []string{"example"},
+		Runner:      recordingRunner(nil, nil),
+	}))
+	manifest, err := ReadAPMManifest(project.ManifestPath)
+	requireNoError(t, err)
+	requireEqual(t, []APMDependency{{
+		Git: &GitDependency{
+			Repository: "https://github.com/owner/example.git",
+			Path:       ".",
+			Ref:        remoteSkillSHA,
+		},
+	}}, manifest.Dependencies.APM)
+
+	// UpdateRemoteSkill refreshes SHA while preserving Path: "."
+	requireNoError(t, UpdateRemoteSkill(context.Background(), root, "example", rootRemoteSkillRunner(t, refreshedRemoteSkillSHA, false, true)))
+	entries, err = LoadCatalog(root, LibraryTypeSkill)
+	requireNoError(t, err)
+	requireEqual(t, []CatalogEntry{{
+		Type:       LibraryTypeSkill,
+		Name:       "example",
+		Path:       ".",
+		Source:     "git",
+		Repository: "https://github.com/owner/example.git",
+		Ref:        refreshedRemoteSkillSHA,
+	}}, entries)
+}
+
+func TestAddRemoteSkillPrefersSkillsSubdirectoryOverRoot(t *testing.T) {
+	root := t.TempDir()
+	runner := rootRemoteSkillRunner(t, remoteSkillSHA, true, true)
+
+	requireNoError(t, AddRemoteSkill(context.Background(), root, "owner/example", runner))
+	entries, err := LoadCatalog(root, LibraryTypeSkill)
+	requireNoError(t, err)
+	requireEqual(t, "skills/example", entries[0].Path)
+}
+
+func TestAddRemoteSkillMissingBothPathsReportsBoth(t *testing.T) {
+	root := t.TempDir()
+	runner := rootRemoteSkillRunner(t, remoteSkillSHA, false, false)
+
+	err := AddRemoteSkill(context.Background(), root, "owner/example", runner)
+	if err == nil {
+		t.Fatal("AddRemoteSkill() error = nil, want missing SKILL.md error")
+	}
+	requireContains(t, err.Error(), "skills/example/SKILL.md")
+	requireContains(t, err.Error(), "or SKILL.md")
+}
+
+func rootRemoteSkillRunner(t *testing.T, sha string, hasSubdir bool, hasRoot bool) CommandRunner {
+	t.Helper()
+	return func(name string, args ...string) ([]byte, error) {
+		command := name + " " + strings.Join(args, " ")
+		switch {
+		case command == "git ls-remote --symref https://github.com/owner/example.git HEAD":
+			return []byte("ref: refs/heads/main\tHEAD\n" + sha + "\tHEAD\n"), nil
+		case strings.HasPrefix(command, "git init "):
+			return nil, nil
+		case strings.Contains(command, " remote add origin https://github.com/owner/example.git"):
+			return nil, nil
+		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " fetch --depth 1 origin "+sha):
+			return nil, nil
+		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " ls-tree "+sha+" -- skills/example/SKILL.md"):
+			if hasSubdir {
+				return []byte("100644 blob abc\tskills/example/SKILL.md\n"), nil
+			}
+			return []byte(""), nil
+		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " show "+sha+":skills/example/SKILL.md"):
+			if hasSubdir {
+				return []byte("# subdir example"), nil
+			}
+			return nil, errors.New("not found")
+		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " ls-tree "+sha+" -- SKILL.md"):
+			if hasRoot {
+				return []byte("100644 blob def\tSKILL.md\n"), nil
+			}
+			return []byte(""), nil
+		case strings.Contains(command, "git -C ") && strings.HasSuffix(command, " show "+sha+":SKILL.md"):
+			if hasRoot {
+				return []byte("# root example"), nil
+			}
+			return nil, errors.New("not found")
+		default:
+			return nil, errors.New("unexpected command: " + command)
+		}
+	}
+}

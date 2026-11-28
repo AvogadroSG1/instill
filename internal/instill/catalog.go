@@ -23,6 +23,8 @@ const (
 	LibraryTypePrompt      LibraryType = "prompt"
 )
 
+const localExternalSource = "local"
+
 type CatalogEntry struct {
 	Type              LibraryType
 	Name              string
@@ -75,6 +77,13 @@ func matchCatalogEntryForLocalDependency(libraryPath string, typ LibraryType, lo
 			canonicalPath = filepath.Clean(skillDependencyPath(libraryPath, entry))
 		case LibraryTypePlugin:
 			canonicalPath = filepath.Clean(pluginDependencyPath(libraryPath, entry))
+		}
+		if entry.Source == localExternalSource {
+			if cleanLocal == canonicalPath || expandedLocal == canonicalPath {
+				exact = entry
+				exactCount++
+			}
+			continue
 		}
 		if canonicalPath != typeRoot && !isUnderDir(typeRoot, canonicalPath) {
 			continue
@@ -495,7 +504,7 @@ func scanLibraryTypesLocked(ctx context.Context, held *heldLocks, root string, s
 			if err != nil {
 				return err
 			}
-			if exists && entry.Source == pluginMarketplaceSource {
+			if exists && (entry.Source == pluginMarketplaceSource || entry.Source == localExternalSource) {
 				merged = append(merged, entry)
 				continue
 			}
@@ -538,6 +547,146 @@ func AddCatalogEntry(root string, entry CatalogEntry) error {
 		entries = append(entries, entry)
 		return writeCatalogLocked(ctx, held, root, entry.Type, entries)
 	})
+}
+
+func AddLocalCatalogEntry(ctx context.Context, root string, entry CatalogEntry, localPath string) error {
+	if entry.Type != LibraryTypeSkill && entry.Type != LibraryTypePlugin {
+		return NewExitError(ExitGeneral, "error: --local-path is only supported for skills and plugins")
+	}
+
+	trimmed := strings.TrimSpace(localPath)
+	if trimmed == "" {
+		return NewExitError(ExitGeneral, "error: local path is required")
+	}
+	absDir, err := filepath.Abs(expandPathLeadingHome(trimmed))
+	if err != nil {
+		return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot resolve local path: %v", err))
+	}
+	absDir = filepath.Clean(absDir)
+
+	info, err := os.Stat(absDir)
+	if err != nil {
+		return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot inspect local path: %v", err))
+	}
+	if !info.IsDir() {
+		return NewExitError(ExitGeneral, "error: local path is not a directory: "+localPath)
+	}
+
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return NewExitError(ExitFilesystem, fmt.Sprintf("error: cannot resolve library path: %v", err))
+	}
+	if isInOrUnderDir(filepath.Join(absRoot, libraryTypeDir(entry.Type)), absDir) {
+		return NewExitError(ExitGeneral, "error: path is inside the library; run 'instill library scan' instead")
+	}
+
+	var markerPath string
+	switch entry.Type {
+	case LibraryTypeSkill:
+		markerPath = filepath.Join(absDir, "SKILL.md")
+		markerInfo, statErr := os.Stat(markerPath)
+		if statErr != nil || markerInfo.IsDir() {
+			return NewExitError(ExitGeneral, "error: local skill is missing SKILL.md: "+absDir)
+		}
+	case LibraryTypePlugin:
+		var ok bool
+		markerPath, ok = pluginMarkerPath(absDir)
+		if !ok {
+			return NewExitError(ExitGeneral, "error: local plugin is missing plugin.json: "+absDir)
+		}
+		if markerInfo, statErr := os.Stat(markerPath); statErr != nil || markerInfo.IsDir() {
+			return NewExitError(ExitGeneral, "error: local plugin is missing plugin.json: "+absDir)
+		}
+		if strings.TrimSpace(entry.Description) == "" {
+			if meta, metaErr := loadPluginMetadata(markerPath); metaErr == nil && strings.TrimSpace(meta.Description) != "" {
+				entry.Description = meta.Description
+			}
+		}
+	}
+
+	entry.Path = contractHomePath(markerPath)
+	if strings.TrimSpace(entry.Name) == "" {
+		entry.Name = filepath.Base(absDir)
+	}
+	if strings.TrimSpace(entry.Category) == "" {
+		category := filepath.ToSlash(filepath.Dir(entry.Name))
+		if category != "." {
+			entry.Category = category
+		}
+	}
+	entry.Source = localExternalSource
+
+	if err := validateCatalogEntry(entry); err != nil {
+		return err
+	}
+
+	return withRootLocks(ctx, []string{root}, func(ctx context.Context, held *heldLocks) error {
+		entries, err := LoadCatalog(root, entry.Type)
+		if err != nil {
+			return err
+		}
+		for _, existing := range entries {
+			if existing.Name == entry.Name {
+				return NewExitError(ExitGeneral, "error: "+string(entry.Type)+" already exists: "+entry.Name)
+			}
+			if existing.Source == "git" {
+				continue
+			}
+			var existingDir string
+			if entry.Type == LibraryTypeSkill {
+				existingDir = filepath.Clean(skillDependencyPath(absRoot, existing))
+			} else {
+				existingDir = filepath.Clean(pluginDependencyPath(absRoot, existing))
+			}
+			if existingDir == absDir {
+				return NewExitError(ExitGeneral, "error: local "+string(entry.Type)+" already exists: "+existing.Name)
+			}
+		}
+		entries = append(entries, entry)
+		return writeCatalogLocked(ctx, held, root, entry.Type, entries)
+	})
+}
+
+func contractHomePath(absPath string) string {
+	cleanAbs := filepath.Clean(absPath)
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.Getenv("HOME")
+	}
+	if home != "" {
+		cleanHome := filepath.Clean(home)
+		if isUnderDir(cleanHome, cleanAbs) {
+			if rel, err := filepath.Rel(cleanHome, cleanAbs); err == nil {
+				return "~/" + filepath.ToSlash(rel)
+			}
+		}
+	}
+	return filepath.ToSlash(cleanAbs)
+}
+
+func isExternalLocalCatalogPath(path string, typ LibraryType) bool {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" || trimmed != path {
+		return false
+	}
+	slashPath := filepath.ToSlash(path)
+	for _, segment := range strings.Split(slashPath, "/") {
+		if segment == ".." {
+			return false
+		}
+	}
+	if !strings.HasPrefix(slashPath, "~/") && !filepath.IsAbs(filepath.FromSlash(path)) {
+		return false
+	}
+	base := filepath.Base(filepath.FromSlash(path))
+	switch typ {
+	case LibraryTypeSkill:
+		return base == "SKILL.md"
+	case LibraryTypePlugin:
+		return base == "plugin.json"
+	default:
+		return false
+	}
 }
 
 func ShowCatalog(root string, typ LibraryType, filter string, stdout io.Writer) error {
@@ -686,10 +835,18 @@ func validateCatalogEntry(entry CatalogEntry) error {
 		if strings.TrimSpace(entry.Path) == "" {
 			return NewExitError(ExitGeneral, "error: malformed catalog: path is required")
 		}
-		if entry.Source == "" {
+		switch entry.Source {
+		case "":
 			return nil
-		}
-		if entry.Source != "git" || !isCanonicalRemoteSkill(entry) || !isFullGitSHA(entry.Ref) {
+		case localExternalSource:
+			if entry.Repository != "" || entry.Ref != "" || !isExternalLocalCatalogPath(entry.Path, LibraryTypeSkill) {
+				return NewExitError(ExitGeneral, "error: malformed catalog: local skill requires an absolute or ~/ path to SKILL.md")
+			}
+		case "git":
+			if !isCanonicalRemoteSkill(entry) || !isFullGitSHA(entry.Ref) {
+				return NewExitError(ExitGeneral, "error: malformed catalog: remote skill requires git repository and full commit SHA")
+			}
+		default:
 			return NewExitError(ExitGeneral, "error: malformed catalog: remote skill requires git repository and full commit SHA")
 		}
 	case LibraryTypePlugin:
@@ -702,6 +859,10 @@ func validateCatalogEntry(entry CatalogEntry) error {
 		switch entry.Source {
 		case "":
 			return nil
+		case localExternalSource:
+			if entry.Repository != "" || entry.Ref != "" || entry.MarketplaceFormat != "" || !isExternalLocalCatalogPath(entry.Path, LibraryTypePlugin) {
+				return NewExitError(ExitGeneral, "error: malformed catalog: local plugin requires an absolute or ~/ path to plugin.json")
+			}
 		case pluginMarketplaceSource:
 			format := entry.MarketplaceFormat
 			if format == "" {
@@ -1029,6 +1190,9 @@ func catalogHeadersValid(typ LibraryType, got, current []string) bool {
 }
 
 func catalogContentPath(root string, entry CatalogEntry) (string, error) {
+	if entry.Source == localExternalSource {
+		return filepath.Clean(expandPathLeadingHome(filepath.FromSlash(entry.Path))), nil
+	}
 	path, _, err := catalogFileSpec(root, entry.Type)
 	if err != nil {
 		return "", err

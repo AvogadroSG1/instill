@@ -417,3 +417,77 @@ func TestLibraryAddRemoteSkillPropagatesCommandContext(t *testing.T) {
 		t.Fatalf("entries = %#v, want no catalog mutation after cancellation", entries)
 	}
 }
+
+func TestLibraryCommandAddLocalPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	library := filepath.Join(home, "library")
+	if err := os.MkdirAll(filepath.Join(library, "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("INSTILL_LIBRARY_PATH", library)
+
+	extSkill := filepath.Join(home, "ext", "go-skills")
+	if err := os.MkdirAll(extSkill, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(extSkill, "SKILL.md"), []byte("# go skills\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Succeeds without --name
+	var stdout, stderr bytes.Buffer
+	code := execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"library", "add", "--type", "skill", "--local-path", extSkill},
+		cwd:    home,
+	})
+	if code != 0 {
+		t.Fatalf("execute() = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	entries, err := instill.LoadCatalog(library, instill.LibraryTypeSkill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name != "go-skills" || entries[0].Source != "local" || entries[0].Path != "~/ext/go-skills/SKILL.md" {
+		t.Fatalf("entries = %#v, want external local go-skills", entries)
+	}
+
+	// Rejects --local-path with --repository
+	stderr.Reset()
+	code = execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"library", "add", "--type", "skill", "--local-path", extSkill, "--repository", "owner/repo"},
+		cwd:    home,
+	})
+	if code == 0 || !strings.Contains(stderr.String(), "--local-path cannot be used with --repository") {
+		t.Fatalf("code=%d stderr=%q, want --local-path/--repository conflict", code, stderr.String())
+	}
+
+	// Rejects --local-path with --path
+	stderr.Reset()
+	code = execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"library", "add", "--type", "skill", "--local-path", extSkill, "--path", "go-skills/SKILL.md"},
+		cwd:    home,
+	})
+	if code == 0 || !strings.Contains(stderr.String(), "--local-path cannot be used with --path") {
+		t.Fatalf("code=%d stderr=%q, want --local-path/--path conflict", code, stderr.String())
+	}
+
+	// Rejects unsupported type (mcp)
+	stderr.Reset()
+	code = execute(commandConfig{
+		stdout: &stdout,
+		stderr: &stderr,
+		args:   []string{"library", "add", "--type", "mcp", "--local-path", extSkill},
+		cwd:    home,
+	})
+	if code == 0 || !strings.Contains(stderr.String(), "--local-path is only supported for skills and plugins") {
+		t.Fatalf("code=%d stderr=%q, want unsupported type error", code, stderr.String())
+	}
+}

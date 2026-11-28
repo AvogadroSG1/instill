@@ -115,7 +115,13 @@ func resolveRemoteSkill(ctx context.Context, repository string, runner CommandRu
 		if isBoundedContextError(err) {
 			return CatalogEntry{}, err
 		}
-		return CatalogEntry{}, NewExitError(ExitGeneral, "error: remote skill is missing "+path+"/SKILL.md at "+snapshot.sha)
+		if _, rootErr := snapshot.regularFile("SKILL.md"); rootErr != nil {
+			if isBoundedContextError(rootErr) {
+				return CatalogEntry{}, rootErr
+			}
+			return CatalogEntry{}, NewExitError(ExitGeneral, "error: remote skill is missing skills/"+name+"/SKILL.md or SKILL.md at "+snapshot.sha)
+		}
+		path = "."
 	}
 	return CatalogEntry{Type: LibraryTypeSkill, Name: name, Path: path, Source: "git", Repository: url, Ref: snapshot.sha}, nil
 }
@@ -129,5 +135,5 @@ func isCanonicalRemoteSkill(entry CatalogEntry) bool {
 	}
 	parts := strings.Split(repository, "/")
 	return entry.Repository == "https://github.com/"+repository+".git" &&
-		entry.Name == parts[1] && entry.Path == "skills/"+parts[1]
+		entry.Name == parts[1] && (entry.Path == "skills/"+parts[1] || entry.Path == ".")
 }

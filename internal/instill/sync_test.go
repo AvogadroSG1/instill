@@ -231,7 +231,7 @@ func TestStatusRecognizesRelocatedLocalDependencies(t *testing.T) {
 	)
 
 	var skillsOutput bytes.Buffer
-	requireNoError(t, reportSkillStatus(&skillsOutput, library, dependencies, []CatalogEntry{skill}))
+	requireNoError(t, reportSkillStatus(&skillsOutput, library, dependencies, []CatalogEntry{skill}, []CatalogEntry{plugin}))
 	requireEqual(t, "", skillsOutput.String())
 	var pluginsOutput bytes.Buffer
 	requireNoError(t, reportPluginStatus(&pluginsOutput, library, dependencies, []CatalogEntry{plugin}))
@@ -249,7 +249,7 @@ func TestStatusPreservesGitAndExternalLocalDependencyBehavior(t *testing.T) {
 		Ref:        "main",
 	}}
 	var output bytes.Buffer
-	requireNoError(t, reportSkillStatus(&output, library, []APMDependency{{Local: externalPath}, gitDependency}, nil))
+	requireNoError(t, reportSkillStatus(&output, library, []APMDependency{{Local: externalPath}, gitDependency}, nil, nil))
 	requireEqual(t, "removed from library: skill external-skill\n", output.String())
 }
 
