@@ -1063,3 +1063,141 @@ func TestOverwriteJSONMCPDefinitionNormalizesNativeHTTP(t *testing.T) {
 		})
 	}
 }
+
+func TestOverwriteJSONMCPDefinitionVerifiesNativeSSE(t *testing.T) {
+	const endpoint = "https://example.invalid/events"
+	for _, tt := range []struct {
+		target, shape, endpointField, fields, transport string
+		wantSSE                                         bool
+	}{
+		{target: "gemini", shape: "httpUrl", endpointField: "httpUrl", transport: "http"},
+		{target: "gemini", shape: "url", endpointField: "url", transport: "sse", wantSSE: true},
+		{target: "claude", shape: "explicit HTTP", endpointField: "url", fields: `"type":"http",`, transport: "http"},
+		{target: "claude", shape: "explicit SSE", endpointField: "url", fields: `"type":"sse",`, transport: "sse", wantSSE: true},
+		{target: "copilot", shape: "explicit HTTP", endpointField: "url", fields: `"type":"http",`, transport: "http"},
+		{target: "copilot", shape: "explicit SSE", endpointField: "url", fields: `"type":"sse",`, transport: "sse", wantSSE: true},
+		{target: "vscode", shape: "explicit HTTP", endpointField: "url", fields: `"type":"http",`, transport: "http"},
+		{target: "vscode", shape: "explicit SSE", endpointField: "url", fields: `"type":"sse",`, transport: "sse", wantSSE: true},
+		{target: "cursor", shape: "collapsed SSE", endpointField: "url", fields: `"type":"http",`, transport: "http", wantSSE: true},
+		{target: "cursor", shape: "explicit SSE", endpointField: "url", fields: `"type":"sse",`, transport: "sse", wantSSE: true},
+		{target: "kiro", shape: "collapsed SSE", endpointField: "url", transport: "http", wantSSE: true},
+		{target: "kiro", shape: "explicit SSE", endpointField: "url", fields: `"type":"sse",`, transport: "sse", wantSSE: true},
+		{target: "opencode", shape: "collapsed SSE", endpointField: "url", fields: `"type":"remote",`, transport: "http", wantSSE: true},
+		{target: "opencode", shape: "legacy explicit SSE", endpointField: "url", fields: `"type":"remote","httpTransport":"sse",`, transport: "sse", wantSSE: true},
+	} {
+		t.Run(tt.target+"/"+tt.shape, func(t *testing.T) {
+			raw := fmt.Sprintf(`{%s%q:%q,"headers":{"X-Probe":"literal"}}`, tt.fields, tt.endpointField, endpoint)
+			actual, err := overwriteJSONMCPDefinition("sse-probe", json.RawMessage(raw), tt.target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if actual.Transport != tt.transport {
+				t.Errorf("transport = %q, want %q", actual.Transport, tt.transport)
+			}
+			expected := CatalogEntry{URL: endpoint, Headers: []string{"X-Probe=literal"}, Env: []string{"TOKEN=${TOKEN}"}}
+			check := func(label, transport string, candidate CatalogEntry, want bool) {
+				t.Helper()
+				expected.Transport = transport
+				if got := equalOverwriteMCPRuntimeDefinition(expected, candidate, tt.target); got != want {
+					t.Errorf("%s with expected %s: comparison = %t, want %t", label, transport, got, want)
+				}
+			}
+			check("native output", "http", actual, tt.transport == "http")
+			check("native output without runtime environment", "sse", actual, tt.wantSSE)
+			if tt.wantSSE {
+				changed := actual
+				changed.Env = []string{"TOKEN=${TOKEN}"}
+				check("matching runtime environment", "sse", changed, true)
+				changed.Env = []string{"TOKEN=changed"}
+				check("changed runtime environment", "sse", changed, false)
+				changed.Env = []string{"TOKEN=${TOKEN}", "EXTRA=unexpected"}
+				check("unexpected runtime environment entry", "sse", changed, false)
+				changed = actual
+				changed.URL = "https://example.invalid/wrong"
+				check("wrong URL", "sse", changed, false)
+				changed = actual
+				changed.Headers = []string{"X-Probe=changed"}
+				check("wrong header", "sse", changed, false)
+			}
+		})
+	}
+}
+
+func TestOverwriteJSONMCPDefinitionRequiresNativeSSEDiscriminator(t *testing.T) {
+	for _, target := range []string{"claude", "copilot", "vscode"} {
+		t.Run(target, func(t *testing.T) {
+			expected := CatalogEntry{Transport: "sse", URL: "https://example.invalid/events"}
+			for _, raw := range []json.RawMessage{
+				json.RawMessage(`{"url":"https://example.invalid/events"}`),
+				json.RawMessage(`{"transport":"sse","url":"https://example.invalid/events"}`),
+				json.RawMessage(`{"type":"http","transport":"sse","url":"https://example.invalid/events"}`),
+				json.RawMessage(`{"type":"http","httpTransport":"sse","url":"https://example.invalid/events"}`),
+			} {
+				actual, err := overwriteJSONMCPDefinition("sse-probe", raw, target)
+				if err == nil && equalOverwriteMCPRuntimeDefinition(expected, actual, target) {
+					t.Errorf("SSE matched a definition without type:sse: %s", raw)
+				}
+			}
+		})
+	}
+}
+
+func TestOverwriteJSONMCPDefinitionRejectsConflictingNativeTransport(t *testing.T) {
+	const endpoint = "https://example.invalid/mcp"
+	for _, target := range []string{"claude", "copilot", "vscode"} {
+		t.Run(target, func(t *testing.T) {
+			for _, tt := range []struct{ native, alias string }{{"sse", "http"}, {"http", "sse"}} {
+				raw := fmt.Sprintf(`{"type":%q,"transport":%q,"url":%q}`, tt.native, tt.alias, endpoint)
+				actual, err := overwriteJSONMCPDefinition("probe", json.RawMessage(raw), target)
+				if err == nil {
+					t.Errorf("conflicting fields in %s were not rejected; decoded as %q", raw, actual.Transport)
+				}
+			}
+		})
+	}
+}
+
+func TestOverwriteJSONMCPDefinitionRequiresOpenCodeRemoteType(t *testing.T) {
+	for _, raw := range []string{
+		`{"type":"http","url":"https://example.invalid/mcp"}`,
+		`{"type":"http","url":"https://example.invalid/mcp","httpTransport":"sse"}`,
+		`{"url":"https://example.invalid/mcp"}`,
+	} {
+		actual, err := overwriteJSONMCPDefinition("probe", json.RawMessage(raw), "opencode")
+		if err == nil {
+			t.Errorf("invalid OpenCode remote definition %s was not rejected; decoded as %q", raw, actual.Transport)
+		}
+	}
+	actual, err := overwriteJSONMCPDefinition("probe", json.RawMessage(`{"type":"local","command":["/bin/true"],"httpTransport":"sse"}`), "opencode")
+	if err != nil || actual.Transport != "stdio" {
+		t.Errorf("legacy OpenCode SSE hint changed a local definition: got transport %q, error %v", actual.Transport, err)
+	}
+}
+
+func TestEqualOverwriteMCPDefinitionKeepsSSETransportAndEnvironmentStrict(t *testing.T) {
+	expected := CatalogEntry{Transport: "sse", URL: "https://example.invalid/events", Env: []string{"TOKEN=${TOKEN}"}}
+	if !equalOverwriteMCPDefinition(expected, expected) {
+		t.Fatal("exact SSE lock definition did not match")
+	}
+	collapsed := expected
+	collapsed.Transport = "http"
+	if equalOverwriteMCPDefinition(expected, collapsed) {
+		t.Error("collapsed transport matched a selected SSE definition in the lock")
+	}
+	omitted := expected
+	omitted.Env = nil
+	if equalOverwriteMCPDefinition(expected, omitted) {
+		t.Error("missing environment matched a selected SSE definition in the lock")
+	}
+	changed := expected
+	changed.Env = []string{"TOKEN=changed"}
+	if equalOverwriteMCPDefinition(expected, changed) {
+		t.Error("changed environment matched a selected SSE definition in the lock")
+	}
+	for _, target := range []string{"antigravity", "codex", "unknown"} {
+		if equalOverwriteMCPRuntimeDefinition(expected, collapsed, target) ||
+			equalOverwriteMCPRuntimeDefinition(expected, omitted, target) {
+			t.Errorf("%s accepted collapsed transport or omitted SSE environment", target)
+		}
+	}
+}

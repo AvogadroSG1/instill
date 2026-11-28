@@ -667,17 +667,26 @@ func equalOverwriteMCPDefinition(expected, actual CatalogEntry) bool {
 }
 
 func equalOverwriteMCPRuntimeDefinition(expected, actual CatalogEntry, target string) bool {
+	var omitsRemoteEnv bool
 	switch expected.Transport {
 	case "http":
-		if len(actual.Env) == 0 && slices.ContainsFunc(overwriteMCPRuntimes, func(runtime overwriteMCPRuntime) bool {
+		omitsRemoteEnv = slices.ContainsFunc(overwriteMCPRuntimes, func(runtime overwriteMCPRuntime) bool {
 			return runtime.target == target
-		}) {
-			expected.Env = nil
-		}
+		})
 	case "sse":
-		if target == "codex" || target == "opencode" {
-			expected.Env = nil
+		switch target {
+		case "cursor", "kiro", "opencode":
+			// APM 0.39.0 writes the same native shape for HTTP and SSE on these targets.
+			if actual.Transport == "http" {
+				actual.Transport = "sse"
+			}
+			omitsRemoteEnv = true
+		case "claude", "copilot", "gemini", "vscode":
+			omitsRemoteEnv = true
 		}
+	}
+	if omitsRemoteEnv && len(actual.Env) == 0 {
+		expected.Env = nil
 	}
 	equalHeaders := equalOverwriteMCPValue
 	if expected.Transport == "http" || expected.Transport == "sse" {
@@ -957,19 +966,42 @@ func overwriteJSONMCPDefinition(name string, raw json.RawMessage, target string)
 			return CatalogEntry{}, fmt.Errorf("invalid MCP %s: %w", endpointField, err)
 		}
 	}
-	if endpointField != "url" && endpoint != "" && transport == "" {
-		transport = "http"
-	}
-	if target == "opencode" {
+	switch target {
+	case "claude", "copilot", "vscode":
+		if definition.Type != "" && definition.Transport != "" && definition.Type != definition.Transport {
+			return CatalogEntry{}, fmt.Errorf("conflicting MCP type %q and transport %q", definition.Type, definition.Transport)
+		}
+		if endpoint != "" && strings.TrimSpace(transport) == "sse" && definition.Type != "sse" {
+			return CatalogEntry{}, fmt.Errorf(`SSE MCP definition requires type: "sse"`)
+		}
+	case "gemini":
+		if endpoint != "" {
+			// Gemini uses the endpoint key, not a type field, to distinguish HTTP from SSE.
+			nativeTransport := "sse"
+			if endpointField == "httpUrl" {
+				nativeTransport = "http"
+			}
+			if transport != "" && transport != nativeTransport {
+				return CatalogEntry{}, fmt.Errorf("MCP %s endpoint conflicts with transport %q", endpointField, transport)
+			}
+			transport = nativeTransport
+		}
+	case "antigravity":
+		if endpointField != "url" && endpoint != "" && transport == "" {
+			transport = "http"
+		}
+	case "opencode":
+		if endpoint != "" && definition.Type != "remote" {
+			return CatalogEntry{}, fmt.Errorf(`OpenCode MCP definition with url requires type: "remote"`)
+		}
 		switch definition.Type {
 		case "local":
 			transport = "stdio"
 		case "remote":
-			if definition.Transport == "" {
-				transport = "http"
-			}
 			if definition.HTTPTransport == "sse" {
 				transport = "sse"
+			} else if definition.Transport == "" {
+				transport = "http"
 			}
 		}
 	}
@@ -977,11 +1009,7 @@ func overwriteJSONMCPDefinition(name string, raw json.RawMessage, target string)
 		Type: definition.Type, Transport: transport, Command: command, Args: args,
 		URL: endpoint, Env: env, Headers: headers,
 	}
-	entry := catalogEntryFromMCPServer(name, server, false)
-	if definition.HTTPTransport == "sse" {
-		entry.Transport = "sse"
-	}
-	return entry, nil
+	return catalogEntryFromMCPServer(name, server, false), nil
 }
 
 func codexOverwriteMCPDefinitions(path string, document *tomledit.Document) (map[string]CatalogEntry, error) {

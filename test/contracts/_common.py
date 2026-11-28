@@ -1,10 +1,14 @@
 """Shared helpers for executable E2E contract tests against the built instill binary."""
 
+import atexit
 import os
 import pathlib
 import pty
 import re
 import select
+import shlex
+import shutil
+import stat
 import subprocess
 import time
 
@@ -36,7 +40,7 @@ def find_apm_bin(min_version: tuple[int, int, int] = (0, 35, 0)) -> str:
         ver = tuple(int(part) for part in match.groups())
         seen_versions.append(f"{candidate} ({'.'.join(map(str, ver))})")
         if ver >= min_version:
-            return candidate
+            return os.path.abspath(candidate)
 
     raise RuntimeError(
         f"no apm >= {'.'.join(map(str, min_version))} found in APM_BIN/PATH; checked: {', '.join(seen_versions) or 'none'}"
@@ -44,7 +48,16 @@ def find_apm_bin(min_version: tuple[int, int, int] = (0, 35, 0)) -> str:
 
 
 def path_with_apm(apm_bin: str, base_path: str | None = None) -> str:
-    apm_dir = str(pathlib.Path(apm_bin).parent)
+    apm_path = pathlib.Path(apm_bin)
+    if apm_path.name != "apm":
+        shim_dir = pathlib.Path(tempfile.mkdtemp(prefix="instill-apm-shim-"))
+        atexit.register(shutil.rmtree, shim_dir, True)
+        shim = shim_dir / "apm"
+        shim.write_text(f"#!/bin/sh\nexec {shlex.quote(str(apm_path))} \"$@\"\n")
+        shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
+        apm_dir = str(shim_dir)
+    else:
+        apm_dir = str(apm_path.parent)
     current = base_path if base_path is not None else os.environ.get("PATH", "")
     return apm_dir + os.pathsep + current
 

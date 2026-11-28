@@ -15,7 +15,7 @@ from _common import find_apm_bin, path_with_apm, run_overwrite_apply
 
 def main() -> None:
     binary = sys.argv[1]
-    apm_bin = find_apm_bin()
+    apm_bin = find_apm_bin((0, 39, 0))
     base = pathlib.Path(tempfile.mkdtemp(prefix="instill-bh9-contract-"))
     failures = 0
     try:
