@@ -24,6 +24,20 @@ fi
 description = "Run unit and integration tests"
 run = [{ task = "unit-test" }, { task = "bats-test" }]
 
+[tasks.contracts]
+description = "Run executable E2E contracts against the built instill binary and real APM"
+run = '''
+set -euo pipefail
+bin="$(mktemp "${TMPDIR:-/tmp}/instill-contracts.XXXXXX")"
+trap 'rm -f "$bin"' EXIT
+go build -o "$bin" .
+for script in test/contracts/*.py; do
+  case "$(basename "$script")" in _*) continue ;; esac
+  echo "==> $script"
+  python3 "$script" "$bin"
+done
+'''
+
 [tasks.vet]
 description = "Run go vet"
 run = "go vet ./..."
